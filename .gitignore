@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Environment files
+.env
+.env.*
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+**/Desktop.ini
+**/desktop.ini
+
+# Project artifacts
+screenshots/*.png
+screenshots/*.jpg
+screenshots/*.jpeg
+screenshots/*.gif
+screenshots/*.webp
+
+# Test / cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
