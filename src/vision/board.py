@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from .next import NextResult, detect as detect_next, draw_debug as draw_next_debug
+from .wheel import draw_debug as draw_wheel_debug
 
 NORMALIZED_WIDTH = 400
 NORMALIZED_HEIGHT = 500
@@ -67,6 +68,8 @@ def draw_frame_debug(frame: np.ndarray, result: BoardResult) -> np.ndarray:
             2,
             cv2.LINE_AA,
         )
+
+        output = draw_wheel_debug(output, result.corners)
 
         if result.next_fruit is not None:
             output = draw_next_debug(output, result.next_fruit)

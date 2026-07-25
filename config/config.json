@@ -6,9 +6,9 @@
         "size_ratio": 0.35
     },
     "merge_wheel": {
-        "offset_x_ratio": 0.76,
-        "offset_y_ratio": 0.55,
-        "radius_ratio": 0.45,
-        "icon_size_ratio": 0.16
+        "offset_x_ratio": 0.4,
+        "offset_y_ratio": 0.6,
+        "radius_ratio": 0.2,
+        "icon_size_ratio": 0.1
     }
 }
