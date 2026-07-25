@@ -1,6 +1,14 @@
 {
-    "board_x": 760,
-    "board_y": 286,
-    "board_width": 399,
-    "board_height": 398
+    "capture_fps": 15,
+    "next_crop": {
+        "offset_x_ratio": 0.4,
+        "offset_y_ratio": -0.01,
+        "size_ratio": 0.35
+    },
+    "merge_wheel": {
+        "offset_x_ratio": 0.76,
+        "offset_y_ratio": 0.55,
+        "radius_ratio": 0.45,
+        "icon_size_ratio": 0.16
+    }
 }

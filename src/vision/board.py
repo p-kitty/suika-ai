@@ -3,6 +3,8 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
+from .next import NextResult, detect as detect_next, draw_debug as draw_next_debug
+
 NORMALIZED_WIDTH = 400
 NORMALIZED_HEIGHT = 500
 
@@ -17,6 +19,7 @@ class BoardResult:
     normalized: np.ndarray | None
     corners: np.ndarray | None
     found: bool
+    next_fruit: NextResult | None = None
 
 
 def localize(frame: np.ndarray) -> BoardResult:
@@ -25,7 +28,13 @@ def localize(frame: np.ndarray) -> BoardResult:
         return BoardResult(normalized=None, corners=None, found=False)
 
     normalized = _warp(frame, corners)
-    return BoardResult(normalized=normalized, corners=corners, found=True)
+    next_fruit = detect_next(frame, corners)
+    return BoardResult(
+        normalized=normalized,
+        corners=corners,
+        found=True,
+        next_fruit=next_fruit,
+    )
 
 
 def draw_frame_debug(frame: np.ndarray, result: BoardResult) -> np.ndarray:
@@ -58,6 +67,9 @@ def draw_frame_debug(frame: np.ndarray, result: BoardResult) -> np.ndarray:
             2,
             cv2.LINE_AA,
         )
+
+        if result.next_fruit is not None:
+            output = draw_next_debug(output, result.next_fruit)
     else:
         cv2.putText(
             output,
