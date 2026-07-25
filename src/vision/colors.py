@@ -12,20 +12,6 @@ FRUIT_NAMES = [
     "watermelon",
 ]
 
-FRUIT_NAMES_JA = [
-    "さくらんぼ",
-    "いちご",
-    "ぶどう",
-    "デコポン",
-    "オレンジ",
-    "りんご",
-    "なし",
-    "もも",
-    "パイナップル",
-    "メロン",
-    "スイカ",
-]
-
 # radius as a fraction of board width
 FRUIT_RADIUS_RATIO = [
     (0.030, 0.048),
