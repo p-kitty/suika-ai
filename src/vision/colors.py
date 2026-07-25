@@ -15,22 +15,35 @@ FRUIT_NAMES = [
     "watermelon",
 ]
 
-# VRC version: the radius ratio is the main axis of classification (based on screenshot measurements)
-FRUIT_RADIUS_RATIO = [
-    (0.030, 0.044),   # cherry
-    (0.052, 0.072),   # strawberry
-    (0.068, 0.086),   # grape
-    (0.086, 0.104),   # dekopon
-    (0.100, 0.120),   # orange
-    (0.125, 0.160),   # apple
-    (0.108, 0.128),   # pear
-    (0.128, 0.152),   # peach
-    (0.142, 0.168),   # pineapple
-    (0.158, 0.182),   # melon
-    (0.175, 0.215),   # watermelon
+# Radius ratio per stage (watermelon = 1.0). The Suika Game hitbox
+# grows about 1.2x per stage, and this ratio is common even when the skin changes.
+FRUIT_RELATIVE_RADIUS = [
+    0.084,   # cherry
+    0.130,   # strawberry
+    0.175,   # grape
+    0.234,   # dekopon
+    0.299,   # orange
+    0.383,   # apple
+    0.481,   # pear
+    0.591,   # peach
+    0.721,   # pineapple
+    0.838,   # melon
+    1.000,   # watermelon
 ]
 
-BOARD_BG_HSV = ((10, 15, 130), (35, 100, 245))
+# watermelon radius / board width. Overridden by config's
+# watermelon_radius_ratio to match measurement.
+DEFAULT_WATERMELON_RATIO = 0.28
+
+# The board background (beige). V is not narrowed so it can be removed even when darkened by shadow.
+BOARD_BG_HSV = ((10, 0, 55), (35, 100, 255))
+
+# The board's frame lines. Highly saturated and indistinguishable from fruit by color,
+# so removal is limited to near the border.
+BOARD_FRAME_HSV = ((18, 60, 100), (45, 255, 255))
+
+# Every fruit is vivid, and the difference from the background shows in saturation.
+DEFAULT_FRUIT_SATURATION_MIN = 95
 
 COLOR_FAMILIES = {
     "red_orange": [0, 1, 3, 4, 5],

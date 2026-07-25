@@ -27,6 +27,7 @@ Desktop.ini
 **/desktop.ini
 
 # Project artifacts
+debug/
 screenshots/*.png
 screenshots/*.jpg
 screenshots/*.jpeg

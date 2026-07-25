@@ -5,5 +5,11 @@
         "offset_y_ratio": -0.01,
         "size_ratio": 0.35
     },
-    "next_radius_scale": 1.0
+    "next_radius_scale": 1.0,
+    "use_color_filter": true,
+    "fruit_saturation_min": 95,
+    "watermelon_radius_ratio": 0.28,
+    "min_confidence": 0.35,
+    "debug_radius": true,
+    "debug_dump_interval_sec": 0
 }
