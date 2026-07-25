@@ -3,6 +3,7 @@ import cv2
 from src.capture import capture
 from src.calibration import calibrate
 from src.vision.board import crop
+from src.vision.fruits import detect, draw_debug
 
 while True:
 
@@ -20,7 +21,9 @@ while True:
     board = crop(frame)
 
     if board.size != 0:
-        cv2.imshow("Board", board)
+        fruits = detect(board)
+        debug = draw_debug(board, fruits)
+        cv2.imshow("Board", debug)
 
     if key == 27:
         break
