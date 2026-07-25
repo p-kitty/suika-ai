@@ -1,82 +1,88 @@
 import cv2
 import numpy as np
 
-from .classify import classify, sample_hsv
-from .colors import BOARD_BG_HSV, FRUIT_RADIUS_RATIO
+from ..config import load
+from .blobs import circle_peaks
+from .classify import classify, fruit_radius_ratios, sample_hsv
+from .colors import BOARD_BG_HSV, DEFAULT_FRUIT_SATURATION_MIN
 from .state import Fruit
+
+# 検出した四隅は枠の外側なので、warp した盤面には枠と内側の影が写る。
+# その帯を落とすと、壁に接したフルーツの境界が正しく内壁になる。
+BORDER_BAND_RATIO = 0.045
+
+# 下地の彩度はフルーツと重なるため、閾値だけでは分離できない。
+# 円周にどれだけ輪郭が乗っているかで「実際に見えている球」だけを残す。
+EDGE_SUPPORT_SAMPLES = 48
+# 重なったフルーツは円周の一部が隠れるので、低めに取る。
+MIN_EDGE_SUPPORT = 0.25
+EDGE_GRADIENT_THRESHOLD = 60.0
 
 
 def detect(board: np.ndarray) -> list[Fruit]:
     if board.size == 0:
         return []
 
-    circles = _find_circles(board)
+    mask = _fruit_mask(board)
+    outline = _outline(board)
     fruits = []
 
-    for x, y, radius in circles:
-        fruit = _classify(board, x, y, radius)
+    for x, y, radius in _find_circles(board.shape[1], mask):
+        if _edge_support(outline, x, y, radius) < MIN_EDGE_SUPPORT:
+            continue
+
+        fruit = _classify(board, mask, x, y, radius)
         if fruit is not None:
             fruits.append(fruit)
 
     return _deduplicate(fruits)
 
 
-def draw_debug(board: np.ndarray, fruits: list[Fruit]) -> np.ndarray:
-    output = board.copy()
+def _outline(board: np.ndarray) -> np.ndarray:
+    """画像上に実際に見えている輪郭。
 
-    for fruit in fruits:
-        center = (int(fruit.x), int(fruit.y))
-        radius = int(fruit.radius)
-        color = (0, 255, 0) if fruit.confidence >= 0.5 else (0, 165, 255)
+    マスクの境界は使わない。しきい値が下地を拾ってできた塊は自分の境界を
+    必ず持つので、それを輪郭に含めると本物の球と区別できなくなる。
 
-        cv2.circle(output, center, radius, color, 2)
-        cv2.circle(output, center, 2, color, -1)
+    明度だけを見ると、下地と明るさが近く色だけが違うフルーツ (ベージュ上の
+    洋なしなど) の輪郭を取り逃がす。Lab の全チャンネルで勾配を取る。
+    """
+    lab = cv2.GaussianBlur(cv2.cvtColor(board, cv2.COLOR_BGR2LAB), (5, 5), 0)
 
-        label = f"{fruit.name} {fruit.confidence:.0f}%"
-        cv2.putText(
-            output,
-            label,
-            (center[0] - radius, max(12, center[1] - radius - 6)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.4,
-            color,
-            1,
-            cv2.LINE_AA,
-        )
+    gradient = np.zeros(lab.shape[:2], dtype=np.float32)
+    for channel in range(3):
+        plane = lab[:, :, channel]
+        gx = cv2.Sobel(plane, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(plane, cv2.CV_32F, 0, 1, ksize=3)
+        gradient = np.maximum(gradient, cv2.magnitude(gx, gy))
 
-    cv2.putText(
-        output,
-        f"fruits: {len(fruits)}",
-        (8, 20),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        output,
-        f"fruits: {len(fruits)}",
-        (8, 20),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (0, 0, 0),
-        1,
-        cv2.LINE_AA,
-    )
+    edges = (gradient >= EDGE_GRADIENT_THRESHOLD).astype(np.uint8) * 255
 
-    return output
+    return cv2.dilate(edges, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+
+
+def _edge_support(outline: np.ndarray, x: float, y: float, radius: float) -> float:
+    height, width = outline.shape[:2]
+    angles = np.linspace(0.0, 2.0 * np.pi, EDGE_SUPPORT_SAMPLES, endpoint=False)
+
+    xs = np.clip((x + radius * np.cos(angles)).astype(int), 0, width - 1)
+    ys = np.clip((y + radius * np.sin(angles)).astype(int), 0, height - 1)
+
+    return float((outline[ys, xs] > 0).mean())
 
 
 def _fruit_mask(board: np.ndarray) -> np.ndarray:
     hsv = cv2.cvtColor(board, cv2.COLOR_BGR2HSV)
+    saturation_min = load().get("fruit_saturation_min", DEFAULT_FRUIT_SATURATION_MIN)
+
+    fruit_mask = cv2.inRange(hsv, (0, saturation_min, 45), (180, 255, 255))
 
     bg_lower, bg_upper = BOARD_BG_HSV
-    bg_mask = cv2.inRange(hsv, bg_lower, bg_upper)
+    fruit_mask[cv2.inRange(hsv, bg_lower, bg_upper) > 0] = 0
 
-    fruit_mask = cv2.inRange(hsv, (0, 90, 55), (180, 255, 255))
-    fruit_mask[bg_mask > 0] = 0
-    fruit_mask[hsv[:, :, 2] < 40] = 0
+    # 枠・影・枠の外の背景はいずれも彩度が高く色では切れないので、
+    # 盤面の縁は色を見ずにまとめて落とす。
+    fruit_mask[_border_band(fruit_mask.shape)] = 0
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     fruit_mask = cv2.morphologyEx(fruit_mask, cv2.MORPH_OPEN, kernel)
@@ -85,124 +91,42 @@ def _fruit_mask(board: np.ndarray) -> np.ndarray:
     return fruit_mask
 
 
-def _edge_image(board: np.ndarray, fruit_mask: np.ndarray) -> np.ndarray:
-    gray = cv2.cvtColor(board, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(gray, 40, 120)
-    edges[fruit_mask == 0] = 0
-    return edges
+def _border_band(shape: tuple[int, int]) -> np.ndarray:
+    height, width = shape
+    band = np.zeros(shape, dtype=bool)
+
+    margin_y = max(1, int(height * BORDER_BAND_RATIO))
+    margin_x = max(1, int(width * BORDER_BAND_RATIO))
+
+    band[:margin_y, :] = True
+    band[height - margin_y :, :] = True
+    band[:, :margin_x] = True
+    band[:, width - margin_x :] = True
+
+    return band
 
 
-def _find_circles(board: np.ndarray) -> list[tuple[float, float, float]]:
-    w = board.shape[1]
-    min_radius = max(8, int(w * FRUIT_RADIUS_RATIO[0][0] * 0.85))
-    max_radius = max(min_radius + 1, int(w * FRUIT_RADIUS_RATIO[-1][1]))
-
-    fruit_mask = _fruit_mask(board)
-    edges = _edge_image(board, fruit_mask)
-
-    circles = []
-    circles.extend(_hough_circles(edges, min_dist=45, min_radius=25, max_radius=max_radius, param2=40))
-    circles.extend(_hough_circles(edges, min_dist=28, min_radius=min_radius, max_radius=max(min_radius + 1, 28), param2=35))
-    circles.extend(_small_contour_circles(fruit_mask, min_radius, max(min_radius + 1, 30)))
-
-    return _merge_circle_candidates(circles)
-
-
-def _hough_circles(
-    edges: np.ndarray,
-    min_dist: int,
-    min_radius: int,
-    max_radius: int,
-    param2: int,
+def _find_circles(
+    board_width: int,
+    mask: np.ndarray,
 ) -> list[tuple[float, float, float]]:
-    circles = cv2.HoughCircles(
-        edges,
-        cv2.HOUGH_GRADIENT,
-        dp=1.2,
-        minDist=min_dist,
-        param1=100,
-        param2=param2,
-        minRadius=min_radius,
-        maxRadius=max_radius,
-    )
+    ratios = fruit_radius_ratios()
+    min_radius = max(3.0, board_width * ratios[0] * 0.7)
+    max_radius = max(min_radius + 2.0, board_width * ratios[-1] * 1.3)
 
-    if circles is None:
-        return []
-
-    return [(float(x), float(y), float(r)) for x, y, r in circles[0]]
-
-
-def _small_contour_circles(
-    fruit_mask: np.ndarray,
-    min_radius: int,
-    max_radius: int,
-) -> list[tuple[float, float, float]]:
-    contours, _ = cv2.findContours(
-        fruit_mask,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE,
-    )
-
-    circles = []
-    min_area = np.pi * min_radius * min_radius * 0.45
-
-    for contour in contours:
-        area = cv2.contourArea(contour)
-        if area < min_area:
-            continue
-
-        perimeter = cv2.arcLength(contour, True)
-        if perimeter <= 0:
-            continue
-
-        circularity = 4 * np.pi * area / (perimeter * perimeter)
-        if circularity < 0.55:
-            continue
-
-        (x, y), radius = cv2.minEnclosingCircle(contour)
-        if radius < min_radius or radius > max_radius:
-            continue
-
-        circles.append((float(x), float(y), float(radius)))
-
-    return circles
-
-
-def _merge_circle_candidates(
-    circles: list[tuple[float, float, float]],
-) -> list[tuple[float, float, float]]:
-    if not circles:
-        return []
-
-    circles = sorted(circles, key=lambda item: item[2], reverse=True)
-    merged = []
-
-    for circle in circles:
-        x, y, radius = circle
-        duplicate = False
-
-        for mx, my, mr in merged:
-            distance = np.hypot(x - mx, y - my)
-            if distance < max(radius, mr) * 0.60:
-                duplicate = True
-                break
-
-        if not duplicate:
-            merged.append(circle)
-
-    return merged
+    return circle_peaks(mask, min_radius, max_radius)
 
 
 def _classify(
     board: np.ndarray,
+    mask: np.ndarray,
     x: float,
     y: float,
     radius: float,
 ) -> Fruit | None:
-    board_width = board.shape[1]
-    radius_ratio = radius / board_width
+    radius_ratio = radius / board.shape[1]
 
-    hsv_mean = sample_hsv(board, x, y, radius, valid_mask=_fruit_mask(board))
+    hsv_mean = sample_hsv(board, x, y, radius, valid_mask=mask)
     result = classify(radius_ratio, hsv_mean)
 
     if result is None:

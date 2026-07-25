@@ -4,9 +4,13 @@ import cv2
 import numpy as np
 
 from ..config import load
-from .classify import ClassifyResult, classify, sample_hsv
-from .colors import NEXT_MAX_TYPE
+from .blobs import circle_peaks
+from .classify import ClassifyResult, classify, fruit_radius_ratios, sample_hsv
+from .colors import DEFAULT_FRUIT_SATURATION_MIN, NEXT_MAX_TYPE
 from .next_crop import crop_next_region
+
+# crop 中心からこの割合より離れたピークは next のフルーツではない。
+CENTER_TOLERANCE_RATIO = 0.35
 
 
 @dataclass
@@ -29,15 +33,17 @@ def detect(frame: np.ndarray, corners: np.ndarray) -> NextResult:
 
     x1, y1, x2, y2 = region
     next_crop = frame[y1:y2, x1:x2]
+    if next_crop.size == 0:
+        return NextResult(fruit=None, region=region)
 
-    blob = _find_blob(next_crop)
+    mask = _blob_mask(next_crop)
+    scale = load().get("next_radius_scale", 1.0) or 1.0
+    blob = _find_blob(mask, board_width, scale)
     if blob is None:
         return NextResult(fruit=None, region=region)
 
     x, y, radius = blob
-    scale = load().get("next_radius_scale", 1.0)
     radius_ratio = (radius / board_width) * scale
-    mask = _blob_mask(next_crop)
     hsv_mean = sample_hsv(next_crop, x, y, radius, valid_mask=mask)
     fruit = classify(radius_ratio, hsv_mean, max_type=NEXT_MAX_TYPE)
 
@@ -60,27 +66,7 @@ def draw_debug(frame: np.ndarray, result: NextResult) -> np.ndarray:
         label = "next: ---"
         color = (0, 0, 255)
 
-    if result.region is not None:
-        x1, y1, x2, y2 = result.region
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 255), 3)
-
-        if result.blob is not None:
-            bx, by, br = result.blob
-            center = (int(x1 + bx), int(y1 + by))
-            cv2.circle(frame, center, max(2, int(br)), (255, 0, 255), 2)
-            cv2.circle(frame, center, 3, (255, 0, 255), -1)
-
-        cv2.putText(
-            frame,
-            label,
-            (x1, max(16, y1 - 8)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
-            color,
-            2,
-            cv2.LINE_AA,
-        )
-    else:
+    if result.region is None:
         cv2.putText(
             frame,
             label,
@@ -91,14 +77,41 @@ def draw_debug(frame: np.ndarray, result: NextResult) -> np.ndarray:
             2,
             cv2.LINE_AA,
         )
+        return frame
+
+    x1, y1, x2, y2 = result.region
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 255), 2)
+
+    if result.blob is not None:
+        bx, by, br = result.blob
+        center = (int(x1 + bx), int(y1 + by))
+        cv2.circle(frame, center, max(2, int(br)), (255, 0, 255), 2)
+        cv2.circle(frame, center, 3, (255, 0, 255), -1)
+
+    cv2.putText(
+        frame,
+        label,
+        (x1, max(16, y1 - 8)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        color,
+        2,
+        cv2.LINE_AA,
+    )
 
     return frame
 
 
 def _blob_mask(crop: np.ndarray) -> np.ndarray:
+    """next のフルーツだけを残す。
+
+    プレビューは彩度の低い白い玉に包まれているので、彩度で切れば
+    玉ではなく中のフルーツが残る。
+    """
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, (0, 50, 40), (180, 255, 255))
-    mask[hsv[:, :, 2] < 30] = 0
+    saturation_min = load().get("fruit_saturation_min", DEFAULT_FRUIT_SATURATION_MIN)
+
+    mask = cv2.inRange(hsv, (0, saturation_min, 45), (180, 255, 255))
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
@@ -106,100 +119,35 @@ def _blob_mask(crop: np.ndarray) -> np.ndarray:
     return mask
 
 
-def _find_blob(crop: np.ndarray) -> tuple[float, float, float] | None:
-    for finder in (_find_blob_contour, _find_blob_hough, _find_blob_center):
-        blob = finder(crop)
-        if blob is not None:
-            return blob
-    return None
-
-
-def _find_blob_contour(crop: np.ndarray) -> tuple[float, float, float] | None:
-    height, width = crop.shape[:2]
+def _find_blob(
+    mask: np.ndarray,
+    board_width: float,
+    scale: float,
+) -> tuple[float, float, float] | None:
+    height, width = mask.shape[:2]
     if height < 4 or width < 4:
         return None
 
-    center_x = width / 2
-    center_y = height / 2
-    mask = _blob_mask(crop)
+    # next は cherry〜orange しか出ないので、その範囲外の大きさは
+    # 玉や背景を拾っているだけと判断できる。
+    ratios = fruit_radius_ratios()
+    min_radius = max(2.0, board_width * ratios[0] * 0.6 / scale)
+    max_radius = max(min_radius + 1.0, board_width * ratios[NEXT_MAX_TYPE] * 1.4 / scale)
 
-    margin_x = max(1, int(width * 0.05))
-    margin_y = max(1, int(height * 0.05))
-    mask[:margin_y, :] = 0
-    mask[height - margin_y :, :] = 0
-    mask[:, :margin_x] = 0
-    mask[:, width - margin_x :] = 0
-
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    best_blob = None
-    best_score = -1.0
-
-    for contour in contours:
-        area = cv2.contourArea(contour)
-        if area < 8:
-            continue
-
-        (x, y), radius = cv2.minEnclosingCircle(contour)
-        if radius < 2:
-            continue
-
-        distance = np.hypot(x - center_x, y - center_y)
-        if distance > min(width, height) * 0.45:
-            continue
-
-        score = area - distance * 1.2
-        if score > best_score:
-            best_score = score
-            best_blob = (float(x), float(y), float(radius))
-
-    return best_blob
-
-
-def _find_blob_hough(crop: np.ndarray) -> tuple[float, float, float] | None:
-    height, width = crop.shape[:2]
-    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
-
-    min_radius = max(3, int(min(width, height) * 0.06))
-    max_radius = max(min_radius + 1, int(min(width, height) * 0.46))
-
-    circles = cv2.HoughCircles(
-        gray,
-        cv2.HOUGH_GRADIENT,
-        dp=1.2,
-        minDist=min_radius * 2,
-        param1=80,
-        param2=18,
-        minRadius=min_radius,
-        maxRadius=max_radius,
-    )
-    if circles is None:
+    peaks = circle_peaks(mask, min_radius, max_radius)
+    if not peaks:
         return None
 
     center_x = width / 2
     center_y = height / 2
-    best = min(
-        circles[0],
-        key=lambda circle: np.hypot(circle[0] - center_x, circle[1] - center_y),
-    )
-    return float(best[0]), float(best[1]), float(best[2])
+    tolerance = min(width, height) * CENTER_TOLERANCE_RATIO
 
-
-def _find_blob_center(crop: np.ndarray) -> tuple[float, float, float] | None:
-    height, width = crop.shape[:2]
-    center_x = width / 2
-    center_y = height / 2
-    mask = _blob_mask(crop)
-
-    ys, xs = np.where(mask > 0)
-    if len(xs) < 8:
+    centered = [
+        peak
+        for peak in peaks
+        if np.hypot(peak[0] - center_x, peak[1] - center_y) <= tolerance
+    ]
+    if not centered:
         return None
 
-    distances = np.hypot(xs - center_x, ys - center_y)
-    radius = float(np.percentile(distances, 88))
-    if radius < 3:
-        radius = float(np.sqrt(len(xs) / np.pi))
-    if radius < 3:
-        return None
-
-    return center_x, center_y, radius
+    return max(centered, key=lambda peak: peak[2])

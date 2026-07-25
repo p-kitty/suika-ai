@@ -3,6 +3,8 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
+from ..config import load
+from .colors import BOARD_FRAME_HSV
 from .fruits import detect as detect_fruits
 from .next import NextResult, detect as detect_next, draw_debug as draw_next_debug
 from .state import Fruit
@@ -10,10 +12,11 @@ from .state import Fruit
 NORMALIZED_WIDTH = 400
 NORMALIZED_HEIGHT = 500
 
-YELLOW_HSV_LOWER = (18, 60, 100)
-YELLOW_HSV_UPPER = (45, 255, 255)
-
 MIN_BOX_AREA_RATIO = 0.02
+
+CORNER_SMOOTH_ALPHA = 0.35
+# これを超える移動は本当に視点が動いたと見なして平滑化せず追従する。
+CORNER_JUMP_RATIO = 0.08
 
 
 @dataclass
@@ -25,10 +28,16 @@ class BoardResult:
     fruits: list[Fruit] | None = None
 
 
-def localize(frame: np.ndarray) -> BoardResult:
+def localize(
+    frame: np.ndarray,
+    previous_corners: np.ndarray | None = None,
+) -> BoardResult:
     corners = _find_corners(frame)
     if corners is None:
         return BoardResult(normalized=None, corners=None, found=False)
+
+    if previous_corners is not None:
+        corners = _smooth_corners(previous_corners, corners)
 
     normalized = _warp(frame, corners)
     fruits = detect_fruits(normalized)
@@ -100,6 +109,7 @@ def _draw_fruits_on_frame(
 ) -> np.ndarray:
     output = frame
     matrix = _inverse_warp_matrix(corners)
+    show_radius = load().get("debug_radius", False)
 
     for fruit in fruits:
         center = _transform_point(matrix, fruit.x, fruit.y)
@@ -111,6 +121,8 @@ def _draw_fruits_on_frame(
         cv2.circle(output, center, 2, color, -1)
 
         label = f"{fruit.name} {fruit.confidence:.0f}%"
+        if show_radius:
+            label += f" r={fruit.radius / NORMALIZED_WIDTH:.3f}"
         cv2.putText(
             output,
             label,
@@ -165,9 +177,23 @@ def _transform_point(matrix: np.ndarray, x: float, y: float) -> tuple[int, int]:
     return int(round(transformed[0])), int(round(transformed[1]))
 
 
+def _smooth_corners(previous: np.ndarray, current: np.ndarray) -> np.ndarray:
+    board_width = float(np.linalg.norm(current[1] - current[0]))
+    if board_width <= 0:
+        return current
+
+    shift = float(np.linalg.norm(current - previous, axis=1).max())
+    if shift > board_width * CORNER_JUMP_RATIO:
+        return current
+
+    smoothed = previous * (1.0 - CORNER_SMOOTH_ALPHA) + current * CORNER_SMOOTH_ALPHA
+    return smoothed.astype(np.float32)
+
+
 def _find_corners(frame: np.ndarray) -> np.ndarray | None:
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, YELLOW_HSV_LOWER, YELLOW_HSV_UPPER)
+    frame_lower, frame_upper = BOARD_FRAME_HSV
+    mask = cv2.inRange(hsv, frame_lower, frame_upper)
 
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)

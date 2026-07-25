@@ -15,22 +15,35 @@ FRUIT_NAMES = [
     "watermelon",
 ]
 
-# VRC版: 半径比が分類の主軸 (screenshot 実測ベース)
-FRUIT_RADIUS_RATIO = [
-    (0.030, 0.044),   # cherry
-    (0.052, 0.072),   # strawberry
-    (0.068, 0.086),   # grape
-    (0.086, 0.104),   # dekopon
-    (0.100, 0.120),   # orange
-    (0.125, 0.160),   # apple
-    (0.108, 0.128),   # pear
-    (0.128, 0.152),   # peach
-    (0.142, 0.168),   # pineapple
-    (0.158, 0.182),   # melon
-    (0.175, 0.215),   # watermelon
+# 段階ごとの半径比 (watermelon = 1.0)。スイカゲームの当たり判定は
+# 段階が上がるごとに約 1.2 倍で、この比は skin が変わっても共通。
+FRUIT_RELATIVE_RADIUS = [
+    0.084,   # cherry
+    0.130,   # strawberry
+    0.175,   # grape
+    0.234,   # dekopon
+    0.299,   # orange
+    0.383,   # apple
+    0.481,   # pear
+    0.591,   # peach
+    0.721,   # pineapple
+    0.838,   # melon
+    1.000,   # watermelon
 ]
 
-BOARD_BG_HSV = ((10, 15, 130), (35, 100, 245))
+# watermelon の半径 / 盤面幅。実測に合わせて config の
+# watermelon_radius_ratio で上書きする。
+DEFAULT_WATERMELON_RATIO = 0.28
+
+# 盤面の下地 (ベージュ)。影で暗くなっても外せるよう V は絞らない。
+BOARD_BG_HSV = ((10, 0, 55), (35, 100, 255))
+
+# 盤面の枠線。彩度が高くフルーツと色で区別できないため、
+# 境界付近に限定して除去する。
+BOARD_FRAME_HSV = ((18, 60, 100), (45, 255, 255))
+
+# フルーツはどれも鮮やかで、下地との差は彩度に出る。
+DEFAULT_FRUIT_SATURATION_MIN = 95
 
 COLOR_FAMILIES = {
     "red_orange": [0, 1, 3, 4, 5],
