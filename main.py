@@ -1,12 +1,9 @@
 import cv2
 
 from src.capture import capture
-from src.calibration import calibrate
-from src.vision.board import crop
-from src.vision.fruits import detect, draw_debug
+from src.vision.board import draw_frame_debug, localize
 
 while True:
-
     frame = capture()
 
     if frame is None:
@@ -14,16 +11,8 @@ while True:
 
     key = cv2.waitKey(1) & 0xFF
 
-    # press C key to calibrate
-    if key == ord("c"):
-        calibrate(frame)
-
-    board = crop(frame)
-
-    if board.size != 0:
-        fruits = detect(board)
-        debug = draw_debug(board, fruits)
-        cv2.imshow("Board", debug)
+    result = localize(frame)
+    cv2.imshow("Frame", draw_frame_debug(frame, result))
 
     if key == 27:
         break

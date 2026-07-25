@@ -12,44 +12,43 @@ FRUIT_NAMES = [
     "watermelon",
 ]
 
-# radius as a fraction of board width
+# VRC版: 半径比が分類の主軸 (screenshot 実測ベース)
 FRUIT_RADIUS_RATIO = [
-    (0.030, 0.048),
-    (0.045, 0.060),
-    (0.055, 0.075),
-    (0.068, 0.088),
-    (0.080, 0.102),
-    (0.092, 0.115),
-    (0.105, 0.130),
-    (0.118, 0.145),
-    (0.130, 0.160),
-    (0.145, 0.178),
-    (0.160, 0.210),
+    (0.030, 0.044),   # cherry
+    (0.052, 0.072),   # strawberry
+    (0.068, 0.086),   # grape
+    (0.086, 0.104),   # dekopon
+    (0.100, 0.120),   # orange
+    (0.125, 0.160),   # apple
+    (0.108, 0.128),   # pear
+    (0.128, 0.152),   # peach
+    (0.142, 0.168),   # pineapple
+    (0.158, 0.182),   # melon
+    (0.175, 0.215),   # watermelon
 ]
 
-# OpenCV HSV: H 0-180, S/V 0-255
-# Each entry is a list of (lower, upper) ranges; a fruit matches if any range fits.
-FRUIT_HSV_RANGES = [
-    # cherry - red
-    [((0, 80, 80), (10, 255, 255)), ((170, 80, 80), (180, 255, 255))],
-    # strawberry - red/green mix, slightly wider red
-    [((0, 60, 60), (12, 255, 255)), ((170, 60, 60), (180, 255, 255))],
-    # grape - purple
-    [((125, 40, 40), (155, 255, 255))],
-    # dekopon - orange
-    [((8, 80, 80), (22, 255, 255))],
-    # orange - orange
-    [((10, 100, 100), (25, 255, 255))],
-    # apple - deep red
-    [((0, 100, 60), (10, 255, 255)), ((170, 100, 60), (180, 255, 255))],
-    # pear - yellow-green
-    [((25, 30, 80), (45, 255, 255))],
-    # peach - pink
-    [((145, 30, 120), (170, 180, 255)), ((0, 30, 120), (10, 180, 255))],
-    # pineapple - yellow
-    [((18, 80, 120), (35, 255, 255))],
-    # melon - green
-    [((35, 40, 60), (85, 255, 255))],
-    # watermelon - green, usually largest
-    [((35, 30, 40), (90, 255, 200))],
-]
+BOARD_BG_HSV = ((10, 15, 130), (35, 100, 245))
+
+COLOR_FAMILIES = {
+    "red_orange": [0, 1, 3, 4, 5],
+    "purple": [2],
+    "yellow_green": [6, 8, 9, 10],
+    "pink": [7],
+}
+
+
+def color_family(h: float, s: float) -> str:
+    if s < 70:
+        return "unknown"
+    if 125 <= h <= 155:
+        return "purple"
+    if 148 <= h <= 172:
+        return "pink"
+    if 30 <= h <= 95:
+        return "yellow_green"
+    # VRC: 赤系フルーツはすべて H≈15-25 に集まる
+    if h <= 28 or h >= 165:
+        return "red_orange"
+    if 15 <= h <= 35:
+        return "yellow_green"
+    return "unknown"
