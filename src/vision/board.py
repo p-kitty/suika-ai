@@ -3,8 +3,9 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
+from .fruits import detect as detect_fruits
 from .next import NextResult, detect as detect_next, draw_debug as draw_next_debug
-from .wheel import draw_debug as draw_wheel_debug
+from .state import Fruit
 
 NORMALIZED_WIDTH = 400
 NORMALIZED_HEIGHT = 500
@@ -21,6 +22,7 @@ class BoardResult:
     corners: np.ndarray | None
     found: bool
     next_fruit: NextResult | None = None
+    fruits: list[Fruit] | None = None
 
 
 def localize(frame: np.ndarray) -> BoardResult:
@@ -29,12 +31,14 @@ def localize(frame: np.ndarray) -> BoardResult:
         return BoardResult(normalized=None, corners=None, found=False)
 
     normalized = _warp(frame, corners)
+    fruits = detect_fruits(normalized)
     next_fruit = detect_next(frame, corners)
     return BoardResult(
         normalized=normalized,
         corners=corners,
         found=True,
         next_fruit=next_fruit,
+        fruits=fruits,
     )
 
 
@@ -69,10 +73,11 @@ def draw_frame_debug(frame: np.ndarray, result: BoardResult) -> np.ndarray:
             cv2.LINE_AA,
         )
 
-        output = draw_wheel_debug(output, result.corners)
-
         if result.next_fruit is not None:
             output = draw_next_debug(output, result.next_fruit)
+
+        if result.fruits is not None:
+            output = _draw_fruits_on_frame(output, result.corners, result.fruits)
     else:
         cv2.putText(
             output,
@@ -86,6 +91,78 @@ def draw_frame_debug(frame: np.ndarray, result: BoardResult) -> np.ndarray:
         )
 
     return output
+
+
+def _draw_fruits_on_frame(
+    frame: np.ndarray,
+    corners: np.ndarray,
+    fruits: list[Fruit],
+) -> np.ndarray:
+    output = frame
+    matrix = _inverse_warp_matrix(corners)
+
+    for fruit in fruits:
+        center = _transform_point(matrix, fruit.x, fruit.y)
+        edge = _transform_point(matrix, fruit.x + fruit.radius, fruit.y)
+        radius = max(2, int(np.hypot(edge[0] - center[0], edge[1] - center[1])))
+        color = (0, 255, 0) if fruit.confidence >= 50 else (0, 165, 255)
+
+        cv2.circle(output, center, radius, color, 2)
+        cv2.circle(output, center, 2, color, -1)
+
+        label = f"{fruit.name} {fruit.confidence:.0f}%"
+        cv2.putText(
+            output,
+            label,
+            (center[0] - radius, max(12, center[1] - radius - 6)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.4,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+
+    cv2.putText(
+        output,
+        f"fruits: {len(fruits)}",
+        (8, 80),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        output,
+        f"fruits: {len(fruits)}",
+        (8, 80),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        (0, 0, 0),
+        1,
+        cv2.LINE_AA,
+    )
+
+    return output
+
+
+def _inverse_warp_matrix(corners: np.ndarray) -> np.ndarray:
+    destination = np.array(
+        [
+            [0, 0],
+            [NORMALIZED_WIDTH - 1, 0],
+            [NORMALIZED_WIDTH - 1, NORMALIZED_HEIGHT - 1],
+            [0, NORMALIZED_HEIGHT - 1],
+        ],
+        dtype=np.float32,
+    )
+    return cv2.getPerspectiveTransform(destination, corners.astype(np.float32))
+
+
+def _transform_point(matrix: np.ndarray, x: float, y: float) -> tuple[int, int]:
+    point = np.array([[[x, y]]], dtype=np.float32)
+    transformed = cv2.perspectiveTransform(point, matrix)[0, 0]
+    return int(round(transformed[0])), int(round(transformed[1]))
 
 
 def _find_corners(frame: np.ndarray) -> np.ndarray | None:

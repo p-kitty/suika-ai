@@ -12,7 +12,7 @@ while True:
     key = cv2.waitKey(1) & 0xFF
 
     result = localize(frame)
-    cv2.imshow("Frame", draw_frame_debug(frame, result))
+    cv2.imshow("Suika", draw_frame_debug(frame, result))
 
     if key == 27:
         break

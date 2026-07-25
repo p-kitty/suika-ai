@@ -1,3 +1,6 @@
+# The largest stage appearing in next (orange). Apple and above never come.
+NEXT_MAX_TYPE = 4
+
 FRUIT_NAMES = [
     "cherry",
     "strawberry",
