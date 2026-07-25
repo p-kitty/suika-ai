@@ -1,3 +1,6 @@
+# next に出現する最大段階 (orange)。apple 以上は来ない。
+NEXT_MAX_TYPE = 4
+
 FRUIT_NAMES = [
     "cherry",
     "strawberry",

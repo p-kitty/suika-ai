@@ -1,7 +1,8 @@
 import cv2
 import numpy as np
 
-from .colors import BOARD_BG_HSV, FRUIT_RADIUS_RATIO, color_family
+from .classify import classify, sample_hsv
+from .colors import BOARD_BG_HSV, FRUIT_RADIUS_RATIO
 from .state import Fruit
 
 
@@ -101,8 +102,8 @@ def _find_circles(board: np.ndarray) -> list[tuple[float, float, float]]:
 
     circles = []
     circles.extend(_hough_circles(edges, min_dist=45, min_radius=25, max_radius=max_radius, param2=40))
-    circles.extend(_hough_circles(edges, min_dist=28, min_radius=min_radius, max_radius=24, param2=35))
-    circles.extend(_small_contour_circles(fruit_mask, min_radius, 26))
+    circles.extend(_hough_circles(edges, min_dist=28, min_radius=min_radius, max_radius=max(min_radius + 1, 28), param2=35))
+    circles.extend(_small_contour_circles(fruit_mask, min_radius, max(min_radius + 1, 30)))
 
     return _merge_circle_candidates(circles)
 
@@ -201,87 +202,19 @@ def _classify(
     board_width = board.shape[1]
     radius_ratio = radius / board_width
 
-    hsv_mean = _sample_hsv(board, x, y, radius)
-    family = "red_orange" if hsv_mean is None else color_family(float(hsv_mean[0]), float(hsv_mean[1]))
+    hsv_mean = sample_hsv(board, x, y, radius, valid_mask=_fruit_mask(board))
+    result = classify(radius_ratio, hsv_mean)
 
-    candidates = _radius_candidates(radius_ratio, family)
-
-    best_type = candidates[0]
-    best_score = _radius_score(radius_ratio, best_type)
-
-    for fruit_type in candidates[1:]:
-        score = _radius_score(radius_ratio, fruit_type)
-        if score > best_score:
-            best_score = score
-            best_type = fruit_type
-
-    if best_score < 0.45:
+    if result is None:
         return None
 
     return Fruit(
-        type=best_type,
+        type=result.type,
         x=x,
         y=y,
         radius=radius,
-        confidence=min(best_score, 1.0) * 100,
+        confidence=result.confidence,
     )
-
-
-def _radius_candidates(radius_ratio: float, family: str) -> list[int]:
-    from .colors import COLOR_FAMILIES
-
-    if family == "unknown":
-        pool = list(range(len(FRUIT_RADIUS_RATIO)))
-    else:
-        pool = COLOR_FAMILIES.get(family, list(range(len(FRUIT_RADIUS_RATIO))))
-
-    scored = []
-    for fruit_type in pool:
-        score = _radius_score(radius_ratio, fruit_type)
-        scored.append((score, fruit_type))
-
-    scored.sort(reverse=True)
-    candidates = [fruit_type for score, fruit_type in scored if score > 0.2][:3]
-
-    if not candidates:
-        candidates = [scored[0][1]]
-
-    return candidates
-
-
-def _sample_hsv(
-    board: np.ndarray,
-    x: float,
-    y: float,
-    radius: float,
-) -> np.ndarray | None:
-    h, w = board.shape[:2]
-    cx, cy = int(x), int(y)
-    sample_radius = max(3, int(radius * 0.35))
-
-    if cx < 0 or cy < 0 or cx >= w or cy >= h:
-        return None
-
-    mask = np.zeros((h, w), dtype=np.uint8)
-    cv2.circle(mask, (cx, cy), sample_radius, 255, -1)
-
-    hsv = cv2.cvtColor(board, cv2.COLOR_BGR2HSV)
-    fruit_mask = _fruit_mask(board)
-    mask[fruit_mask == 0] = 0
-
-    pixels = hsv[mask == 255]
-    if len(pixels) == 0:
-        return None
-
-    return np.median(pixels, axis=0)
-
-
-def _radius_score(radius_ratio: float, fruit_type: int) -> float:
-    lower, upper = FRUIT_RADIUS_RATIO[fruit_type]
-    center = (lower + upper) / 2
-    half_width = (upper - lower) / 2 or 0.01
-    distance = abs(radius_ratio - center)
-    return max(0.0, 1.0 - distance / half_width)
 
 
 def _deduplicate(fruits: list[Fruit]) -> list[Fruit]:
