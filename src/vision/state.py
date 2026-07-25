@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from .colors import FRUIT_NAMES_JA
+from .colors import FRUIT_NAMES
 
 
 @dataclass
@@ -13,4 +13,4 @@ class Fruit:
 
     @property
     def name(self) -> str:
-        return FRUIT_NAMES_JA[self.type]
+        return FRUIT_NAMES[self.type]

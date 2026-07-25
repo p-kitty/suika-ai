@@ -12,20 +12,6 @@ FRUIT_NAMES = [
     "watermelon",
 ]
 
-FRUIT_NAMES_JA = [
-    "cherry",
-    "strawberry",
-    "grape",
-    "dekopon",
-    "orange",
-    "apple",
-    "pear",
-    "peach",
-    "pineapple",
-    "melon",
-    "watermelon",
-]
-
 # radius as a fraction of board width
 FRUIT_RADIUS_RATIO = [
     (0.030, 0.048),
