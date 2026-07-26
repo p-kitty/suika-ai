@@ -1,3 +1,5 @@
+from functools import cache
+
 import cv2
 import numpy as np
 
@@ -11,16 +13,16 @@ from .state import Fruit
 BORDER_BAND_RATIO = 0.045
 
 # 下地は上から下へ滑らかに濃くなるグラデーションで、下側はフルーツと同じ
-# くらい彩度が高い。固定しきい値では切れないので、空いている上部から
-# 領域拡張して下地を求める。
-BACKGROUND_SEED_BAND = 0.30
-BACKGROUND_SEED_STEP = 16
-# 隣接画素との差で判定するため、緩やかな階調は追従しつつ輪郭で止まる。
-BACKGROUND_TOLERANCE = 10
-# 下地の代表色から離れた点は種にしない (上部にフルーツがあっても壊れない)。
-BACKGROUND_SEED_TOLERANCE = 26
-# 下地がこれ以下しか取れなければ領域拡張は失敗とみなす。
-MIN_BACKGROUND_RATIO = 0.20
+# くらい彩度が高い。固定しきい値では切れないので、下地の色を座標の一次式
+# として当てはめ、そこからの色差でフルーツを取る。
+BACKGROUND_TOLERANCE = 14.0
+BACKGROUND_FIT_ITERATIONS = 5
+# 平面を決めるのに全画素はいらない。間引いて当てはめる。
+BACKGROUND_FIT_STRIDE = 4
+# 間引いたあとの画素数。種がフルーツで埋まったら当てはめは失敗とみなす。
+MIN_BACKGROUND_SAMPLES = 300
+# 種を取るリングの幅。縁の帯のすぐ内側から取る。
+BACKGROUND_SEED_WIDTH_RATIO = 0.03
 
 # 下地の彩度はフルーツと重なるため、閾値だけでは分離できない。
 # 円周にどれだけ輪郭が乗っているかで「実際に見えている球」だけを残す。
@@ -83,12 +85,12 @@ def _edge_support(outline: np.ndarray, x: float, y: float, radius: float) -> flo
 
 
 def fruit_mask(board: np.ndarray) -> np.ndarray:
-    background = _background_mask(board)
+    distance = _background_distance(board)
 
-    if float((background > 0).mean()) < MIN_BACKGROUND_RATIO:
+    if distance is None:
         mask = _saturation_mask(board)
     else:
-        mask = np.where(background > 0, 0, 255).astype(np.uint8)
+        mask = (distance > BACKGROUND_TOLERANCE).astype(np.uint8) * 255
 
     # 枠・影・枠の外の背景はいずれも彩度が高く色では切れないので、
     # 盤面の縁は色を見ずにまとめて落とす。
@@ -101,46 +103,86 @@ def fruit_mask(board: np.ndarray) -> np.ndarray:
     return mask
 
 
-def _background_mask(board: np.ndarray) -> np.ndarray:
-    """フルーツが積まれていない上部から下地を塗り広げる。
+def _background_distance(board: np.ndarray) -> np.ndarray | None:
+    """各画素が下地の色からどれだけ離れているかを返す。
 
-    floodFill を FIXED_RANGE なしで呼ぶと、比較対象は「種の色」ではなく
-    「隣の既に塗った画素」になる。だから上から下への緩やかな階調は最後まで
-    追従でき、フルーツの縁のような急な段差でだけ止まる。
+    下地は上から下へ滑らかに濃くなるだけなので、色を座標の一次式
+    Lab = a + b*x + c*y で表せる。フルーツは外れ値として繰り返し
+    切り落とし、残った画素だけで当てはめる。
+
+    塗り広げと違って盤面が埋まっていても壊れず、フルーツに囲まれて
+    孤立した下地も下地として拾える。
     """
-    height, width = board.shape[:2]
-    # ガウシアンだと縁がなだらかになり、許容差を少し上げただけで塗りが
-    # フルーツの中へ漏れる。メディアンは段差を保つので許容差に鈍感。
-    blurred = cv2.medianBlur(board, 5)
+    # メディアンは段差を保つので、縁がなだらかにならず色差が鈍らない。
+    lab = cv2.cvtColor(cv2.medianBlur(board, 5), cv2.COLOR_BGR2LAB).astype(np.float32)
 
-    margin_y = max(1, int(height * BORDER_BAND_RATIO))
-    margin_x = max(1, int(width * BORDER_BAND_RATIO))
-    band_bottom = max(margin_y + 1, int(height * BACKGROUND_SEED_BAND))
+    coefficients = _fit_background(lab, _seed_band(board.shape[:2]))
+    if coefficients is None:
+        return None
 
-    band = blurred[margin_y:band_bottom, margin_x : width - margin_x]
-    if band.size == 0:
-        return np.zeros((height, width), dtype=np.uint8)
+    # 縁の帯だけでは種が画面の外周に偏る。一度当てた結果で下地と判定
+    # できた画素を使って当て直すと、盤面全体に散った種で決まる。
+    inliers = _distance_to(lab, coefficients) < BACKGROUND_TOLERANCE
+    refitted = _fit_background(lab, inliers)
 
-    reference = np.median(band.reshape(-1, 3), axis=0)
+    return _distance_to(lab, coefficients if refitted is None else refitted)
 
-    filled = np.zeros((height + 2, width + 2), dtype=np.uint8)
-    tolerance = (BACKGROUND_TOLERANCE,) * 3
-    flags = cv2.FLOODFILL_MASK_ONLY | 4 | (255 << 8)
 
-    for y in range(margin_y, band_bottom, BACKGROUND_SEED_STEP):
-        for x in range(margin_x, width - margin_x, BACKGROUND_SEED_STEP):
-            if filled[y + 1, x + 1]:
-                continue
-            if np.abs(blurred[y, x].astype(np.int16) - reference).max() > BACKGROUND_SEED_TOLERANCE:
-                continue
+def _fit_background(lab: np.ndarray, seeds: np.ndarray) -> np.ndarray | None:
+    """一次式の係数 (3x3) を、外れ値を切り落としながら求める。"""
+    stride = BACKGROUND_FIT_STRIDE
+    design = _coordinate_design(lab.shape[:2])
+    samples = lab[::stride, ::stride].reshape(-1, 3)
+    keep = seeds[::stride, ::stride].reshape(-1).copy()
 
-            cv2.floodFill(blurred, filled, (x, y), 0, tolerance, tolerance, flags)
+    for _ in range(BACKGROUND_FIT_ITERATIONS):
+        if int(keep.sum()) < MIN_BACKGROUND_SAMPLES:
+            return None
 
-    return filled[1:-1, 1:-1]
+        rows = design[keep]
+        coefficients = np.linalg.lstsq(rows, samples[keep], rcond=None)[0]
+        residual = np.linalg.norm(rows @ coefficients - samples[keep], axis=1)
+
+        outliers = residual >= BACKGROUND_TOLERANCE
+        if not outliers.any():
+            break
+
+        keep[np.nonzero(keep)[0][outliers]] = False
+
+    return coefficients
+
+
+def _distance_to(lab: np.ndarray, coefficients: np.ndarray) -> np.ndarray:
+    """一次式が表す下地の色から、各画素がどれだけ離れているか。"""
+    height, width = lab.shape[:2]
+    constant, per_x, per_y = coefficients
+
+    model = constant + np.arange(width, dtype=np.float32)[None, :, None] * per_x
+    model = model + np.arange(height, dtype=np.float32)[:, None, None] * per_y
+
+    return np.linalg.norm(lab - model, axis=2)
+
+
+@cache
+def _coordinate_design(shape: tuple[int, int]) -> np.ndarray:
+    """当てはめ用に間引いた座標 [1, x, y]。平面を決めるのに全画素はいらない。"""
+    height, width = shape
+    stride = BACKGROUND_FIT_STRIDE
+    ys, xs = np.mgrid[0:height:stride, 0:width:stride]
+
+    return np.stack([np.ones_like(xs), xs, ys], axis=-1).astype(np.float32).reshape(-1, 3)
+
+
+def _seed_band(shape: tuple[int, int]) -> np.ndarray:
+    """縁の帯のすぐ内側のリング。壁際は下地が見えていることが多い。"""
+    outer = _border_band(shape)
+    inner = _border_band(shape, BORDER_BAND_RATIO + BACKGROUND_SEED_WIDTH_RATIO)
+
+    return inner & ~outer
 
 
 def _saturation_mask(board: np.ndarray) -> np.ndarray:
-    """領域拡張が失敗したときの予備。"""
+    """当てはめが失敗したときの予備。"""
     hsv = cv2.cvtColor(board, cv2.COLOR_BGR2HSV)
     mask = saturated_mask(hsv)
 
@@ -150,12 +192,12 @@ def _saturation_mask(board: np.ndarray) -> np.ndarray:
     return mask
 
 
-def _border_band(shape: tuple[int, int]) -> np.ndarray:
+def _border_band(shape: tuple[int, int], ratio: float = BORDER_BAND_RATIO) -> np.ndarray:
     height, width = shape
     band = np.zeros(shape, dtype=bool)
 
-    margin_y = max(1, int(height * BORDER_BAND_RATIO))
-    margin_x = max(1, int(width * BORDER_BAND_RATIO))
+    margin_y = max(1, int(height * ratio))
+    margin_x = max(1, int(width * ratio))
 
     band[:margin_y, :] = True
     band[height - margin_y :, :] = True
@@ -212,8 +254,9 @@ def _deduplicate(fruits: list[Fruit]) -> list[Fruit]:
 
         for existing in kept:
             distance = np.hypot(fruit.x - existing.x, fruit.y - existing.y)
-            overlap = fruit.radius + existing.radius - distance
-            if overlap > min(fruit.radius, existing.radius) * 0.50:
+            # 同じフルーツに立った二つ目のピークだけを落としたい。触れ合った
+            # 別のフルーツは、見た目が多少重なっても中心までは食い込まない。
+            if distance < max(fruit.radius, existing.radius):
                 duplicate = True
                 break
 

@@ -20,19 +20,21 @@ FRUIT_NAMES = [
     "watermelon",
 ]
 
-# 段階ごとの半径比 (watermelon = 1.0)。スイカゲームの当たり判定は
-# 段階が上がるごとに約 1.2 倍で、この比は skin が変わっても共通。
+# 段階ごとの半径比 (watermelon = 1.0)。スイカゲームの当たり判定の半径
+# (16.5 〜 129.5) をそのまま割ったもので、この比は skin が変わっても共通。
+# 等比ではなく、grape/dekopon や apple/pear のように 1.13 倍しか違わない
+# 隣接段階がある。そこは半径では割り切れないので色で決まる。
 FRUIT_RELATIVE_RADIUS = [
-    0.084,   # cherry
-    0.130,   # strawberry
-    0.175,   # grape
-    0.234,   # dekopon
-    0.299,   # orange
-    0.383,   # apple
-    0.481,   # pear
-    0.591,   # peach
-    0.721,   # pineapple
-    0.838,   # melon
+    0.127,   # cherry
+    0.185,   # strawberry
+    0.236,   # grape
+    0.266,   # dekopon
+    0.344,   # orange
+    0.440,   # apple
+    0.498,   # pear
+    0.602,   # peach
+    0.683,   # pineapple
+    0.849,   # melon
     1.000,   # watermelon
 ]
 
@@ -71,11 +73,10 @@ def color_family(h: float, s: float) -> str:
         return "purple"
     if 148 <= h <= 172:
         return "pink"
-    if 30 <= h <= 95:
-        return "yellow_green"
-    # VRC: 赤系フルーツはすべて H≈15-25 に集まる
-    if h <= 28 or h >= 165:
+    # VRC: 赤系フルーツはすべて H<=22 に潰れる。pear と pineapple は
+    # H=27-28 とわずかに上で、そこが赤系と黄緑系の境になる。
+    if h <= 24 or h >= 165:
         return "red_orange"
-    if 15 <= h <= 35:
+    if h <= 95:
         return "yellow_green"
     return "unknown"
