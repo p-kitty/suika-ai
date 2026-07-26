@@ -143,10 +143,7 @@ def _draw_fruits(
         origin = (center[0] - radius, max(12, center[1] - radius - 6))
         put_text(output, label, origin, color, scale=0.4, thickness=1)
 
-    # Thick in white, with thin black on top, as an outline.
-    count = f"fruits: {len(fruits)}"
-    put_text(output, count, (8, 80), (255, 255, 255))
-    put_text(output, count, (8, 80), (0, 0, 0), thickness=1)
+    put_text(output, f"fruits: {len(fruits)}", (8, 80), (0, 255, 255))
 
 
 def _inverse_warp_matrix(corners: np.ndarray) -> np.ndarray:
