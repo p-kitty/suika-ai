@@ -33,7 +33,7 @@ FRUIT_RELATIVE_RADIUS = [
 
 # watermelon の半径 / 盤面幅。実測に合わせて config の
 # watermelon_radius_ratio で上書きする。
-DEFAULT_WATERMELON_RATIO = 0.28
+DEFAULT_WATERMELON_RATIO = 0.24
 
 # 盤面の下地 (ベージュ)。影で暗くなっても外せるよう V は絞らない。
 BOARD_BG_HSV = ((10, 0, 55), (35, 100, 255))
