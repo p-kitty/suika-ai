@@ -4,9 +4,10 @@ import cv2
 import numpy as np
 
 from ..config import load
+from ..draw import Color, put_text
 from .blobs import circle_peaks
 from .classify import ClassifyResult, classify, fruit_radius_ratios, sample_hsv
-from .colors import DEFAULT_FRUIT_SATURATION_MIN, NEXT_MAX_TYPE
+from .colors import NEXT_MAX_TYPE, saturated_mask
 from .next_crop import crop_next_region
 
 # crop 中心からこの割合より離れたピークは next のフルーツではない。
@@ -55,29 +56,12 @@ def detect(frame: np.ndarray, corners: np.ndarray) -> NextResult:
     )
 
 
-def draw_debug(frame: np.ndarray, result: NextResult) -> np.ndarray:
-    if result.fruit is not None:
-        label = f"next: {result.fruit.name} {result.fruit.confidence:.0f}%"
-        color = (255, 0, 255)
-    elif result.radius_ratio is not None:
-        label = f"next: --- r={result.radius_ratio:.3f}"
-        color = (0, 165, 255)
-    else:
-        label = "next: ---"
-        color = (0, 0, 255)
+def draw_debug(frame: np.ndarray, result: NextResult) -> None:
+    label, color = _label(result)
 
     if result.region is None:
-        cv2.putText(
-            frame,
-            label,
-            (8, 52),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            color,
-            2,
-            cv2.LINE_AA,
-        )
-        return frame
+        put_text(frame, label, (8, 52), color)
+        return
 
     x1, y1, x2, y2 = result.region
     cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 255), 2)
@@ -88,18 +72,15 @@ def draw_debug(frame: np.ndarray, result: NextResult) -> np.ndarray:
         cv2.circle(frame, center, max(2, int(br)), (255, 0, 255), 2)
         cv2.circle(frame, center, 3, (255, 0, 255), -1)
 
-    cv2.putText(
-        frame,
-        label,
-        (x1, max(16, y1 - 8)),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        color,
-        2,
-        cv2.LINE_AA,
-    )
+    put_text(frame, label, (x1, max(16, y1 - 8)), color, scale=0.55)
 
-    return frame
+
+def _label(result: NextResult) -> tuple[str, Color]:
+    if result.fruit is not None:
+        return f"next: {result.fruit.name} {result.fruit.confidence:.0f}%", (255, 0, 255)
+    if result.radius_ratio is not None:
+        return f"next: --- r={result.radius_ratio:.3f}", (0, 165, 255)
+    return "next: ---", (0, 0, 255)
 
 
 def _blob_mask(crop: np.ndarray) -> np.ndarray:
@@ -109,9 +90,7 @@ def _blob_mask(crop: np.ndarray) -> np.ndarray:
     玉ではなく中のフルーツが残る。
     """
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    saturation_min = load().get("fruit_saturation_min", DEFAULT_FRUIT_SATURATION_MIN)
-
-    mask = cv2.inRange(hsv, (0, saturation_min, 45), (180, 255, 255))
+    mask = saturated_mask(hsv)
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)

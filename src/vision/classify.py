@@ -10,17 +10,8 @@ from .colors import (
     DEFAULT_WATERMELON_RATIO,
     FRUIT_NAMES,
     FRUIT_RELATIVE_RADIUS,
-    NEXT_MAX_TYPE,
     color_family,
 )
-
-__all__ = [
-    "ClassifyResult",
-    "classify",
-    "fruit_radius_ratios",
-    "sample_hsv",
-    "NEXT_MAX_TYPE",
-]
 
 # 隣接段階は半径比で約 1.2 倍差。log 距離でこれを超えたら候補外にする。
 RADIUS_LOG_TOLERANCE = math.log(1.6)

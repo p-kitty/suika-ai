@@ -1,29 +1,22 @@
 import json
 from pathlib import Path
+from typing import Any
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "config.json"
 
-_cache = None
-_cache_mtime = None
+Config = dict[str, Any]
+
+_cache: Config | None = None
+_cache_mtime: float | None = None
 
 
-def load():
+def load() -> Config:
+    """設定を読む。編集したら次のフレームから反映される。"""
     global _cache, _cache_mtime
 
     mtime = CONFIG_PATH.stat().st_mtime
     if _cache is None or mtime != _cache_mtime:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            _cache = json.load(f)
+        _cache = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         _cache_mtime = mtime
 
     return _cache
-
-
-def save(cfg):
-    global _cache, _cache_mtime
-
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=4)
-
-    _cache = None
-    _cache_mtime = None

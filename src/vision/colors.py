@@ -1,3 +1,8 @@
+import cv2
+import numpy as np
+
+from ..config import load
+
 # next に出現する最大段階 (orange)。apple 以上は来ない。
 NEXT_MAX_TYPE = 4
 
@@ -51,6 +56,12 @@ COLOR_FAMILIES = {
     "yellow_green": [6, 8, 9, 10],
     "pink": [7],
 }
+
+
+def saturated_mask(hsv: np.ndarray) -> np.ndarray:
+    """彩度でフルーツらしい画素だけを残す。"""
+    saturation_min = load().get("fruit_saturation_min", DEFAULT_FRUIT_SATURATION_MIN)
+    return cv2.inRange(hsv, (0, saturation_min, 45), (180, 255, 255))
 
 
 def color_family(h: float, s: float) -> str:

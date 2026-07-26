@@ -1,10 +1,9 @@
 import cv2
 import numpy as np
 
-from ..config import load
 from .blobs import circle_peaks
 from .classify import classify, fruit_radius_ratios, sample_hsv
-from .colors import BOARD_BG_HSV, DEFAULT_FRUIT_SATURATION_MIN
+from .colors import BOARD_BG_HSV, saturated_mask
 from .state import Fruit
 
 # 検出した四隅は枠の外側なので、warp した盤面には枠と内側の影が写る。
@@ -35,7 +34,7 @@ def detect(board: np.ndarray) -> list[Fruit]:
     if board.size == 0:
         return []
 
-    mask = _fruit_mask(board)
+    mask = fruit_mask(board)
     outline = _outline(board)
     fruits = []
 
@@ -83,23 +82,23 @@ def _edge_support(outline: np.ndarray, x: float, y: float, radius: float) -> flo
     return float((outline[ys, xs] > 0).mean())
 
 
-def _fruit_mask(board: np.ndarray) -> np.ndarray:
+def fruit_mask(board: np.ndarray) -> np.ndarray:
     background = _background_mask(board)
 
     if float((background > 0).mean()) < MIN_BACKGROUND_RATIO:
-        fruit_mask = _saturation_mask(board)
+        mask = _saturation_mask(board)
     else:
-        fruit_mask = np.where(background > 0, 0, 255).astype(np.uint8)
+        mask = np.where(background > 0, 0, 255).astype(np.uint8)
 
     # 枠・影・枠の外の背景はいずれも彩度が高く色では切れないので、
     # 盤面の縁は色を見ずにまとめて落とす。
-    fruit_mask[_border_band(fruit_mask.shape)] = 0
+    mask[_border_band(mask.shape)] = 0
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    fruit_mask = cv2.morphologyEx(fruit_mask, cv2.MORPH_OPEN, kernel)
-    fruit_mask = cv2.morphologyEx(fruit_mask, cv2.MORPH_CLOSE, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
-    return fruit_mask
+    return mask
 
 
 def _background_mask(board: np.ndarray) -> np.ndarray:
@@ -143,14 +142,12 @@ def _background_mask(board: np.ndarray) -> np.ndarray:
 def _saturation_mask(board: np.ndarray) -> np.ndarray:
     """領域拡張が失敗したときの予備。"""
     hsv = cv2.cvtColor(board, cv2.COLOR_BGR2HSV)
-    saturation_min = load().get("fruit_saturation_min", DEFAULT_FRUIT_SATURATION_MIN)
-
-    fruit_mask = cv2.inRange(hsv, (0, saturation_min, 45), (180, 255, 255))
+    mask = saturated_mask(hsv)
 
     bg_lower, bg_upper = BOARD_BG_HSV
-    fruit_mask[cv2.inRange(hsv, bg_lower, bg_upper) > 0] = 0
+    mask[cv2.inRange(hsv, bg_lower, bg_upper) > 0] = 0
 
-    return fruit_mask
+    return mask
 
 
 def _border_band(shape: tuple[int, int]) -> np.ndarray:

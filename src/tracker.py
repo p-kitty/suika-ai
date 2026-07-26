@@ -24,7 +24,7 @@ class _Track:
     y: float
     radius: float
     confidence: float
-    types: deque = field(default_factory=lambda: deque(maxlen=VOTE_WINDOW))
+    types: deque[int] = field(default_factory=lambda: deque(maxlen=VOTE_WINDOW))
     hits: int = 0
     missing: int = 0
 

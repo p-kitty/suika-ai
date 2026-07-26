@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from ..config import load
+from ..draw import put_text
 from .colors import BOARD_FRAME_HSV
 from .fruits import detect as detect_fruits
 from .next import NextResult, detect as detect_next, draw_debug as draw_next_debug
@@ -11,6 +12,17 @@ from .state import Fruit
 
 NORMALIZED_WIDTH = 400
 NORMALIZED_HEIGHT = 500
+
+# 正面から見た盤面の四隅。warp の行き先であり、逆変換の出発点でもある。
+NORMALIZED_CORNERS = np.array(
+    [
+        [0, 0],
+        [NORMALIZED_WIDTH - 1, 0],
+        [NORMALIZED_WIDTH - 1, NORMALIZED_HEIGHT - 1],
+        [0, NORMALIZED_HEIGHT - 1],
+    ],
+    dtype=np.float32,
+)
 
 MIN_BOX_AREA_RATIO = 0.02
 
@@ -54,60 +66,36 @@ def localize(
 def draw_frame_debug(frame: np.ndarray, result: BoardResult) -> np.ndarray:
     output = frame.copy()
 
-    if result.found and result.corners is not None:
-        corners = result.corners.astype(int)
-        cv2.polylines(output, [corners], True, (0, 255, 0), 2)
+    if not (result.found and result.corners is not None):
+        put_text(output, "board: not found", (8, 24), (0, 0, 255))
+        return output
 
-        for i, (x, y) in enumerate(corners):
-            cv2.circle(output, (x, y), 6, (0, 255, 0), -1)
-            cv2.putText(
-                output,
-                str(i),
-                (x + 8, y - 8),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 255, 0),
-                1,
-                cv2.LINE_AA,
-            )
+    _draw_corners(output, result.corners)
+    put_text(output, "board: detected", (8, 24), (0, 255, 0))
 
-        cv2.putText(
-            output,
-            "board: detected",
-            (8, 24),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 255, 0),
-            2,
-            cv2.LINE_AA,
-        )
+    if result.next_fruit is not None:
+        draw_next_debug(output, result.next_fruit)
 
-        if result.next_fruit is not None:
-            output = draw_next_debug(output, result.next_fruit)
-
-        if result.fruits is not None:
-            output = _draw_fruits_on_frame(output, result.corners, result.fruits)
-    else:
-        cv2.putText(
-            output,
-            "board: not found",
-            (8, 24),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 0, 255),
-            2,
-            cv2.LINE_AA,
-        )
+    if result.fruits is not None:
+        _draw_fruits(output, result.corners, result.fruits)
 
     return output
 
 
-def _draw_fruits_on_frame(
-    frame: np.ndarray,
+def _draw_corners(output: np.ndarray, corners: np.ndarray) -> None:
+    corners = corners.astype(int)
+    cv2.polylines(output, [corners], True, (0, 255, 0), 2)
+
+    for i, (x, y) in enumerate(corners):
+        cv2.circle(output, (x, y), 6, (0, 255, 0), -1)
+        put_text(output, str(i), (x + 8, y - 8), (0, 255, 0), scale=0.5, thickness=1)
+
+
+def _draw_fruits(
+    output: np.ndarray,
     corners: np.ndarray,
     fruits: list[Fruit],
-) -> np.ndarray:
-    output = frame
+) -> None:
     matrix = _inverse_warp_matrix(corners)
     show_radius = load().get("debug_radius", False)
 
@@ -123,52 +111,18 @@ def _draw_fruits_on_frame(
         label = f"{fruit.name} {fruit.confidence:.0f}%"
         if show_radius:
             label += f" r={fruit.radius / NORMALIZED_WIDTH:.3f}"
-        cv2.putText(
-            output,
-            label,
-            (center[0] - radius, max(12, center[1] - radius - 6)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.4,
-            color,
-            1,
-            cv2.LINE_AA,
-        )
 
-    cv2.putText(
-        output,
-        f"fruits: {len(fruits)}",
-        (8, 80),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        output,
-        f"fruits: {len(fruits)}",
-        (8, 80),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
-        (0, 0, 0),
-        1,
-        cv2.LINE_AA,
-    )
+        origin = (center[0] - radius, max(12, center[1] - radius - 6))
+        put_text(output, label, origin, color, scale=0.4, thickness=1)
 
-    return output
+    # 白で太く、その上に黒で細く重ねて縁取りにする。
+    count = f"fruits: {len(fruits)}"
+    put_text(output, count, (8, 80), (255, 255, 255))
+    put_text(output, count, (8, 80), (0, 0, 0), thickness=1)
 
 
 def _inverse_warp_matrix(corners: np.ndarray) -> np.ndarray:
-    destination = np.array(
-        [
-            [0, 0],
-            [NORMALIZED_WIDTH - 1, 0],
-            [NORMALIZED_WIDTH - 1, NORMALIZED_HEIGHT - 1],
-            [0, NORMALIZED_HEIGHT - 1],
-        ],
-        dtype=np.float32,
-    )
-    return cv2.getPerspectiveTransform(destination, corners.astype(np.float32))
+    return cv2.getPerspectiveTransform(NORMALIZED_CORNERS, corners.astype(np.float32))
 
 
 def _transform_point(matrix: np.ndarray, x: float, y: float) -> tuple[int, int]:
@@ -250,16 +204,7 @@ def _order_corners(corners: np.ndarray) -> np.ndarray:
 
 
 def _warp(frame: np.ndarray, corners: np.ndarray) -> np.ndarray:
-    destination = np.array(
-        [
-            [0, 0],
-            [NORMALIZED_WIDTH - 1, 0],
-            [NORMALIZED_WIDTH - 1, NORMALIZED_HEIGHT - 1],
-            [0, NORMALIZED_HEIGHT - 1],
-        ],
-        dtype=np.float32,
-    )
-    matrix = cv2.getPerspectiveTransform(corners, destination)
+    matrix = cv2.getPerspectiveTransform(corners, NORMALIZED_CORNERS)
     return cv2.warpPerspective(
         frame,
         matrix,
