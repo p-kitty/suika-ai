@@ -35,6 +35,13 @@ CORNER_SMOOTH_ALPHA = 0.35
 # A movement beyond this is considered a real view change and is followed without smoothing.
 CORNER_JUMP_RATIO = 0.08
 
+# The fraction discarded at both ends when fitting a line to each side, to avoid the rounded corners.
+CORNER_ARC_SKIP_RATIO = 0.15
+# Points needed to determine a line. If any side falls below this, fitting is abandoned.
+MIN_SIDE_POINTS = 10
+# If the intersection moves this much, the fit is considered broken and falls back to the rough quadrilateral.
+MAX_CORNER_SHIFT_RATIO = 0.25
+
 
 @dataclass
 class BoardResult:
@@ -174,7 +181,8 @@ def _find_corners(frame: np.ndarray) -> np.ndarray | None:
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # A line is fitted to each side, so every contour point is received without thinning.
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not contours:
         return None
 
@@ -213,6 +221,15 @@ def _touches_edge(corners: np.ndarray, shape: tuple[int, int]) -> bool:
 
 
 def _contour_to_corners(contour: np.ndarray) -> np.ndarray | None:
+    coarse = _coarse_corners(contour)
+    if coarse is None:
+        return None
+
+    return _fit_corners(contour, _order_corners(coarse))
+
+
+def _coarse_corners(contour: np.ndarray) -> np.ndarray | None:
+    """A rough quadrilateral for deciding which point belongs to which side."""
     perimeter = cv2.arcLength(contour, True)
     if perimeter <= 0:
         return None
@@ -223,6 +240,72 @@ def _contour_to_corners(contour: np.ndarray) -> np.ndarray | None:
 
     rect = cv2.minAreaRect(contour)
     return cv2.boxPoints(rect).astype(np.float32)
+
+
+def _fit_corners(contour: np.ndarray, coarse: np.ndarray) -> np.ndarray:
+    """Fit lines to the four sides and take their intersections as the corners.
+
+    The board's corners are rounded. approxPolyDP vertices sit on the arcs, and its tolerance is
+    2% of the perimeter (over 30px measured), so the vertices come inside the true corners.
+    minAreaRect does not fit a board distorted by perspective either. Sides are unaffected by the rounding,
+    so the corners are recovered from the sides.
+    """
+    points = contour.reshape(-1, 2).astype(np.float32)
+
+    starts = coarse
+    edges = np.roll(coarse, -1, axis=0) - starts
+    lengths = np.linalg.norm(edges, axis=1)
+    if (lengths <= 1e-6).any():
+        return coarse
+
+    units = edges / lengths[:, None]
+    offsets = points[:, None, :] - starts[None, :, :]
+    along = (offsets * units[None, :, :]).sum(axis=2)
+    across = np.abs(
+        offsets[:, :, 0] * units[None, :, 1] - offsets[:, :, 1] * units[None, :, 0]
+    )
+    nearest = np.argmin(across, axis=1)
+
+    lines = []
+    for side in range(4):
+        skip = lengths[side] * CORNER_ARC_SKIP_RATIO
+        on_side = (
+            (nearest == side)
+            & (along[:, side] > skip)
+            & (along[:, side] < lengths[side] - skip)
+        )
+        if int(on_side.sum()) < MIN_SIDE_POINTS:
+            return coarse
+
+        lines.append(cv2.fitLine(points[on_side], cv2.DIST_L2, 0, 0.01, 0.01).ravel())
+
+    fitted = []
+    for side in range(4):
+        corner = _intersect(lines[side - 1], lines[side])
+        if corner is None:
+            return coarse
+        fitted.append(corner)
+
+    corners = np.array(fitted, dtype=np.float32)
+
+    # If only part of a side is visible the line tips over and the intersection flies far away.
+    if np.linalg.norm(corners - coarse, axis=1).max() > lengths.max() * MAX_CORNER_SHIFT_RATIO:
+        return coarse
+
+    return corners
+
+
+def _intersect(first: np.ndarray, second: np.ndarray) -> tuple[float, float] | None:
+    """The intersection of two (direction vector, point) pairs returned by fitLine."""
+    ax, ay, apx, apy = first
+    bx, by, bpx, bpy = second
+
+    denominator = ax * by - ay * bx
+    if abs(denominator) < 1e-6:
+        return None
+
+    step = ((bpx - apx) * by - (bpy - apy) * bx) / denominator
+    return float(apx + ax * step), float(apy + ay * step)
 
 
 def _order_corners(corners: np.ndarray) -> np.ndarray:

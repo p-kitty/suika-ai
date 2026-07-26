@@ -47,7 +47,9 @@ BOARD_BG_HSV = ((10, 0, 55), (35, 100, 255))
 
 # The board's frame lines. Highly saturated and indistinguishable from fruit by color,
 # so removal is limited to near the border.
-BOARD_FRAME_HSV = ((18, 60, 100), (45, 255, 255))
+# The board is a gradient turning warm from top to bottom, dropping to H=16 at the bottom.
+# Tightening the lower bound drops the band near the floor from the mask and misses the board's bottom edge.
+BOARD_FRAME_HSV = ((14, 60, 100), (45, 255, 255))
 
 # Every fruit is vivid, and the difference from the background shows in saturation.
 DEFAULT_FRUIT_SATURATION_MIN = 95
