@@ -8,6 +8,7 @@ from src.debug_dump import dump
 from src.draw import put_text
 from src.tracker import Tracker
 from src.vision.board import draw_frame_debug, localize
+from src.window import maximize_window
 
 WINDOW_TITLE = "Suika"
 HINT = "s: save raw frame"
@@ -23,6 +24,8 @@ def main() -> None:
     message = ""
     message_until = 0.0
     next_auto_dump = 0.0
+
+    maximize_window(WINDOW_TITLE)
 
     while True:
         frame = capture()
