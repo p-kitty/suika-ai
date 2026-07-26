@@ -6,6 +6,7 @@ import numpy as np
 from ..config import load
 from ..draw import put_text
 from .colors import BOARD_FRAME_HSV
+from .dialog import is_blocked
 from .fruits import detect as detect_fruits
 from .next import NextResult, detect as detect_next, draw_debug as draw_next_debug
 from .state import Fruit
@@ -26,6 +27,10 @@ NORMALIZED_CORNERS = np.array(
 
 MIN_BOX_AREA_RATIO = 0.02
 
+# A quadrilateral touching the edge of the screen means the board is cut off outside the screen. Corner positions cannot be trusted,
+# and warping would capture beyond the frame and pick up fruits that are not there.
+EDGE_MARGIN_RATIO = 0.01
+
 CORNER_SMOOTH_ALPHA = 0.35
 # A movement beyond this is considered a real view change and is followed without smoothing.
 CORNER_JUMP_RATIO = 0.08
@@ -38,6 +43,8 @@ class BoardResult:
     found: bool
     next_fruit: NextResult | None = None
     fruits: list[Fruit] | None = None
+    # A state where a dialog covers the board and it cannot be read. Kept separately from found.
+    blocked: bool = False
 
 
 def localize(
@@ -52,6 +59,15 @@ def localize(
         corners = _smooth_corners(previous_corners, corners)
 
     normalized = _warp(frame, corners)
+
+    if is_blocked(normalized):
+        return BoardResult(
+            normalized=normalized,
+            corners=corners,
+            found=True,
+            blocked=True,
+        )
+
     fruits = detect_fruits(normalized)
     next_fruit = detect_next(frame, corners)
     return BoardResult(
@@ -71,6 +87,11 @@ def draw_frame_debug(frame: np.ndarray, result: BoardResult) -> np.ndarray:
         return output
 
     _draw_corners(output, result.corners)
+
+    if result.blocked:
+        put_text(output, "board: dialog", (8, 24), (0, 165, 255))
+        return output
+
     put_text(output, "board: detected", (8, 24), (0, 255, 0))
 
     if result.next_fruit is not None:
@@ -167,14 +188,28 @@ def _find_corners(frame: np.ndarray) -> np.ndarray | None:
             continue
 
         corners = _contour_to_corners(contour)
-        if corners is not None:
-            candidates.append((area, corners))
+        if corners is None or _touches_edge(corners, frame.shape[:2]):
+            continue
+
+        candidates.append((area, corners))
 
     if not candidates:
         return None
 
     _, corners = max(candidates, key=lambda item: item[0])
     return _order_corners(corners)
+
+
+def _touches_edge(corners: np.ndarray, shape: tuple[int, int]) -> bool:
+    height, width = shape
+    margin = max(1.0, min(height, width) * EDGE_MARGIN_RATIO)
+
+    return bool(
+        corners[:, 0].min() < margin
+        or corners[:, 1].min() < margin
+        or corners[:, 0].max() > width - 1 - margin
+        or corners[:, 1].max() > height - 1 - margin
+    )
 
 
 def _contour_to_corners(contour: np.ndarray) -> np.ndarray | None:
