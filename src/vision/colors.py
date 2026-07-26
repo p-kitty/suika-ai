@@ -33,7 +33,7 @@ FRUIT_RELATIVE_RADIUS = [
 
 # watermelon radius / board width. Overridden by config's
 # watermelon_radius_ratio to match measurement.
-DEFAULT_WATERMELON_RATIO = 0.28
+DEFAULT_WATERMELON_RATIO = 0.24
 
 # The board background (beige). V is not narrowed so it can be removed even when darkened by shadow.
 BOARD_BG_HSV = ((10, 0, 55), (35, 100, 255))
