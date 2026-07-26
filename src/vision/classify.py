@@ -10,17 +10,8 @@ from .colors import (
     DEFAULT_WATERMELON_RATIO,
     FRUIT_NAMES,
     FRUIT_RELATIVE_RADIUS,
-    NEXT_MAX_TYPE,
     color_family,
 )
-
-__all__ = [
-    "ClassifyResult",
-    "classify",
-    "fruit_radius_ratios",
-    "sample_hsv",
-    "NEXT_MAX_TYPE",
-]
 
 # Adjacent stages differ by about 1.2x in radius ratio. Beyond this in log distance, a candidate is excluded.
 RADIUS_LOG_TOLERANCE = math.log(1.6)

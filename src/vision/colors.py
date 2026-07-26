@@ -1,3 +1,8 @@
+import cv2
+import numpy as np
+
+from ..config import load
+
 # The largest stage appearing in next (orange). Apple and above never come.
 NEXT_MAX_TYPE = 4
 
@@ -51,6 +56,12 @@ COLOR_FAMILIES = {
     "yellow_green": [6, 8, 9, 10],
     "pink": [7],
 }
+
+
+def saturated_mask(hsv: np.ndarray) -> np.ndarray:
+    """Keep only pixels that look like fruit by saturation."""
+    saturation_min = load().get("fruit_saturation_min", DEFAULT_FRUIT_SATURATION_MIN)
+    return cv2.inRange(hsv, (0, saturation_min, 45), (180, 255, 255))
 
 
 def color_family(h: float, s: float) -> str:
