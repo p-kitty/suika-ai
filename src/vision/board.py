@@ -35,6 +35,13 @@ CORNER_SMOOTH_ALPHA = 0.35
 # これを超える移動は本当に視点が動いたと見なして平滑化せず追従する。
 CORNER_JUMP_RATIO = 0.08
 
+# 各辺に直線を当てるとき、角の丸みを避けて両端を捨てる割合。
+CORNER_ARC_SKIP_RATIO = 0.15
+# 直線を決めるのに要る点数。これを割る辺があれば当てはめを諦める。
+MIN_SIDE_POINTS = 10
+# 交点がこれだけ動いたら当てはめが破綻したとみなし、粗い四角形に戻す。
+MAX_CORNER_SHIFT_RATIO = 0.25
+
 
 @dataclass
 class BoardResult:
@@ -174,7 +181,8 @@ def _find_corners(frame: np.ndarray) -> np.ndarray | None:
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # 辺に直線を当てるので、間引かずに輪郭の全点を受け取る。
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not contours:
         return None
 
@@ -213,6 +221,15 @@ def _touches_edge(corners: np.ndarray, shape: tuple[int, int]) -> bool:
 
 
 def _contour_to_corners(contour: np.ndarray) -> np.ndarray | None:
+    coarse = _coarse_corners(contour)
+    if coarse is None:
+        return None
+
+    return _fit_corners(contour, _order_corners(coarse))
+
+
+def _coarse_corners(contour: np.ndarray) -> np.ndarray | None:
+    """どの点がどの辺に属するかを決めるための、大まかな四角形。"""
     perimeter = cv2.arcLength(contour, True)
     if perimeter <= 0:
         return None
@@ -223,6 +240,72 @@ def _contour_to_corners(contour: np.ndarray) -> np.ndarray | None:
 
     rect = cv2.minAreaRect(contour)
     return cv2.boxPoints(rect).astype(np.float32)
+
+
+def _fit_corners(contour: np.ndarray, coarse: np.ndarray) -> np.ndarray:
+    """四辺に直線を当て、その交点を四隅とする。
+
+    盤面の角は丸い。approxPolyDP の頂点は円弧の上に乗り、しかも許容誤差が
+    周長の 2% (実測で 30px 超) あるので、頂点は真の角より内側に来る。
+    minAreaRect も遠近で歪んだ盤面には合わない。辺は丸みの影響を受けない
+    ので、辺から角を復元する。
+    """
+    points = contour.reshape(-1, 2).astype(np.float32)
+
+    starts = coarse
+    edges = np.roll(coarse, -1, axis=0) - starts
+    lengths = np.linalg.norm(edges, axis=1)
+    if (lengths <= 1e-6).any():
+        return coarse
+
+    units = edges / lengths[:, None]
+    offsets = points[:, None, :] - starts[None, :, :]
+    along = (offsets * units[None, :, :]).sum(axis=2)
+    across = np.abs(
+        offsets[:, :, 0] * units[None, :, 1] - offsets[:, :, 1] * units[None, :, 0]
+    )
+    nearest = np.argmin(across, axis=1)
+
+    lines = []
+    for side in range(4):
+        skip = lengths[side] * CORNER_ARC_SKIP_RATIO
+        on_side = (
+            (nearest == side)
+            & (along[:, side] > skip)
+            & (along[:, side] < lengths[side] - skip)
+        )
+        if int(on_side.sum()) < MIN_SIDE_POINTS:
+            return coarse
+
+        lines.append(cv2.fitLine(points[on_side], cv2.DIST_L2, 0, 0.01, 0.01).ravel())
+
+    fitted = []
+    for side in range(4):
+        corner = _intersect(lines[side - 1], lines[side])
+        if corner is None:
+            return coarse
+        fitted.append(corner)
+
+    corners = np.array(fitted, dtype=np.float32)
+
+    # 辺の一部しか写っていないと直線が転び、交点が遠くへ飛ぶ。
+    if np.linalg.norm(corners - coarse, axis=1).max() > lengths.max() * MAX_CORNER_SHIFT_RATIO:
+        return coarse
+
+    return corners
+
+
+def _intersect(first: np.ndarray, second: np.ndarray) -> tuple[float, float] | None:
+    """fitLine が返す (方向ベクトル, 通過点) 同士の交点。"""
+    ax, ay, apx, apy = first
+    bx, by, bpx, bpy = second
+
+    denominator = ax * by - ay * bx
+    if abs(denominator) < 1e-6:
+        return None
+
+    step = ((bpx - apx) * by - (bpy - apy) * bx) / denominator
+    return float(apx + ax * step), float(apy + ay * step)
 
 
 def _order_corners(corners: np.ndarray) -> np.ndarray:
