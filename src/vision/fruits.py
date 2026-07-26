@@ -1,3 +1,5 @@
+from functools import cache
+
 import cv2
 import numpy as np
 
@@ -11,16 +13,16 @@ from .state import Fruit
 BORDER_BAND_RATIO = 0.045
 
 # The background is a gradient getting smoothly darker from top to bottom, and its lower part is about as saturated
-# as saturated. A fixed threshold cannot cut it, so the background is found by region growing
-# from the open top.
-BACKGROUND_SEED_BAND = 0.30
-BACKGROUND_SEED_STEP = 16
-# Judged by the difference from adjacent pixels, so it follows gentle gradients while stopping at contours.
-BACKGROUND_TOLERANCE = 10
-# Points far from the representative background color are not used as seeds (does not break even with fruit at the top).
-BACKGROUND_SEED_TOLERANCE = 26
-# If the background gets no more than this, region growing is considered failed.
-MIN_BACKGROUND_RATIO = 0.20
+# as the fruits. A fixed threshold cannot cut it, so the background color is fitted as a linear function of coordinates
+# and fruits are taken by color difference from it.
+BACKGROUND_TOLERANCE = 14.0
+BACKGROUND_FIT_ITERATIONS = 5
+# Determining the plane does not need every pixel. Fit on a thinned sample.
+BACKGROUND_FIT_STRIDE = 4
+# Pixel count after thinning. If the seeds are filled with fruit, the fit is considered failed.
+MIN_BACKGROUND_SAMPLES = 300
+# Width of the ring the seeds are taken from. Taken just inside the edge band.
+BACKGROUND_SEED_WIDTH_RATIO = 0.03
 
 # The background saturation overlaps with fruits, so a threshold alone cannot separate them.
 # Keep only 'balls actually visible' by how much contour lies on the circumference.
@@ -83,12 +85,12 @@ def _edge_support(outline: np.ndarray, x: float, y: float, radius: float) -> flo
 
 
 def fruit_mask(board: np.ndarray) -> np.ndarray:
-    background = _background_mask(board)
+    distance = _background_distance(board)
 
-    if float((background > 0).mean()) < MIN_BACKGROUND_RATIO:
+    if distance is None:
         mask = _saturation_mask(board)
     else:
-        mask = np.where(background > 0, 0, 255).astype(np.uint8)
+        mask = (distance > BACKGROUND_TOLERANCE).astype(np.uint8) * 255
 
     # The frame, shadows and the background outside the frame are all highly saturated and cannot be cut by color,
     # so the board's edges are dropped wholesale without looking at color.
@@ -101,46 +103,86 @@ def fruit_mask(board: np.ndarray) -> np.ndarray:
     return mask
 
 
-def _background_mask(board: np.ndarray) -> np.ndarray:
-    """Flood the background from the top where no fruit is stacked.
+def _background_distance(board: np.ndarray) -> np.ndarray | None:
+    """Return how far each pixel is from the background color.
 
-    Calling floodFill without FIXED_RANGE compares not against 'the seed color' but against
-    'the neighboring already filled pixel'. So a gentle gradient from top to bottom can be followed
-    to the end, and it stops only at sharp steps like fruit edges.
+    The background only gets smoothly darker from top to bottom, so the color, as a linear function of coordinates
+    can be written as Lab = a + b*x + c*y. Fruits are repeatedly cut off as outliers,
+    and the fit uses only the remaining pixels.
+
+    Unlike flood filling it does not break when the board is full, and background isolated
+    by surrounding fruits is still picked up as background.
     """
-    height, width = board.shape[:2]
-    # A Gaussian softens edges, and raising the tolerance even slightly makes the fill
-    # leak into fruits. A median preserves steps, so it is insensitive to tolerance.
-    blurred = cv2.medianBlur(board, 5)
+    # A median preserves steps, so edges do not soften and the color difference stays sharp.
+    lab = cv2.cvtColor(cv2.medianBlur(board, 5), cv2.COLOR_BGR2LAB).astype(np.float32)
 
-    margin_y = max(1, int(height * BORDER_BAND_RATIO))
-    margin_x = max(1, int(width * BORDER_BAND_RATIO))
-    band_bottom = max(margin_y + 1, int(height * BACKGROUND_SEED_BAND))
+    coefficients = _fit_background(lab, _seed_band(board.shape[:2]))
+    if coefficients is None:
+        return None
 
-    band = blurred[margin_y:band_bottom, margin_x : width - margin_x]
-    if band.size == 0:
-        return np.zeros((height, width), dtype=np.uint8)
+    # With only the edge band, the seeds lean toward the outer rim of the screen. Refitting with pixels judged as background
+    # by the first fit makes it decided by seeds spread over the whole board.
+    inliers = _distance_to(lab, coefficients) < BACKGROUND_TOLERANCE
+    refitted = _fit_background(lab, inliers)
 
-    reference = np.median(band.reshape(-1, 3), axis=0)
+    return _distance_to(lab, coefficients if refitted is None else refitted)
 
-    filled = np.zeros((height + 2, width + 2), dtype=np.uint8)
-    tolerance = (BACKGROUND_TOLERANCE,) * 3
-    flags = cv2.FLOODFILL_MASK_ONLY | 4 | (255 << 8)
 
-    for y in range(margin_y, band_bottom, BACKGROUND_SEED_STEP):
-        for x in range(margin_x, width - margin_x, BACKGROUND_SEED_STEP):
-            if filled[y + 1, x + 1]:
-                continue
-            if np.abs(blurred[y, x].astype(np.int16) - reference).max() > BACKGROUND_SEED_TOLERANCE:
-                continue
+def _fit_background(lab: np.ndarray, seeds: np.ndarray) -> np.ndarray | None:
+    """Find the linear coefficients (3x3) while cutting off outliers."""
+    stride = BACKGROUND_FIT_STRIDE
+    design = _coordinate_design(lab.shape[:2])
+    samples = lab[::stride, ::stride].reshape(-1, 3)
+    keep = seeds[::stride, ::stride].reshape(-1).copy()
 
-            cv2.floodFill(blurred, filled, (x, y), 0, tolerance, tolerance, flags)
+    for _ in range(BACKGROUND_FIT_ITERATIONS):
+        if int(keep.sum()) < MIN_BACKGROUND_SAMPLES:
+            return None
 
-    return filled[1:-1, 1:-1]
+        rows = design[keep]
+        coefficients = np.linalg.lstsq(rows, samples[keep], rcond=None)[0]
+        residual = np.linalg.norm(rows @ coefficients - samples[keep], axis=1)
+
+        outliers = residual >= BACKGROUND_TOLERANCE
+        if not outliers.any():
+            break
+
+        keep[np.nonzero(keep)[0][outliers]] = False
+
+    return coefficients
+
+
+def _distance_to(lab: np.ndarray, coefficients: np.ndarray) -> np.ndarray:
+    """How far each pixel is from the background color given by the linear function."""
+    height, width = lab.shape[:2]
+    constant, per_x, per_y = coefficients
+
+    model = constant + np.arange(width, dtype=np.float32)[None, :, None] * per_x
+    model = model + np.arange(height, dtype=np.float32)[:, None, None] * per_y
+
+    return np.linalg.norm(lab - model, axis=2)
+
+
+@cache
+def _coordinate_design(shape: tuple[int, int]) -> np.ndarray:
+    """Thinned coordinates [1, x, y] for fitting. Determining the plane does not need every pixel."""
+    height, width = shape
+    stride = BACKGROUND_FIT_STRIDE
+    ys, xs = np.mgrid[0:height:stride, 0:width:stride]
+
+    return np.stack([np.ones_like(xs), xs, ys], axis=-1).astype(np.float32).reshape(-1, 3)
+
+
+def _seed_band(shape: tuple[int, int]) -> np.ndarray:
+    """A ring just inside the edge band. Background is often visible near the walls."""
+    outer = _border_band(shape)
+    inner = _border_band(shape, BORDER_BAND_RATIO + BACKGROUND_SEED_WIDTH_RATIO)
+
+    return inner & ~outer
 
 
 def _saturation_mask(board: np.ndarray) -> np.ndarray:
-    """A fallback for when region growing fails."""
+    """A fallback for when fitting fails."""
     hsv = cv2.cvtColor(board, cv2.COLOR_BGR2HSV)
     mask = saturated_mask(hsv)
 
@@ -150,12 +192,12 @@ def _saturation_mask(board: np.ndarray) -> np.ndarray:
     return mask
 
 
-def _border_band(shape: tuple[int, int]) -> np.ndarray:
+def _border_band(shape: tuple[int, int], ratio: float = BORDER_BAND_RATIO) -> np.ndarray:
     height, width = shape
     band = np.zeros(shape, dtype=bool)
 
-    margin_y = max(1, int(height * BORDER_BAND_RATIO))
-    margin_x = max(1, int(width * BORDER_BAND_RATIO))
+    margin_y = max(1, int(height * ratio))
+    margin_x = max(1, int(width * ratio))
 
     band[:margin_y, :] = True
     band[height - margin_y :, :] = True
@@ -212,8 +254,9 @@ def _deduplicate(fruits: list[Fruit]) -> list[Fruit]:
 
         for existing in kept:
             distance = np.hypot(fruit.x - existing.x, fruit.y - existing.y)
-            overlap = fruit.radius + existing.radius - distance
-            if overlap > min(fruit.radius, existing.radius) * 0.50:
+            # Only a second peak standing on the same fruit should be dropped. A different touching
+            # fruit does not bite into the center even if they overlap somewhat visually.
+            if distance < max(fruit.radius, existing.radius):
                 duplicate = True
                 break
 

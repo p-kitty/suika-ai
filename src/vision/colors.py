@@ -20,19 +20,21 @@ FRUIT_NAMES = [
     "watermelon",
 ]
 
-# Radius ratio per stage (watermelon = 1.0). The Suika Game hitbox
-# grows about 1.2x per stage, and this ratio is common even when the skin changes.
+# Radius ratio per stage (watermelon = 1.0). The Suika Game hitbox radii
+# (16.5 - 129.5) divided as is; this ratio is common even when the skin changes.
+# It is not geometric: some adjacent stages such as grape/dekopon and apple/pear differ by only 1.13x.
+# Those cannot be split by radius, so color decides.
 FRUIT_RELATIVE_RADIUS = [
-    0.084,   # cherry
-    0.130,   # strawberry
-    0.175,   # grape
-    0.234,   # dekopon
-    0.299,   # orange
-    0.383,   # apple
-    0.481,   # pear
-    0.591,   # peach
-    0.721,   # pineapple
-    0.838,   # melon
+    0.127,   # cherry
+    0.185,   # strawberry
+    0.236,   # grape
+    0.266,   # dekopon
+    0.344,   # orange
+    0.440,   # apple
+    0.498,   # pear
+    0.602,   # peach
+    0.683,   # pineapple
+    0.849,   # melon
     1.000,   # watermelon
 ]
 
@@ -71,11 +73,10 @@ def color_family(h: float, s: float) -> str:
         return "purple"
     if 148 <= h <= 172:
         return "pink"
-    if 30 <= h <= 95:
-        return "yellow_green"
-    # VRC: every reddish fruit gathers at H≈15-25
-    if h <= 28 or h >= 165:
+    # VRC: every reddish fruit collapses to H<=22. pear and pineapple sit slightly above at
+    # H=27-28, which is the boundary between reddish and yellow-green.
+    if h <= 24 or h >= 165:
         return "red_orange"
-    if 15 <= h <= 35:
+    if h <= 95:
         return "yellow_green"
     return "unknown"
