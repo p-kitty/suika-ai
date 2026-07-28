@@ -28,11 +28,6 @@ Desktop.ini
 
 # Project artifacts
 debug/
-screenshots/*.png
-screenshots/*.jpg
-screenshots/*.jpeg
-screenshots/*.gif
-screenshots/*.webp
 
 # Test / cache
 .pytest_cache/
