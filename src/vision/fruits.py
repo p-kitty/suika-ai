@@ -31,6 +31,10 @@ EDGE_SUPPORT_SAMPLES = 48
 MIN_EDGE_SUPPORT = 0.25
 EDGE_GRADIENT_THRESHOLD = 60.0
 
+# 囲まれた穴を照り返しと見なす、下地の色からの距離。実測では照り返しが
+# 12〜20、触れ合ったフルーツに囲まれた本物の下地が 1〜4 で、間は空いている。
+HOLE_BACKGROUND_DISTANCE = 8.0
+
 
 def detect(board: np.ndarray) -> list[Fruit]:
     if board.size == 0:
@@ -100,7 +104,47 @@ def fruit_mask(board: np.ndarray) -> np.ndarray:
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
-    return mask
+    if distance is None:
+        return mask
+
+    return _fill_highlights(mask, distance)
+
+
+def _fill_highlights(mask: np.ndarray, distance: np.ndarray) -> np.ndarray:
+    """フルーツの表面の照り返しが空けた穴を埋める。
+
+    強い照り返しは下地のベージュに近い色に写るので許容範囲に収まってしまい、
+    フルーツの内側に穴が残る。穴があると距離変換のピークが中心から追い出さ
+    れ、一つのフルーツが小さな円いくつかに割れる。
+
+    触れ合ったフルーツに囲まれた下地も同じく囲まれた穴になるが、そちらを
+    埋めるとフルーツ同士がつながって巨大な円になる。見分けるのは下地の色から
+    の距離で、照り返しは許容範囲の際にいて、本物の下地はずっと内側にいる。
+    """
+    background = (mask == 0).astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(background, connectivity=8)
+
+    # ラベル 0 はフルーツ自身。盤面の外まで続く領域は下地なので触らない。
+    enclosed = np.ones(count, dtype=bool)
+    enclosed[0] = False
+    enclosed[_border_labels(labels)] = False
+
+    highlight = np.zeros(count, dtype=bool)
+    for label in np.nonzero(enclosed)[0]:
+        left, top, width, height = stats[label, :4]
+        window = (slice(top, top + height), slice(left, left + width))
+        hole = labels[window] == label
+
+        highlight[label] = np.median(distance[window][hole]) >= HOLE_BACKGROUND_DISTANCE
+
+    filled = mask.copy()
+    filled[highlight[labels]] = 255
+
+    return filled
+
+
+def _border_labels(labels: np.ndarray) -> np.ndarray:
+    return np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
 
 
 def _background_distance(board: np.ndarray) -> np.ndarray | None:
