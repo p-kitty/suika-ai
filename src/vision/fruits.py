@@ -31,6 +31,10 @@ EDGE_SUPPORT_SAMPLES = 48
 MIN_EDGE_SUPPORT = 0.25
 EDGE_GRADIENT_THRESHOLD = 60.0
 
+# Distance from the background color for treating an enclosed hole as a highlight. Measured, highlights are
+# 12-20 and real background enclosed by touching fruits is 1-4, with a gap between.
+HOLE_BACKGROUND_DISTANCE = 8.0
+
 
 def detect(board: np.ndarray) -> list[Fruit]:
     if board.size == 0:
@@ -100,7 +104,47 @@ def fruit_mask(board: np.ndarray) -> np.ndarray:
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
-    return mask
+    if distance is None:
+        return mask
+
+    return _fill_highlights(mask, distance)
+
+
+def _fill_highlights(mask: np.ndarray, distance: np.ndarray) -> np.ndarray:
+    """Fill holes left by highlights on fruit surfaces.
+
+    Strong highlights appear close to the beige background color and fall within tolerance,
+    leaving holes inside the fruit. A hole pushes the distance transform's peak away from the center,
+    and one fruit splits into several small circles.
+
+    Background enclosed by touching fruits is also an enclosed hole, but filling that
+    joins the fruits into one huge circle. They are told apart by the distance from the background color:
+    highlights sit at the edge of tolerance, while real background is well inside.
+    """
+    background = (mask == 0).astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(background, connectivity=8)
+
+    # Label 0 is the fruit itself. Regions continuing outside the board are background and left alone.
+    enclosed = np.ones(count, dtype=bool)
+    enclosed[0] = False
+    enclosed[_border_labels(labels)] = False
+
+    highlight = np.zeros(count, dtype=bool)
+    for label in np.nonzero(enclosed)[0]:
+        left, top, width, height = stats[label, :4]
+        window = (slice(top, top + height), slice(left, left + width))
+        hole = labels[window] == label
+
+        highlight[label] = np.median(distance[window][hole]) >= HOLE_BACKGROUND_DISTANCE
+
+    filled = mask.copy()
+    filled[highlight[labels]] = 255
+
+    return filled
+
+
+def _border_labels(labels: np.ndarray) -> np.ndarray:
+    return np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
 
 
 def _background_distance(board: np.ndarray) -> np.ndarray | None:
