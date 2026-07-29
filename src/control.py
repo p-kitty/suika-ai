@@ -62,15 +62,11 @@ def drop_column(
     target_x: float,
     *,
     read: Callable[[], tuple[object, np.ndarray | None]],
-    dry_run: bool = False,
 ) -> bool:
     """Line up the waiting column with target_x, then click.
 
     Assumes the caller has hidden Suika. Windows are not shown or hidden here.
     """
-    if dry_run:
-        return True
-
     focus(VRCHAT_TITLE)
     aimed = aim(target_x, read)
     click()

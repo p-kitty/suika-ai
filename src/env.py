@@ -9,7 +9,6 @@ import numpy as np
 
 from . import control, settle
 from .capture import capture
-from .config import load
 from .observe import Observation, clamp_drop_x, from_board
 from .tracker import Tracker
 from .vision.board import BoardResult, localize
@@ -18,7 +17,7 @@ from .vision.board import BoardResult, localize
 @dataclass
 class StepResult:
     observation: Observation
-    # Target column (normalized coordinates). Set even in dry_run.
+    # Target column (normalized coordinates).
     target_x: float | None
     # A dialog hid the board, or it could not get back to ready due to a timeout.
     done: bool
@@ -28,13 +27,10 @@ class StepResult:
 class Env:
     """Read the screen, drop at the given column, and return the settled board."""
 
-    def __init__(self, *, dry_run: bool | None = None) -> None:
+    def __init__(self) -> None:
         self.tracker = Tracker()
         self.previous_corners: np.ndarray | None = None
         self._last_board: BoardResult | None = None
-        if dry_run is None:
-            dry_run = not load().get("control_enabled", False)
-        self.dry_run = dry_run
 
     def reset(self) -> Observation:
         self.tracker.reset()
@@ -77,12 +73,9 @@ class Env:
         target = clamp_drop_x(x, before.held_type)
         read = self._aim_read
 
-        if self.dry_run:
-            return StepResult(before, target, done=False, info="dry_run")
-
         # Hide Suika during controls, settle wait and return to center, and bring it back once at the end.
         with control.hidden(control.SUIKA_TITLE):
-            aimed = control.drop_column(target, read=read, dry_run=False)
+            aimed = control.drop_column(target, read=read)
             info_aim = "ok" if aimed else "aim_timeout"
 
             # After dropping, wait once for held to disappear. If it does not disappear, the settle check

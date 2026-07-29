@@ -1,8 +1,7 @@
 """Drop just one move. For checking the learning loop works.
 
-    python scripts/play_step.py           # dry-run (coordinates only)
-    python scripts/play_step.py --live    # actually click
-    python scripts/play_step.py --live 200  # specify the column
+    python scripts/play_step.py
+    python scripts/play_step.py 200  # specify the column
 """
 
 import argparse
@@ -17,7 +16,6 @@ from src.env import Env
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--live", action="store_true", help="actually click")
     parser.add_argument(
         "x",
         nargs="?",
@@ -27,13 +25,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    env = Env(dry_run=not args.live)
+    env = Env()
     obs = env.reset()
 
     print(
         f"ready={obs.ready} blocked={obs.blocked} "
         f"held={obs.held_name}@{obs.held_x} next={obs.next_name} "
-        f"fruits={len(obs.fruits)} dry_run={env.dry_run}"
+        f"fruits={len(obs.fruits)}"
     )
     if not obs.ready:
         print("not in a state to drop")
