@@ -9,7 +9,6 @@ import numpy as np
 
 from . import control, settle
 from .capture import capture
-from .config import load
 from .observe import Observation, clamp_drop_x, from_board
 from .tracker import Tracker
 from .vision.board import BoardResult, localize
@@ -18,7 +17,7 @@ from .vision.board import BoardResult, localize
 @dataclass
 class StepResult:
     observation: Observation
-    # 狙い列 (正規化座標)。dry_run でも入る。
+    # 狙い列 (正規化座標)。
     target_x: float | None
     # ダイアログで盤面が隠れた、またはタイムアウトで ready に戻れなかった。
     done: bool
@@ -28,13 +27,10 @@ class StepResult:
 class Env:
     """画面を読んで、列を指定して落として、止まった盤面を返す。"""
 
-    def __init__(self, *, dry_run: bool | None = None) -> None:
+    def __init__(self) -> None:
         self.tracker = Tracker()
         self.previous_corners: np.ndarray | None = None
         self._last_board: BoardResult | None = None
-        if dry_run is None:
-            dry_run = not load().get("control_enabled", False)
-        self.dry_run = dry_run
 
     def reset(self) -> Observation:
         self.tracker.reset()
@@ -77,12 +73,9 @@ class Env:
         target = clamp_drop_x(x, before.held_type)
         read = self._aim_read
 
-        if self.dry_run:
-            return StepResult(before, target, done=False, info="dry_run")
-
         # 操作〜静止待ち〜中央復帰のあいだ Suika を隠し、最後に一度だけ戻す。
         with control.hidden(control.SUIKA_TITLE):
-            aimed = control.drop_column(target, read=read, dry_run=False)
+            aimed = control.drop_column(target, read=read)
             info_aim = "ok" if aimed else "aim_timeout"
 
             # 落としたあと、いったん held が消えるのを待つ。消えないまま静止判定に

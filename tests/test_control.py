@@ -82,12 +82,6 @@ def test_drop_aims_then_clicks_at_target(world: FakeWorld) -> None:
     assert abs(world.clicked_at - target) <= LOOK_CFG["look_tolerance"]
 
 
-def test_drop_dry_run_skips_click(world: FakeWorld) -> None:
-    assert control.drop_column(200.0, read=world.read, dry_run=True) is True
-    assert world.clicks == 0
-    assert world.moves == []
-
-
 def test_recenter_brings_held_to_center(world: FakeWorld) -> None:
     world.held_x = 30.0
     assert control.recenter(world.read) is True
@@ -140,13 +134,13 @@ def test_step_drops_settles_and_recenters(monkeypatch: pytest.MonkeyPatch) -> No
         next_type=2,
     )
 
-    env = Env(dry_run=False)
+    env = Env()
     monkeypatch.setattr(env, "observe", lambda frame=None: ready)
     monkeypatch.setattr(control, "hidden", fake_hidden)
     monkeypatch.setattr(
         control,
         "drop_column",
-        lambda target, read, dry_run=False: events.append(f"drop:{target:.0f}") or True,
+        lambda target, read: events.append(f"drop:{target:.0f}") or True,
     )
     monkeypatch.setattr(
         "src.env._wait_held_gone",

@@ -125,12 +125,8 @@ def main() -> None:
         elif key == CENTER_KEY and obs.held_x is not None:
             aim_x = obs.held_x
         elif key == AUTO_KEY:
-            if env.dry_run:
-                message = "auto: control_enabled を true に"
-                auto_play = False
-            else:
-                auto_play = not auto_play
-                message = f"auto={'ON' if auto_play else 'off'}"
+            auto_play = not auto_play
+            message = f"auto={'ON' if auto_play else 'off'}"
             message_until = now + MESSAGE_SECONDS
             print(message)
 
@@ -157,10 +153,7 @@ def main() -> None:
 
         # p = 方策で 1 手。g で連続自動中なら ready のたびに落とす。
         if key == POLICY_KEY or (auto_play and obs.ready and not obs.blocked):
-            if env.dry_run:
-                message = "policy: control_enabled を true に"
-                auto_play = False
-            elif not obs.ready:
+            if not obs.ready:
                 message = "policy: not ready"
             else:
                 # 連鎖が止まるまで待ってから列を決める。
@@ -187,9 +180,7 @@ def main() -> None:
             if aim_x is not None and board.corners is not None and obs.ready:
                 _draw_aim(output, board.corners, aim_x)
 
-        mode = "LIVE" if not env.dry_run else "dry-run"
-        if auto_play:
-            mode = "AUTO"
+        mode = "AUTO" if auto_play else "LIVE"
         hint = f"{mode}  p: policy  g: auto  space: drop  a/d: aim  s: save"
         put_text(output, f"aim x={aim_x:.0f}" if aim_x is not None else "aim —", (8, 128), (0, 255, 255))
         put_text(

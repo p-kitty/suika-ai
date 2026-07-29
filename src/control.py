@@ -62,15 +62,11 @@ def drop_column(
     target_x: float,
     *,
     read: Callable[[], tuple[object, np.ndarray | None]],
-    dry_run: bool = False,
 ) -> bool:
     """落下待ちの列を target_x に重ねてからクリックする。
 
     呼び出し側で Suika を隠している前提。ここでは窓の出し入れをしない。
     """
-    if dry_run:
-        return True
-
     focus(VRCHAT_TITLE)
     aimed = aim(target_x, read)
     click()

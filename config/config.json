@@ -9,7 +9,6 @@
     "min_confidence": 0.35,
     "debug_radius": true,
     "debug_dump_interval_sec": 0,
-    "control_enabled": true,
     "look_gain": 0.55,
     "look_tolerance": 8,
     "look_timeout_sec": 4.0,
