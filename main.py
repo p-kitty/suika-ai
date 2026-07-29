@@ -11,6 +11,8 @@ from src.debug_dump import dump
 from src.draw import put_text
 from src.env import Env
 from src.observe import Observation, clamp_drop_x
+from src.policy import choose_x
+from src.settle import wait_playable
 from src.vision.board import draw_frame_debug
 from src.vision.held import DROP_HEIGHT
 from src.vision.normalized import inverse_warp_matrix, transform_point, warp_matrix
@@ -21,6 +23,8 @@ MESSAGE_SECONDS = 3.0
 
 DUMP_KEY = ord("s")
 DROP_KEY = ord(" ")
+POLICY_KEY = ord("p")
+AUTO_KEY = ord("g")
 LEFT_KEY = ord("a")
 RIGHT_KEY = ord("d")
 COARSE_LEFT_KEY = ord("j")
@@ -54,6 +58,7 @@ def main() -> None:
     next_vision = 0.0
     # None のあいだは落下待ちの今の列に合わせる。a/d やクリックで動かしたら固定。
     aim_x: float | None = None
+    auto_play = False
     click = AimClick()
     obs = Observation(
         ready=False,
@@ -86,9 +91,12 @@ def main() -> None:
                 COARSE_RIGHT_KEY,
                 CENTER_KEY,
                 DROP_KEY,
+                POLICY_KEY,
+                AUTO_KEY,
                 DUMP_KEY,
             )
             or click.x is not None
+            or auto_play
         )
         if need_vision:
             obs = env.observe(frame)
@@ -116,11 +124,20 @@ def main() -> None:
             aim_x = clamp_drop_x(aim_x + COARSE_NUDGE, obs.held_type)
         elif key == CENTER_KEY and obs.held_x is not None:
             aim_x = obs.held_x
+        elif key == AUTO_KEY:
+            if env.dry_run:
+                message = "auto: control_enabled を true に"
+                auto_play = False
+            else:
+                auto_play = not auto_play
+                message = f"auto={'ON' if auto_play else 'off'}"
+            message_until = now + MESSAGE_SECONDS
+            print(message)
 
         interval = load().get("debug_dump_interval_sec", 0)
-        auto = bool(interval) and board is not None and board.found and now >= next_auto_dump
+        auto_dump = bool(interval) and board is not None and board.found and now >= next_auto_dump
 
-        if key == DUMP_KEY or auto:
+        if key == DUMP_KEY or auto_dump:
             next_auto_dump = now + max(interval, 1)
             if board is not None:
                 message = dump(frame, board)
@@ -138,6 +155,32 @@ def main() -> None:
                 print(message)
             message_until = now + MESSAGE_SECONDS
 
+        # p = 方策で 1 手。g で連続自動中なら ready のたびに落とす。
+        if key == POLICY_KEY or (auto_play and obs.ready and not obs.blocked):
+            if env.dry_run:
+                message = "policy: control_enabled を true に"
+                auto_play = False
+            elif not obs.ready:
+                message = "policy: not ready"
+            else:
+                # 連鎖が止まるまで待ってから列を決める。
+                obs = wait_playable(env.observe)
+                if obs.blocked or not obs.ready:
+                    message = "policy: not settled"
+                    auto_play = False if obs.blocked else auto_play
+                else:
+                    target = choose_x(obs)
+                    aim_x = target
+                    result = env.step(target)
+                    message = f"auto x={target:.0f} -> {result.info}"
+                    aim_x = result.observation.held_x
+                    obs = result.observation
+                    print(message)
+                    if result.done:
+                        auto_play = False
+                        message = f"{message} (stop)"
+            message_until = now + MESSAGE_SECONDS
+
         output = frame.copy()
         if board is not None:
             output = draw_frame_debug(frame, board)
@@ -145,7 +188,9 @@ def main() -> None:
                 _draw_aim(output, board.corners, aim_x)
 
         mode = "LIVE" if not env.dry_run else "dry-run"
-        hint = f"{mode}  click/a/d: aim  j/l: coarse  space: drop  c: held  s: save"
+        if auto_play:
+            mode = "AUTO"
+        hint = f"{mode}  p: policy  g: auto  space: drop  a/d: aim  s: save"
         put_text(output, f"aim x={aim_x:.0f}" if aim_x is not None else "aim —", (8, 128), (0, 255, 255))
         put_text(
             output,

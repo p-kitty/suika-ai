@@ -67,6 +67,13 @@ class Env:
         if not before.ready:
             return StepResult(before, None, done=False, info="not ready")
 
+        # 自動プレイで ready 直後に落とすと、まだ連鎖中のことがある。
+        before = settle.wait_playable(self.observe)
+        if before.blocked:
+            return StepResult(before, None, done=True, info="dialog")
+        if not before.ready:
+            return StepResult(before, None, done=False, info="not settled")
+
         target = clamp_drop_x(x, before.held_type)
         read = self._aim_read
 
@@ -82,15 +89,11 @@ class Env:
             # 入ると、雲が動いただけの揺れで止まってしまう。
             _wait_held_gone(self.observe, before.held_x)
 
-            settled = settle.wait_settled(self.observe)
-            if settled.blocked:
-                return StepResult(settled, target, done=True, info="dialog")
-
-            ready = settle.wait_ready(self.observe)
-            done = ready.blocked or not ready.ready
-            if ready.blocked:
+            after = settle.wait_playable(self.observe)
+            done = after.blocked or not after.ready
+            if after.blocked:
                 info = "dialog"
-            elif not ready.ready:
+            elif not after.ready:
                 info = "timeout"
             elif not aimed:
                 info = info_aim
@@ -98,11 +101,11 @@ class Env:
                 info = "ok"
 
             # 次の手が端から始まらないよう、新しい落下待ちを中央へ戻す。
-            if not done and ready.ready:
+            if not done and after.ready:
                 control.recenter(read)
-                ready = self.observe()
+                after = self.observe()
 
-        return StepResult(ready, target, done=done, info=info)
+        return StepResult(after, target, done=done, info=info)
 
     def _aim_read(self):
         obs = self.observe()

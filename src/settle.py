@@ -13,11 +13,13 @@ from .vision.state import Fruit
 # これ未満の移動は揺らぎとみなす (正規化座標 px)。
 DEFAULT_STILL_PX = 2.5
 # この長さずっと静かなら止まったとみなす。
-DEFAULT_STILL_SEC = 0.45
+DEFAULT_STILL_SEC = 0.7
 # 落としてからここまで動かなければ諦める。
 DEFAULT_TIMEOUT_SEC = 8.0
 # 落下待ちが消えてから、次のが出るまでの待ち上限。
 DEFAULT_HELD_TIMEOUT_SEC = 4.0
+# ready 待ちを含めた「次の一手ができる」までの上限。
+DEFAULT_PLAYABLE_TIMEOUT_SEC = 12.0
 
 
 def motion(previous: list[Fruit] | tuple[Fruit, ...], current: list[Fruit] | tuple[Fruit, ...]) -> float:
@@ -89,6 +91,39 @@ def wait_ready(
             return last
         time.sleep(1 / 30)
         last = read()
+
+    return last
+
+
+def wait_playable(
+    read: Callable[[], Observation],
+    *,
+    timeout_sec: float = DEFAULT_PLAYABLE_TIMEOUT_SEC,
+) -> Observation:
+    """盤面が止まり、かつ落下待ちが読める観測を返す。
+
+    held が出たあとに連鎖でまた動くことがあるので、not ready → ready の
+    直後はもう一度静止を確認する。
+    """
+    deadline = time.monotonic() + timeout_sec
+    last = read()
+
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+
+        last = wait_settled(read, timeout_sec=remaining)
+        if last.blocked or last.ready:
+            return last
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        last = wait_ready(read, timeout_sec=min(remaining, DEFAULT_HELD_TIMEOUT_SEC))
+        if last.blocked:
+            return last
+        # ready になった直後なので、ループ先頭で再度 settle する。
 
     return last
 
