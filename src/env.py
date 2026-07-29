@@ -73,30 +73,28 @@ class Env:
         target = clamp_drop_x(x, before.held_type)
         read = self._aim_read
 
-        # Hide Suika during controls, settle wait and return to center, and bring it back once at the end.
-        with control.hidden(control.SUIKA_TITLE):
-            aimed = control.drop_column(target, read=read)
-            info_aim = "ok" if aimed else "aim_timeout"
+        aimed = control.drop_column(target, read=read)
+        info_aim = "ok" if aimed else "aim_timeout"
 
-            # After dropping, wait once for held to disappear. If it does not disappear, the settle check
-            # stops on wobble that is only the clouds moving.
-            _wait_held_gone(self.observe, before.held_x)
+        # After dropping, wait once for held to disappear. If it does not disappear, the settle check
+        # stops on wobble that is only the clouds moving.
+        _wait_held_gone(self.observe, before.held_x)
 
-            after = settle.wait_playable(self.observe)
-            done = after.blocked or not after.ready
-            if after.blocked:
-                info = "dialog"
-            elif not after.ready:
-                info = "timeout"
-            elif not aimed:
-                info = info_aim
-            else:
-                info = "ok"
+        after = settle.wait_playable(self.observe)
+        done = after.blocked or not after.ready
+        if after.blocked:
+            info = "dialog"
+        elif not after.ready:
+            info = "timeout"
+        elif not aimed:
+            info = info_aim
+        else:
+            info = "ok"
 
-            # Return the new waiting fruit to center so the next move does not start from the edge.
-            if not done and after.ready:
-                control.recenter(read)
-                after = self.observe()
+        # Return the new waiting fruit to center so the next move does not start from the edge.
+        if not done and after.ready:
+            control.recenter(read)
+            after = self.observe()
 
         return StepResult(after, target, done=done, info=info)
 

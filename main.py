@@ -24,13 +24,14 @@ MESSAGE_SECONDS = 3.0
 DUMP_KEY = ord("s")
 DROP_KEY = ord(" ")
 POLICY_KEY = ord("p")
-AUTO_KEY = ord("g")
 LEFT_KEY = ord("a")
 RIGHT_KEY = ord("d")
 COARSE_LEFT_KEY = ord("j")
 COARSE_RIGHT_KEY = ord("l")
 CENTER_KEY = ord("c")
 QUIT_KEY = 27
+# Toggle auto regardless of focus (VK_G).
+VK_G = 0x47
 
 # Left-right step when aiming by hand (normalized coordinates, width 400).
 # a/d move finely, j/l move a lot. A click picks any column.
@@ -71,6 +72,7 @@ def main() -> None:
 
     maximize_window(WINDOW_TITLE)
     cv2.setMouseCallback(WINDOW_TITLE, _on_click, click)
+    g_was_down = False
 
     while True:
         frame = capture()
@@ -79,6 +81,11 @@ def main() -> None:
 
         key = cv2.waitKey(1) & 0xFF
         now = time.monotonic()
+
+        # G is detected globally so it works even with VRChat in front. Holding does not repeat.
+        g_down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_G) & 0x8000)
+        g_pressed = g_down and not g_was_down
+        g_was_down = g_down
 
         # Right before key actions or dumps the latest is wanted. Otherwise thinned.
         need_vision = (
@@ -92,9 +99,9 @@ def main() -> None:
                 CENTER_KEY,
                 DROP_KEY,
                 POLICY_KEY,
-                AUTO_KEY,
                 DUMP_KEY,
             )
+            or g_pressed
             or click.x is not None
             or auto_play
         )
@@ -124,7 +131,7 @@ def main() -> None:
             aim_x = clamp_drop_x(aim_x + COARSE_NUDGE, obs.held_type)
         elif key == CENTER_KEY and obs.held_x is not None:
             aim_x = obs.held_x
-        elif key == AUTO_KEY:
+        elif g_pressed:
             auto_play = not auto_play
             message = f"auto={'ON' if auto_play else 'off'}"
             message_until = now + MESSAGE_SECONDS
@@ -185,7 +192,7 @@ def main() -> None:
                 _draw_aim(output, board.corners, aim_x)
 
         mode = "AUTO" if auto_play else "LIVE"
-        hint = f"{mode}  p: policy  g: auto  space: drop  a/d: aim  s: save"
+        hint = f"{mode}  p: policy  g: auto(global)  space: drop  a/d: aim  s: save"
         put_text(output, f"aim x={aim_x:.0f}" if aim_x is not None else "aim —", (8, 128), (0, 255, 255))
         put_text(
             output,
