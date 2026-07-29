@@ -124,6 +124,20 @@ EXPECTED = {
     ],
 }
 
+# 雲が持っている、次に落ちるフルーツ。種類と、正規化した盤面での落とす列
+# (0〜400)。7.png はダイアログで覆われていて読まない。
+EXPECTED_HELD = {
+    "1.png": ("grape", 203),
+    "2.png": ("strawberry", 224),
+    "3.png": ("dekopon", 239),
+    "4.png": ("cherry", 116),
+    "5.png": ("cherry", 352),
+    "6.png": ("orange", 77),
+    "8.png": ("cherry", 194),
+    "9.png": ("strawberry", 248),
+    "10.png": ("orange", 214),
+}
+
 # まだ直っていない取り違え。直したらこの印を外す。
 KNOWN_FAILURES = {
     # 上端の 7 個 (peach/dekopon/apple x2/strawberry x2/cherry) はどれも赤系で、

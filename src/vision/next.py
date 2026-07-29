@@ -7,7 +7,7 @@ from ..config import load
 from ..draw import Color, put_text
 from .blobs import circle_peaks
 from .classify import ClassifyResult, classify, fruit_radius_ratios, sample_hsv
-from .colors import NEXT_MAX_TYPE, saturated_mask
+from .colors import SPAWN_MAX_TYPE, saturated_mask
 from .next_crop import crop_next_region
 
 # crop 中心からこの割合より離れたピークは next のフルーツではない。
@@ -46,7 +46,7 @@ def detect(frame: np.ndarray, corners: np.ndarray) -> NextResult:
     x, y, radius = blob
     radius_ratio = (radius / board_width) * scale
     hsv_mean = sample_hsv(next_crop, x, y, radius, valid_mask=mask)
-    fruit = classify(radius_ratio, hsv_mean, max_type=NEXT_MAX_TYPE)
+    fruit = classify(radius_ratio, hsv_mean, max_type=SPAWN_MAX_TYPE)
 
     return NextResult(
         fruit=fruit,
@@ -111,7 +111,7 @@ def _find_blob(
     # 玉や背景を拾っているだけと判断できる。
     ratios = fruit_radius_ratios()
     min_radius = max(2.0, board_width * ratios[0] * 0.6 / scale)
-    max_radius = max(min_radius + 1.0, board_width * ratios[NEXT_MAX_TYPE] * 1.4 / scale)
+    max_radius = max(min_radius + 1.0, board_width * ratios[SPAWN_MAX_TYPE] * 1.4 / scale)
 
     peaks = circle_peaks(mask, min_radius, max_radius)
     if not peaks:

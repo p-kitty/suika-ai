@@ -8,22 +8,16 @@ from ..draw import put_text
 from .colors import BOARD_FRAME_HSV
 from .dialog import is_blocked
 from .fruits import detect as detect_fruits
+from .held import HeldResult, detect as detect_held, draw_debug as draw_held_debug
 from .next import NextResult, detect as detect_next, draw_debug as draw_next_debug
-from .state import Fruit
-
-NORMALIZED_WIDTH = 400
-NORMALIZED_HEIGHT = 500
-
-# 正面から見た盤面の四隅。warp の行き先であり、逆変換の出発点でもある。
-NORMALIZED_CORNERS = np.array(
-    [
-        [0, 0],
-        [NORMALIZED_WIDTH - 1, 0],
-        [NORMALIZED_WIDTH - 1, NORMALIZED_HEIGHT - 1],
-        [0, NORMALIZED_HEIGHT - 1],
-    ],
-    dtype=np.float32,
+from .normalized import (
+    NORMALIZED_HEIGHT,
+    NORMALIZED_WIDTH,
+    inverse_warp_matrix,
+    transform_point,
+    warp_matrix,
 )
+from .state import Fruit
 
 MIN_BOX_AREA_RATIO = 0.02
 
@@ -48,6 +42,8 @@ class BoardResult:
     normalized: np.ndarray | None
     corners: np.ndarray | None
     found: bool
+    # 次に落ちるフルーツ (雲が持っている) と、その次 (Next の泡)。
+    held_fruit: HeldResult | None = None
     next_fruit: NextResult | None = None
     fruits: list[Fruit] | None = None
     # ダイアログが被っていて盤面を読めない状態。found とは別に持つ。
@@ -75,14 +71,13 @@ def localize(
             blocked=True,
         )
 
-    fruits = detect_fruits(normalized)
-    next_fruit = detect_next(frame, corners)
     return BoardResult(
         normalized=normalized,
         corners=corners,
         found=True,
-        next_fruit=next_fruit,
-        fruits=fruits,
+        held_fruit=detect_held(frame, corners),
+        next_fruit=detect_next(frame, corners),
+        fruits=detect_fruits(normalized),
     )
 
 
@@ -100,6 +95,9 @@ def draw_frame_debug(frame: np.ndarray, result: BoardResult) -> np.ndarray:
         return output
 
     put_text(output, "board: detected", (8, 24), (0, 255, 0))
+
+    if result.held_fruit is not None:
+        draw_held_debug(output, result.corners, result.held_fruit)
 
     if result.next_fruit is not None:
         draw_next_debug(output, result.next_fruit)
@@ -124,12 +122,12 @@ def _draw_fruits(
     corners: np.ndarray,
     fruits: list[Fruit],
 ) -> None:
-    matrix = _inverse_warp_matrix(corners)
+    matrix = inverse_warp_matrix(corners)
     show_radius = load().get("debug_radius", False)
 
     for fruit in fruits:
-        center = _transform_point(matrix, fruit.x, fruit.y)
-        edge = _transform_point(matrix, fruit.x + fruit.radius, fruit.y)
+        center = transform_point(matrix, fruit.x, fruit.y)
+        edge = transform_point(matrix, fruit.x + fruit.radius, fruit.y)
         radius = max(2, int(np.hypot(edge[0] - center[0], edge[1] - center[1])))
         color = (0, 255, 0) if fruit.confidence >= 50 else (0, 165, 255)
 
@@ -144,16 +142,6 @@ def _draw_fruits(
         put_text(output, label, origin, color, scale=0.4, thickness=1)
 
     put_text(output, f"fruits: {len(fruits)}", (8, 80), (0, 255, 255))
-
-
-def _inverse_warp_matrix(corners: np.ndarray) -> np.ndarray:
-    return cv2.getPerspectiveTransform(NORMALIZED_CORNERS, corners.astype(np.float32))
-
-
-def _transform_point(matrix: np.ndarray, x: float, y: float) -> tuple[int, int]:
-    point = np.array([[[x, y]]], dtype=np.float32)
-    transformed = cv2.perspectiveTransform(point, matrix)[0, 0]
-    return int(round(transformed[0])), int(round(transformed[1]))
 
 
 def _smooth_corners(previous: np.ndarray, current: np.ndarray) -> np.ndarray:
@@ -319,9 +307,8 @@ def _order_corners(corners: np.ndarray) -> np.ndarray:
 
 
 def _warp(frame: np.ndarray, corners: np.ndarray) -> np.ndarray:
-    matrix = cv2.getPerspectiveTransform(corners, NORMALIZED_CORNERS)
     return cv2.warpPerspective(
         frame,
-        matrix,
+        warp_matrix(corners),
         (NORMALIZED_WIDTH, NORMALIZED_HEIGHT),
     )

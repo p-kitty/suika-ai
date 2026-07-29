@@ -3,8 +3,9 @@ import numpy as np
 
 from ..config import load
 
-# next に出現する最大段階 (orange)。apple 以上は来ない。
-NEXT_MAX_TYPE = 4
+# 新しく出てくるフルーツの最大段階 (orange)。apple 以上は来ない。
+# 落下待ちのものと next の泡のどちらにも当てはまる。
+SPAWN_MAX_TYPE = 4
 
 FRUIT_NAMES = [
     "cherry",

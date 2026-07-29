@@ -21,6 +21,7 @@ from src.imagefile import read, write
 from src.vision.board import NORMALIZED_WIDTH, localize
 from src.vision.classify import fruit_radius_ratios
 from src.vision.fruits import detect, fruit_mask
+from src.vision.held import HeldResult
 from src.vision.state import Fruit
 
 DEFAULT_SOURCES = ("screenshots", "debug")
@@ -77,14 +78,18 @@ def _check(path: Path) -> tuple[int, int]:
         print(f"{path.name}: 読めない")
         return 0, 0
 
-    board, fruits, state = _run(image, path)
+    board, fruits, held, state = _run(image, path)
 
     if state != "ok":
         print(f"{path.name}: {state}")
         return 0, 0
 
     suspects = _suspects(fruits)
-    print(f"{path.name}: {len(fruits)} 個" + (f" / 疑わしい {len(suspects)} 個" if suspects else ""))
+    print(
+        f"{path.name}: {len(fruits)} 個"
+        + (f" / 落下待ち {held}" if held else "")
+        + (f" / 疑わしい {len(suspects)} 個" if suspects else "")
+    )
     for fruit, reason in suspects:
         print(f"    {fruit.name:11s} ({fruit.x:3.0f},{fruit.y:3.0f}) {reason}")
 
@@ -96,16 +101,26 @@ def _check(path: Path) -> tuple[int, int]:
 
 
 def _run(image, path: Path) -> tuple:
+    # warp 済みの盤面には落下待ちフルーツが写っていないので、そこは見ない。
     if path.name.endswith("_board.png"):
-        return image, detect(image), "ok"
+        return image, detect(image), "", "ok"
 
     result = localize(image)
     if not result.found or result.normalized is None:
-        return None, [], "盤面が見つからない"
+        return None, [], "", "盤面が見つからない"
     if result.blocked:
-        return None, [], "ダイアログで覆われている"
+        return None, [], "", "ダイアログで覆われている"
 
-    return result.normalized, result.fruits or [], "ok"
+    return result.normalized, result.fruits or [], _held_label(result.held_fruit), "ok"
+
+
+def _held_label(held: HeldResult | None) -> str:
+    if held is None or held.radius is None:
+        return "なし"
+
+    name = held.fruit.name if held.fruit is not None else "分類できず"
+
+    return f"{name} x={held.x:.0f} r={held.radius:.0f} (上辺から {-(held.y or 0):.0f})"
 
 
 def _suspects(fruits: list[Fruit]) -> list[tuple[Fruit, str]]:
