@@ -1,4 +1,4 @@
-"""Decide the drop column. Virtual drop + merge heuristics."""
+"""Decide the drop column. Size order + held/next heuristics."""
 
 from __future__ import annotations
 
@@ -23,6 +23,8 @@ DANGER_Y = 90.0
 FLAT_BIN = 40.0
 # Watermelon. No merging beyond this.
 MAX_FRUIT_TYPE = len(FRUIT_NAMES) - 1
+# Discount for the next move.
+NEXT_DISCOUNT = 0.55
 
 
 def choose_x(obs: Observation) -> float:
@@ -34,7 +36,7 @@ def choose_x(obs: Observation) -> float:
     best_x = NORMALIZED_WIDTH / 2
     best_score = -math.inf
 
-    for x in _candidates(obs, held_r):
+    for x in _candidates(obs.fruits, obs.held_type, held_r, extra_type=obs.next_type):
         x = clamp_drop_x(x, obs.held_type)
         score = _score(obs, x, held_r)
         if score > best_score:
@@ -44,23 +46,31 @@ def choose_x(obs: Observation) -> float:
     return best_x
 
 
-def _candidates(obs: Observation, held_r: float) -> list[float]:
-    """Uniform spacing plus spots above / beside same types."""
+def _candidates(
+    fruits: tuple[Fruit, ...] | list[Fruit],
+    drop_type: int,
+    held_r: float,
+    extra_type: int | None = None,
+) -> list[float]:
+    """Uniform spacing plus spots above / beside same-type and one-tier-bigger fruits, and ideal_x."""
     lo = held_r
     hi = NORMALIZED_WIDTH - held_r
     xs = {round(x / CANDIDATE_STEP) * CANDIDATE_STEP for x in _frange(lo, hi, CANDIDATE_STEP)}
+    xs.add(_ideal_x(drop_type))
 
-    for fruit in obs.fruits:
-        if fruit.type != obs.held_type:
+    for fruit in fruits:
+        # Above / beside same types or slightly bigger fruits (orange→apple and so on).
+        if fruit.type < drop_type or fruit.type > drop_type + 2:
             continue
         xs.add(fruit.x)
         gap = held_r + fruit.radius
         xs.add(fruit.x - gap)
         xs.add(fruit.x + gap)
 
-    if obs.next_type is not None:
-        for fruit in obs.fruits:
-            if fruit.type != obs.next_type:
+    if extra_type is not None:
+        xs.add(_ideal_x(extra_type))
+        for fruit in fruits:
+            if fruit.type != extra_type:
                 continue
             xs.add(fruit.x)
             gap = held_r + fruit.radius
@@ -71,45 +81,222 @@ def _candidates(obs: Observation, held_r: float) -> list[float]:
 
 
 def _score(obs: Observation, x: float, held_r: float) -> float:
-    """Score by looking at the board after the move."""
+    """Score the board after dropping held + the hypothetical best move of next."""
+    assert obs.held_type is not None
     before = list(obs.fruits)
-    after, merges = _after_drop(obs, x)
+    after, merges = _simulate_drop(before, obs.held_type, x)
     land_y = _land_y(before, x, held_r)
 
-    score = 0.0
+    score = _board_score(after, merges, land_y=land_y)
+    score += _larger_neighbor_bonus(before, x, obs.held_type, held_r, land_y)
+    score -= _ignored_larger_penalty(before, x, obs.held_type, held_r, land_y)
 
-    score += 140.0 * merges
-    if merges >= 2:
-        score += 80.0 * (merges - 1)
-
-    score += land_y * 0.35
-
-    crown = _top_crown(after)
-    score += crown * 0.8
-    if crown < DANGER_Y:
-        score -= (DANGER_Y - crown) * 4.0
-
-    score -= 90.0 * _bury_penalty(after)
+    # Without a merge, lean toward the 'lining-up side' of a one-tier-bigger fruit.
+    if merges == 0:
+        score -= abs(x - _anchor_x(obs.held_type, before, held_r)) * 0.45
+        if not _column_fruits(before, x, held_r):
+            score += 3.0
 
     if obs.next_type is not None:
-        score += 70.0 * _next_setup_at(before, after, x, obs.next_type, merges)
-
-    score -= 1.2 * _height_variance(after)
-
-    if merges == 0 and not _column_fruits(before, x, held_r):
-        score += 8.0
-
-    score -= abs(x - NORMALIZED_WIDTH / 2) * 0.05
+        score += NEXT_DISCOUNT * _best_next_score(after, obs.next_type)
 
     return score
 
 
+def _best_next_score(fruits: list[Fruit], next_type: int) -> float:
+    """Board score when next is dropped at its best column."""
+    next_r = _radius(next_type)
+    best = -math.inf
+    for nx in _candidates(fruits, next_type, next_r):
+        nx = clamp_drop_x(nx, next_type)
+        after, merges = _simulate_drop(fruits, next_type, nx)
+        land_y = _land_y(fruits, nx, next_r)
+        value = _board_score(after, merges, land_y=land_y)
+        value += _larger_neighbor_bonus(fruits, nx, next_type, next_r, land_y)
+        value -= _ignored_larger_penalty(fruits, nx, next_type, next_r, land_y)
+        if merges == 0:
+            value -= abs(nx - _anchor_x(next_type, fruits, next_r)) * 0.45
+        if value > best:
+            best = value
+    return 0.0 if best == -math.inf else best
+
+
+def _board_score(fruits: list[Fruit], merges: int, *, land_y: float) -> float:
+    """Board evaluation for one move (merges, height, burying, size order)."""
+    score = 0.0
+    score += 140.0 * merges
+    if merges >= 2:
+        score += 80.0 * (merges - 1)
+
+    score += land_y * 0.22
+
+    crown = _top_crown(fruits)
+    score += crown * 0.8
+    if crown < DANGER_Y:
+        score -= (DANGER_Y - crown) * 4.0
+
+    score -= 90.0 * _bury_penalty(fruits)
+    score -= _size_order_penalty(fruits)
+    score -= 1.2 * _height_variance(fruits)
+    return score
+
+
+def _larger_neighbor_bonus(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    x: float,
+    drop_type: int,
+    held_r: float,
+    land_y: float,
+) -> float:
+    """Relation to a one-tier-bigger fruit. An open 'lining-up side' > on top > the opposite side.
+
+    Size order is left = big, right = small. The orange puts the floor right of the apple first,
+    and stacks on top only when the right is blocked.
+    """
+    supports = [f for f in fruits if 1 <= f.type - drop_type <= 2]
+    if not supports:
+        return 0.0
+
+    best = 0.0
+    for support in supports:
+        gap = support.type - drop_type
+        side_x = _ordered_side_x(support, drop_type, held_r)
+        side_free = _side_slot_free(fruits, support, side_x, held_r)
+        on_top = _is_on_top(support, x, held_r, land_y)
+        beside = abs(x - side_x) <= max(held_r, MERGE_SLACK)
+
+        if beside and side_free:
+            best = max(best, 200.0 if gap == 1 else 90.0)
+            continue
+
+        if on_top:
+            if side_free:
+                # On top is weak when the neighbor is open.
+                best = max(best, 35.0 if gap == 1 else 15.0)
+            else:
+                best = max(best, 150.0 if gap == 1 else 70.0)
+            continue
+
+        if abs(x - support.x) <= support.radius + held_r + MERGE_SLACK:
+            best = max(best, 25.0 if gap == 1 else 10.0)
+
+    return best
+
+
+def _ignored_larger_penalty(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    x: float,
+    drop_type: int,
+    held_r: float,
+    land_y: float,
+) -> float:
+    """Penalty when a one-tier-bigger fruit exists but it is placed neither on the lining-up side nor on top."""
+    supports = [f for f in fruits if f.type - drop_type == 1]
+    if not supports:
+        return 0.0
+
+    for support in supports:
+        side_x = _ordered_side_x(support, drop_type, held_r)
+        if abs(x - side_x) <= max(held_r, MERGE_SLACK):
+            return 0.0
+        if _is_on_top(support, x, held_r, land_y):
+            return 0.0
+    return 110.0
+
+
+def _ordered_side_x(support: Fruit, drop_type: int, held_r: float) -> float:
+    """The column lining up next to it in size order. The small fruit goes right of the big one."""
+    if drop_type < support.type:
+        return support.x + support.radius + held_r
+    return support.x - support.radius - held_r
+
+
+def _side_slot_free(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    support: Fruit,
+    side_x: float,
+    held_r: float,
+) -> bool:
+    """Whether the floor on the lining-up side is open (no obstruction other than the support)."""
+    if side_x < held_r or side_x > NORMALIZED_WIDTH - held_r:
+        return False
+    land = _land_y_excluding(fruits, side_x, held_r, exclude=support)
+    floor = NORMALIZED_HEIGHT - held_r
+    return land >= floor - 4.0
+
+
+def _land_y_excluding(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    x: float,
+    held_r: float,
+    *,
+    exclude: Fruit,
+) -> float:
+    top = float(NORMALIZED_HEIGHT)
+    for fruit in fruits:
+        if fruit is exclude:
+            continue
+        if abs(fruit.x - x) > fruit.radius + held_r:
+            continue
+        top = min(top, fruit.y - fruit.radius)
+    return top - held_r
+
+
+def _is_on_top(support: Fruit, x: float, held_r: float, land_y: float) -> bool:
+    """Whether it lands nearly directly above support."""
+    if abs(x - support.x) > support.radius * 0.85:
+        return False
+    top = support.y - support.radius
+    return abs((land_y + held_r) - top) <= MERGE_SLACK
+
+
+def _ideal_x(fruit_type: int) -> float:
+    """Bigger goes left. type 0 leans to the right edge."""
+    return NORMALIZED_WIDTH * (1.0 - (fruit_type + 0.5) / (MAX_FRUIT_TYPE + 1))
+
+
+def _anchor_x(drop_type: int, fruits: list[Fruit] | tuple[Fruit, ...], held_r: float) -> float:
+    """The column to place in. The lining-up side of a one-tier-bigger fruit if open, directly on top if blocked."""
+    supports = [f for f in fruits if 1 <= f.type - drop_type <= 2]
+    if not supports:
+        return _ideal_x(drop_type)
+    support = min(supports, key=lambda f: f.x)
+    side_x = _ordered_side_x(support, drop_type, held_r)
+    if _side_slot_free(fruits, support, side_x, held_r):
+        return side_x
+    return support.x
+
+
+def _size_order_penalty(fruits: list[Fruit]) -> float:
+    """Penalize pairs whose left-right size order is inverted. Looks at relative order rather than absolute ideal positions."""
+    if not fruits:
+        return 0.0
+    penalty = 0.0
+    for i, a in enumerate(fruits):
+        for b in fruits[i + 1 :]:
+            if abs(a.x - b.x) < min(a.radius, b.radius) * 0.5:
+                continue
+            left, right = (a, b) if a.x <= b.x else (b, a)
+            if left.type < right.type:
+                penalty += (right.type - left.type) * 12.0
+    penalty += sum(abs(f.x - _ideal_x(f.type)) for f in fruits) / len(fruits) * 0.12
+    return penalty
+
+
 def _after_drop(obs: Observation, x: float) -> tuple[list[Fruit], int]:
-    """Board and merge count after dropping at column x and resolving merges."""
+    """For tests. Board and merge count after dropping held at column x."""
     assert obs.held_type is not None
-    fruits = list(obs.fruits)
-    fruits, dropped = _place(fruits, obs.held_type, x)
-    return _resolve_merges(fruits, active={dropped})
+    return _simulate_drop(obs.fruits, obs.held_type, x)
+
+
+def _simulate_drop(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    fruit_type: int,
+    x: float,
+) -> tuple[list[Fruit], int]:
+    placed = list(fruits)
+    placed, dropped = _place(placed, fruit_type, x)
+    return _resolve_merges(placed, active={dropped})
 
 
 def _place(fruits: list[Fruit], fruit_type: int, x: float) -> tuple[list[Fruit], int]:
@@ -174,11 +361,13 @@ def _top_crown(fruits: list[Fruit]) -> float:
 
 
 def _bury_penalty(fruits: list[Fruit]) -> float:
-    """How much a different type sits directly above a same type (0-)."""
+    """How much merge candidates are buried by other types. Putting a small fruit on a big fruit is not penalized."""
     penalty = 0.0
     for under in fruits:
         for over in fruits:
             if over is under or over.type == under.type:
+                continue
+            if over.type < under.type:
                 continue
             if abs(over.x - under.x) > under.radius * 0.9:
                 continue
@@ -190,43 +379,6 @@ def _bury_penalty(fruits: list[Fruit]) -> float:
                 else:
                     penalty += 0.35
     return penalty
-
-
-def _next_setup_at(
-    before: list[Fruit],
-    after: list[Fruit],
-    x: float,
-    next_type: int,
-    merges: int,
-) -> float:
-    """High when the current drop column does not ruin being near / exposing a same type as next (0-1+)."""
-    targets = [f for f in before if f.type == next_type]
-    if not targets:
-        return 0.0
-
-    next_r = _radius(next_type)
-    best = 0.0
-    for fruit in targets:
-        dist = abs(x - fruit.x)
-        reach = fruit.radius + next_r + MERGE_SLACK
-        if dist <= reach:
-            proximity = 1.0 - dist / max(reach, 1.0)
-        elif dist <= reach * 2.5:
-            proximity = 0.35 * (1.0 - (dist - reach) / (reach * 1.5))
-        else:
-            proximity = 0.0
-
-        buried = any(
-            abs(f.x - fruit.x) <= fruit.radius * 0.9 and f.type != next_type and f.y < fruit.y
-            for f in after
-        )
-        if buried:
-            proximity *= 0.15
-        best = max(best, proximity)
-
-    if merges > 0:
-        return best * 0.35
-    return best
 
 
 def _height_variance(fruits: list[Fruit]) -> float:
