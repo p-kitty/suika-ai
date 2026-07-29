@@ -73,32 +73,34 @@ class Env:
         if self.dry_run:
             return StepResult(before, target, done=False, info="dry_run")
 
-        aimed = control.drop_column(target, read=read, dry_run=False)
-        info_aim = "ok" if aimed else "aim_timeout"
+        # 操作〜静止待ち〜中央復帰のあいだ Suika を隠し、最後に一度だけ戻す。
+        with control.hidden(control.SUIKA_TITLE):
+            aimed = control.drop_column(target, read=read, dry_run=False)
+            info_aim = "ok" if aimed else "aim_timeout"
 
-        # 落としたあと、いったん held が消えるのを待つ。消えないまま静止判定に
-        # 入ると、雲が動いただけの揺れで止まってしまう。
-        _wait_held_gone(self.observe, before.held_x)
+            # 落としたあと、いったん held が消えるのを待つ。消えないまま静止判定に
+            # 入ると、雲が動いただけの揺れで止まってしまう。
+            _wait_held_gone(self.observe, before.held_x)
 
-        settled = settle.wait_settled(self.observe)
-        if settled.blocked:
-            return StepResult(settled, target, done=True, info="dialog")
+            settled = settle.wait_settled(self.observe)
+            if settled.blocked:
+                return StepResult(settled, target, done=True, info="dialog")
 
-        ready = settle.wait_ready(self.observe)
-        done = ready.blocked or not ready.ready
-        if ready.blocked:
-            info = "dialog"
-        elif not ready.ready:
-            info = "timeout"
-        elif not aimed:
-            info = info_aim
-        else:
-            info = "ok"
+            ready = settle.wait_ready(self.observe)
+            done = ready.blocked or not ready.ready
+            if ready.blocked:
+                info = "dialog"
+            elif not ready.ready:
+                info = "timeout"
+            elif not aimed:
+                info = info_aim
+            else:
+                info = "ok"
 
-        # 次の手が端から始まらないよう、新しい落下待ちを中央へ戻す。
-        if not done and ready.ready:
-            control.recenter(read)
-            ready = self.observe()
+            # 次の手が端から始まらないよう、新しい落下待ちを中央へ戻す。
+            if not done and ready.ready:
+                control.recenter(read)
+                ready = self.observe()
 
         return StepResult(ready, target, done=done, info=info)
 

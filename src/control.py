@@ -32,11 +32,9 @@ VRCHAT_TITLE = "VRChat"
 SUIKA_TITLE = "Suika"
 
 CLICK_PAUSE_SEC = 0.05
-# 動かしたあと、視点と検出が落ち着くまで待つ。短いと打ち返してきょろきょろする。
-LOOK_PAUSE_SEC = 0.14
+# 動かしたあと、視点と検出が落ち着くまで待つ。
+LOOK_PAUSE_SEC = 0.09
 
-# 連続で許容内なら到達とみなす。
-OK_FRAMES = 2
 # 狙いをまたいだあと、この幅以内なら打ち返さず止める。
 CROSS_STOP = 14.0
 
@@ -66,27 +64,31 @@ def drop_column(
     read: Callable[[], tuple[object, np.ndarray | None]],
     dry_run: bool = False,
 ) -> bool:
-    """落下待ちの列を target_x に重ねてからクリックする。"""
+    """落下待ちの列を target_x に重ねてからクリックする。
+
+    呼び出し側で Suika を隠している前提。ここでは窓の出し入れをしない。
+    """
     if dry_run:
         return True
 
-    with hidden(SUIKA_TITLE):
-        focus(VRCHAT_TITLE)
-        aimed = aim(target_x, read)
-        click()
-        return aimed
+    focus(VRCHAT_TITLE)
+    aimed = aim(target_x, read)
+    click()
+    return aimed
 
 
 def recenter(
     read: Callable[[], tuple[object, np.ndarray | None]],
 ) -> bool:
-    """次の手の前に、落下待ちを盤面中央へ戻す。クリックはしない。"""
+    """次の手の前に、落下待ちを盤面中央へ戻す。クリックはしない。
+
+    呼び出し側で Suika を隠している前提。
+    """
     cfg = load()
     # 中央は厳密でなくてよい。寄せ切れず左右しないことを優先。
     tolerance = float(cfg.get("recenter_tolerance", 14))
-    with hidden(SUIKA_TITLE):
-        focus(VRCHAT_TITLE)
-        return aim(NORMALIZED_WIDTH / 2, read, tolerance=tolerance)
+    focus(VRCHAT_TITLE)
+    return aim(NORMALIZED_WIDTH / 2, read, tolerance=tolerance)
 
 
 def aim(
@@ -95,18 +97,20 @@ def aim(
     *,
     tolerance: float | None = None,
 ) -> bool:
-    """held_x を target_x 付近まで寄せる。行き過ぎたら打ち返さず止める。"""
+    """held_x を target_x 付近まで寄せる。行き過ぎたら打ち返さず止める。
+
+    比例で寄せる。わざと少し短めに動かし、行き過ぎより手前止まりを優先する。
+    """
     cfg = load()
     # 誤差 (盤面 px) に対するマウス移動。逆方向なら負にする。
-    gain = float(cfg.get("look_gain", 0.4))
+    gain = float(cfg.get("look_gain", 0.55))
     if tolerance is None:
         tolerance = float(cfg.get("look_tolerance", 8))
     timeout_sec = float(cfg.get("look_timeout_sec", 4.0))
-    max_step = int(cfg.get("look_max_step", 24))
+    max_step = int(cfg.get("look_max_step", 48))
 
     deadline = time.monotonic() + timeout_sec
     previous_error: float | None = None
-    ok_frames = 0
     best_error: float | None = None
     stall_moves = 0
 
@@ -120,16 +124,11 @@ def aim(
             continue
 
         error = target_x - float(held_x)
-        if abs(error) <= tolerance:
-            ok_frames += 1
-            if ok_frames >= OK_FRAMES:
-                return True
-            time.sleep(LOOK_PAUSE_SEC)
-            continue
-        ok_frames = 0
+        abs_error = abs(error)
+        if abs_error <= tolerance:
+            return True
 
         # 端など、これ以上 held が寄らないときは動かし続けず今の位置で落とす。
-        abs_error = abs(error)
         if best_error is None or abs_error < best_error - 1.0:
             best_error = abs_error
             stall_moves = 0
@@ -143,10 +142,12 @@ def aim(
         if crossed and abs_error <= max(tolerance, CROSS_STOP):
             return True
 
-        scale = 0.25 if crossed else 1.0
+        # 0.8 で手前に寄せる。近いほど一歩を抑える。
+        scale = 0.3 if crossed else 0.8
+        if abs_error < 24:
+            scale *= 0.55
         raw = error * gain * scale
-        # sqrt で大きく振りすぎない。近いほど一歩が小さい。
-        magnitude = min(max_step, max(1, int(round((abs(raw) ** 0.5) * 2.5))))
+        magnitude = min(max_step, max(1, int(round(abs(raw)))))
         step = magnitude if raw > 0 else -magnitude
 
         move_by(step, 0)
@@ -154,7 +155,6 @@ def aim(
         time.sleep(LOOK_PAUSE_SEC)
 
     return False
-
 
 def move_by(dx: int, dy: int = 0) -> None:
     """マウスを相対移動する (FPS の視点操作)。"""
@@ -175,9 +175,35 @@ def focus(title: str) -> None:
     hwnd = ctypes.windll.user32.FindWindowW(None, title)
     if not hwnd:
         return
+    # VRChat など最小化されていることがあるので RESTORE。
     ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
-    ctypes.windll.user32.SetForegroundWindow(hwnd)
+    _set_foreground(hwnd)
     time.sleep(0.05)
+
+
+def _reveal(hwnd: int) -> None:
+    """隠していた窓を出し、入力を受け取れるよう前面にする。"""
+    # 最大化状態を保つため SHOW (RESTORE だと最大化が解ける)。
+    ctypes.windll.user32.ShowWindow(hwnd, SW_SHOW)
+    _set_foreground(hwnd)
+    time.sleep(0.05)
+
+
+def _set_foreground(hwnd: int) -> None:
+    """SendInput 直後でもフォーカスを奪えるようにする。"""
+    user = ctypes.windll.user32
+    foreground = user.GetForegroundWindow()
+    if foreground and foreground != hwnd:
+        fore_tid = user.GetWindowThreadProcessId(foreground, None)
+        cur_tid = ctypes.windll.kernel32.GetCurrentThreadId()
+        if fore_tid and fore_tid != cur_tid:
+            user.AttachThreadInput(cur_tid, fore_tid, True)
+            user.BringWindowToTop(hwnd)
+            user.SetForegroundWindow(hwnd)
+            user.AttachThreadInput(cur_tid, fore_tid, False)
+            return
+    user.BringWindowToTop(hwnd)
+    user.SetForegroundWindow(hwnd)
 
 
 def _send(flags: int, dx: int = 0, dy: int = 0) -> None:
@@ -189,7 +215,7 @@ def _send(flags: int, dx: int = 0, dy: int = 0) -> None:
 
 
 class hidden:
-    """操作のあいだ、指定した窓を隠す。"""
+    """操作のあいだ、指定した窓を隠す。終わったら前面に戻す。"""
 
     def __init__(self, title: str | None) -> None:
         self.title = title
@@ -205,4 +231,4 @@ class hidden:
 
     def __exit__(self, *_exc) -> None:
         if self.hwnd:
-            ctypes.windll.user32.ShowWindow(self.hwnd, SW_SHOW)
+            _reveal(self.hwnd)
