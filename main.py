@@ -148,6 +148,8 @@ def main() -> None:
                 message = f"drop x={aim_x:.0f} -> {result.info}"
                 aim_x = result.observation.held_x
                 obs = result.observation
+                # step 中は数秒ブロックするので、ループ先頭の frame は古い。
+                frame, obs, board = _refresh(env, frame, obs)
                 print(message)
             message_until = now + MESSAGE_SECONDS
 
@@ -161,6 +163,7 @@ def main() -> None:
                 if obs.blocked or not obs.ready:
                     message = "policy: not settled"
                     auto_play = False if obs.blocked else auto_play
+                    frame, obs, board = _refresh(env, frame, obs)
                 else:
                     target = choose_x(obs)
                     aim_x = target
@@ -168,6 +171,7 @@ def main() -> None:
                     message = f"auto x={target:.0f} -> {result.info}"
                     aim_x = result.observation.held_x
                     obs = result.observation
+                    frame, obs, board = _refresh(env, frame, obs)
                     print(message)
                     if result.done:
                         auto_play = False
@@ -197,6 +201,15 @@ def main() -> None:
             break
 
     cv2.destroyAllWindows()
+
+
+def _refresh(env: Env, frame: np.ndarray, fallback: Observation):
+    """操作後に最新フレームで観測し直す。取れなければ直前のものを使う。"""
+    fresh = capture()
+    if fresh is None:
+        return frame, fallback, env.board
+    obs = env.observe(fresh)
+    return fresh, obs, env.board
 
 
 def _on_click(event: int, x: int, y: int, _flags: int, click: AimClick) -> None:

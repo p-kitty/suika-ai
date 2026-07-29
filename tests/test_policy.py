@@ -1,7 +1,7 @@
 """方策の単体テスト。画面は使わない。"""
 
 from src.observe import Observation
-from src.policy import _after_drop, _land_y, _radius, choose_x
+from src.policy import _after_drop, _ideal_x, _land_y, _radius, choose_x
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
 
@@ -17,9 +17,10 @@ def _obs(*, held_type: int, fruits: tuple[Fruit, ...] = (), next_type: int | Non
     )
 
 
-def test_empty_board_drops_near_center() -> None:
+def test_empty_board_drops_near_ideal_for_size() -> None:
+    # 空盤ではサイズ順の ideal 付近 (cherry は右寄り)。
     x = choose_x(_obs(held_type=0))
-    assert abs(x - NORMALIZED_WIDTH / 2) < 40
+    assert abs(x - _ideal_x(0)) < 40
 
 
 def test_prefers_same_type_over_empty_low_column() -> None:
@@ -93,3 +94,60 @@ def test_sets_up_next_when_no_immediate_merge() -> None:
     assert x > NORMALIZED_WIDTH / 2
     # next cherry の近く (grape を隣に置く)。
     assert abs(x - target.x) < cherry_r + grape_r * 2 + 40
+
+
+def test_small_fruit_goes_right_of_large() -> None:
+    # 左に大きい実。小さい held は合成できないので右寄り (大きい順)。
+    big_r = _radius(6)
+    big = Fruit(type=6, x=90, y=NORMALIZED_HEIGHT - big_r, radius=big_r, confidence=90)
+    x = choose_x(_obs(held_type=0, fruits=(big,)))
+    assert x > NORMALIZED_WIDTH / 2
+
+
+def test_prefers_held_that_enables_next_merge() -> None:
+    # held=grape は盤に無く合成不可。右に cherry が1つ。next も cherry。
+    # held を右の cherry 付近に置けば next が合成できる。左に置くと遠い。
+    cherry_r = _radius(0)
+    grape_r = _radius(2)
+    cherry = Fruit(type=0, x=310, y=NORMALIZED_HEIGHT - cherry_r, radius=cherry_r, confidence=90)
+    # 左にも床があるが、next 合成のために右を選ぶ。
+    x = choose_x(_obs(held_type=2, fruits=(cherry,), next_type=0))
+    assert x > NORMALIZED_WIDTH / 2
+    assert abs(x - cherry.x) < cherry_r + grape_r * 2 + 50
+
+
+def test_orange_stacks_on_left_apple() -> None:
+    # 左端のリンゴ: 右隣の床が空いていれば、大きい順で右に並べる (上より隣)。
+    apple_r = _radius(5)
+    orange_r = _radius(4)
+    apple = Fruit(type=5, x=apple_r + 8, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
+    side = apple.x + apple_r + orange_r
+    x = choose_x(_obs(held_type=4, fruits=(apple,)))
+    assert abs(x - side) < orange_r
+    assert x > apple.x
+
+
+def test_orange_stacks_on_apple_even_with_next_cherry() -> None:
+    # next が右のサクランボでも、オレンジはリンゴの右隣へ。
+    apple_r = _radius(5)
+    orange_r = _radius(4)
+    cherry_r = _radius(0)
+    apple = Fruit(type=5, x=apple_r + 8, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
+    cherry = Fruit(type=0, x=300, y=NORMALIZED_HEIGHT - cherry_r, radius=cherry_r, confidence=90)
+    side = apple.x + apple_r + orange_r
+    x = choose_x(_obs(held_type=4, fruits=(apple, cherry), next_type=0))
+    assert abs(x - side) < orange_r * 1.5
+    assert x > apple.x
+    assert x < NORMALIZED_WIDTH / 2
+
+
+def test_orange_on_top_when_ordered_side_blocked() -> None:
+    # リンゴの右隣が塞がっているときは上に積む。
+    apple_r = _radius(5)
+    orange_r = _radius(4)
+    grape_r = _radius(2)
+    apple = Fruit(type=5, x=apple_r + 8, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
+    side_x = apple.x + apple_r + orange_r
+    blocker = Fruit(type=2, x=side_x, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90)
+    x = choose_x(_obs(held_type=4, fruits=(apple, blocker)))
+    assert abs(x - apple.x) < apple_r * 0.9
