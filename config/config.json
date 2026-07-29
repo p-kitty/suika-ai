@@ -1,14 +1,8 @@
 {
     "capture_fps": 15,
-    "next_crop": {
-        "offset_x_ratio": 0.4,
-        "offset_y_ratio": -0.01,
-        "size_ratio": 0.35
-    },
-    "next_radius_scale": 0.5,
     "held_radius_scale": 0.93,
-    "held_saturation_min": 130,
-    "held_value_min": 110,
+    "vivid_saturation_min": 130,
+    "vivid_value_min": 110,
     "use_color_filter": true,
     "fruit_saturation_min": 95,
     "watermelon_radius_ratio": 0.24,

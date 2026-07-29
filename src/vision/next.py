@@ -3,76 +3,81 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from ..config import load
 from ..draw import Color, put_text
-from .blobs import circle_peaks
+from .blobs import circle_peaks, solid_mask
 from .classify import ClassifyResult, classify, fruit_radius_ratios, sample_hsv
-from .colors import SPAWN_MAX_TYPE, saturated_mask
-from .next_crop import crop_next_region
+from .colors import SPAWN_MAX_TYPE, vivid_mask
+from .normalized import (
+    NORMALIZED_WIDTH,
+    inverse_warp_matrix,
+    screen_circle,
+    warp_window,
+)
 
-# Peaks farther from the crop center than this ratio are not the next fruit.
-CENTER_TOLERANCE_RATIO = 0.35
+# The bubble floats around the top right of the board. As its center viewed as a shadow cast onto the board's plane,
+# Measured, all 11 images fall within (538-557, -10 to 10).
+BUBBLE_X = 550
+BUBBLE_Y = 5
+
+# Radius of the window taken around the center. Wide enough to exclude the Merge Order ring below and the tree on the right.
+WINDOW_HALF = 100
+# A blob this far from the bubble's center is not the next fruit.
+CENTER_TOLERANCE = 45
 
 
 @dataclass
 class NextResult:
+    """The contents of the next bubble. The fruit that comes after the waiting one."""
+
     fruit: ClassifyResult | None
-    region: tuple[int, int, int, int] | None
+    # Coordinates on the normalized board. Outside the board to the right, so x is larger than the width.
+    x: float | None = None
+    y: float | None = None
+    radius: float | None = None
     radius_ratio: float | None = None
-    blob: tuple[float, float, float] | None = None
 
 
 def detect(frame: np.ndarray, corners: np.ndarray) -> NextResult:
-    region = crop_next_region(frame, corners)
-    if region is None:
-        return NextResult(fruit=None, region=None)
+    window = _warp_window(frame, corners)
+    mask = _window_mask(window)
 
-    top_left, top_right, _bottom_right, _bottom_left = corners
-    board_width = float(np.linalg.norm(top_right - top_left))
-    if board_width <= 0:
-        return NextResult(fruit=None, region=region)
-
-    x1, y1, x2, y2 = region
-    next_crop = frame[y1:y2, x1:x2]
-    if next_crop.size == 0:
-        return NextResult(fruit=None, region=region)
-
-    mask = _blob_mask(next_crop)
-    scale = load().get("next_radius_scale", 1.0) or 1.0
-    blob = _find_blob(mask, board_width, scale)
+    blob = _find_blob(mask)
     if blob is None:
-        return NextResult(fruit=None, region=region)
+        return NextResult(fruit=None)
 
     x, y, radius = blob
-    radius_ratio = (radius / board_width) * scale
-    hsv_mean = sample_hsv(next_crop, x, y, radius, valid_mask=mask)
+    # Fruit inside the bubble appears at almost the same size as when placed on the board
+    # (median 1.00x over 11 measured images). No rescaling is needed.
+    radius_ratio = radius / NORMALIZED_WIDTH
+
+    hsv_mean = sample_hsv(window, x, y, radius, valid_mask=mask)
     fruit = classify(radius_ratio, hsv_mean, max_type=SPAWN_MAX_TYPE)
 
     return NextResult(
         fruit=fruit,
-        region=region,
+        x=BUBBLE_X - WINDOW_HALF + x,
+        y=BUBBLE_Y - WINDOW_HALF + y,
+        radius=radius,
         radius_ratio=radius_ratio,
-        blob=blob,
     )
 
 
-def draw_debug(frame: np.ndarray, result: NextResult) -> None:
+def draw_debug(frame: np.ndarray, corners: np.ndarray, result: NextResult) -> None:
     label, color = _label(result)
 
-    if result.region is None:
+    if result.x is None or result.y is None or result.radius is None:
         put_text(frame, label, (8, 52), color)
         return
 
-    x1, y1, x2, y2 = result.region
-    cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 255), 2)
+    center, radius = screen_circle(
+        inverse_warp_matrix(corners), result.x, result.y, result.radius
+    )
 
-    if result.blob is not None:
-        bx, by, br = result.blob
-        center = (int(x1 + bx), int(y1 + by))
-        cv2.circle(frame, center, max(2, int(br)), (255, 0, 255), 2)
-        cv2.circle(frame, center, 3, (255, 0, 255), -1)
+    cv2.circle(frame, center, radius, color, 2)
+    cv2.circle(frame, center, 2, color, -1)
 
-    put_text(frame, label, (x1, max(16, y1 - 8)), color, scale=0.55)
+    origin = (center[0] - radius, max(12, center[1] - radius - 6))
+    put_text(frame, label, origin, color, scale=0.45, thickness=1)
 
 
 def _label(result: NextResult) -> tuple[str, Color]:
@@ -83,48 +88,44 @@ def _label(result: NextResult) -> tuple[str, Color]:
     return "next: ---", (0, 0, 255)
 
 
-def _blob_mask(crop: np.ndarray) -> np.ndarray:
-    """Keep only the next fruit.
+def _warp_window(frame: np.ndarray, corners: np.ndarray) -> np.ndarray:
+    """Warp the area around the bubble at the same scale as the board.
 
-    The preview is wrapped in a low-saturation white orb, so cutting by saturation
-    leaves the fruit inside rather than the orb.
+    Measuring by dividing by the board width goes wrong when the view swings. The board appears near the center of the screen
+    and the bubble near the edge, so the amount each is stretched by the projection differs.
+    Warping with the same projection as the board also undoes the stretch at the bubble's position.
     """
-    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    mask = saturated_mask(hsv)
+    return warp_window(
+        frame,
+        corners,
+        BUBBLE_X - WINDOW_HALF,
+        BUBBLE_Y - WINDOW_HALF,
+        WINDOW_HALF * 2,
+        WINDOW_HALF * 2,
+    )
 
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    return mask
+
+def _window_mask(window: np.ndarray) -> np.ndarray:
+    """Keep only the fruit inside the bubble.
+
+    The orb and stars around the bubble are pale and drop out on saturation, but the night sky seen through the orb
+    is only dark and highly saturated. Cutting by saturation alone leaves the whole bubble, and what gets measured
+    is the size of the bubble instead of the fruit inside.
+    """
+    return solid_mask(vivid_mask(cv2.cvtColor(window, cv2.COLOR_BGR2HSV)))
 
 
-def _find_blob(
-    mask: np.ndarray,
-    board_width: float,
-    scale: float,
-) -> tuple[float, float, float] | None:
-    height, width = mask.shape[:2]
-    if height < 4 or width < 4:
-        return None
-
+def _find_blob(mask: np.ndarray) -> tuple[float, float, float] | None:
     # next only produces cherry-orange, so sizes outside that range
     # can be judged as just picking up the orb or the background.
     ratios = fruit_radius_ratios()
-    min_radius = max(2.0, board_width * ratios[0] * 0.6 / scale)
-    max_radius = max(min_radius + 1.0, board_width * ratios[SPAWN_MAX_TYPE] * 1.4 / scale)
-
-    peaks = circle_peaks(mask, min_radius, max_radius)
-    if not peaks:
-        return None
-
-    center_x = width / 2
-    center_y = height / 2
-    tolerance = min(width, height) * CENTER_TOLERANCE_RATIO
+    min_radius = max(2.0, NORMALIZED_WIDTH * ratios[0] * 0.6)
+    max_radius = max(min_radius + 1.0, NORMALIZED_WIDTH * ratios[SPAWN_MAX_TYPE] * 1.4)
 
     centered = [
         peak
-        for peak in peaks
-        if np.hypot(peak[0] - center_x, peak[1] - center_y) <= tolerance
+        for peak in circle_peaks(mask, min_radius, max_radius)
+        if np.hypot(peak[0] - WINDOW_HALF, peak[1] - WINDOW_HALF) <= CENTER_TOLERANCE
     ]
     if not centered:
         return None

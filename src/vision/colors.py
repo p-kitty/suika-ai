@@ -55,6 +55,12 @@ BOARD_FRAME_HSV = ((14, 60, 100), (45, 255, 255))
 # Every fruit is vivid, and the difference from the background shows in saturation.
 DEFAULT_FRUIT_SATURATION_MIN = 95
 
+# Outside the board (the night sky, inside the next bubble) is dark but highly saturated, so saturation alone cannot cut it.
+# Meanwhile pale bright things there (clouds, bubbles, stars) drop out on saturation. Requiring both brightness and
+# saturation leaves only fruits.
+DEFAULT_VIVID_SATURATION_MIN = 130
+DEFAULT_VIVID_VALUE_MIN = 110
+
 COLOR_FAMILIES = {
     "red_orange": [0, 1, 3, 4, 5],
     "purple": [2],
@@ -67,6 +73,15 @@ def saturated_mask(hsv: np.ndarray) -> np.ndarray:
     """Keep only pixels that look like fruit by saturation."""
     saturation_min = load().get("fruit_saturation_min", DEFAULT_FRUIT_SATURATION_MIN)
     return cv2.inRange(hsv, (0, saturation_min, 45), (180, 255, 255))
+
+
+def vivid_mask(hsv: np.ndarray) -> np.ndarray:
+    """Keep only bright, vivid pixels. Used to pick up fruit outside the board."""
+    cfg = load()
+    saturation_min = cfg.get("vivid_saturation_min", DEFAULT_VIVID_SATURATION_MIN)
+    value_min = cfg.get("vivid_value_min", DEFAULT_VIVID_VALUE_MIN)
+
+    return cv2.inRange(hsv, (0, saturation_min, value_min), (180, 255, 255))
 
 
 def color_family(h: float, s: float) -> str:

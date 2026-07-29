@@ -61,6 +61,41 @@ def circle_peaks(
     return circles
 
 
+def solid_mask(mask: np.ndarray, kernel_size: int = 3) -> np.ndarray:
+    """Remove threshold graininess and fill enclosed holes.
+
+    Preparation before looking for circles. Graininess erodes the distance transform, and holes push peaks
+    away from the center, splitting one blob into several small circles.
+
+    Filling holes unconditionally is only safe when nothing but fruit appears inside the blob.
+    Inside the board, background enclosed by touching fruits also becomes a hole, so the fruits side
+    chooses by color.
+    """
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+    return _fill_holes(mask)
+
+
+def _fill_holes(mask: np.ndarray) -> np.ndarray:
+    background = (mask == 0).astype(np.uint8)
+    count, labels, _, _ = cv2.connectedComponentsWithStats(background, connectivity=8)
+
+    enclosed = np.ones(count, dtype=bool)
+    enclosed[0] = False
+    enclosed[_border_labels(labels)] = False
+
+    filled = mask.copy()
+    filled[enclosed[labels]] = 255
+
+    return filled
+
+
+def _border_labels(labels: np.ndarray) -> np.ndarray:
+    return np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+
+
 def _is_apex(distance: np.ndarray, x: int, y: int, radius: float) -> bool:
     """Whether it is a maximum over an area proportionate to its own radius.
 

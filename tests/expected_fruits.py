@@ -136,6 +136,24 @@ EXPECTED_HELD = {
     "8.png": ("cherry", 194),
     "9.png": ("strawberry", 248),
     "10.png": ("orange", 214),
+    # A view of the board from the left at an angle.
+    "11.png": ("strawberry", 63),
+}
+
+# The contents of the next bubble. The fruit that comes after the waiting one.
+# The bubble appears away from the board toward the edge of the screen, so it goes wrong easily when the view swings.
+# 11.png is an angled view; back when it was measured against the board width it was misread as orange.
+EXPECTED_NEXT = {
+    "1.png": "grape",
+    "2.png": "orange",
+    "3.png": "strawberry",
+    "4.png": "grape",
+    "5.png": "orange",
+    "6.png": "cherry",
+    "8.png": "cherry",
+    "9.png": "cherry",
+    "10.png": "cherry",
+    "11.png": "dekopon",
 }
 
 # Misreads not yet fixed. Remove the mark once fixed.

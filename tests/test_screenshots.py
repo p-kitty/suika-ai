@@ -18,7 +18,13 @@ from src.vision.board import NORMALIZED_WIDTH, localize
 from src.vision.classify import fruit_radius_ratios
 from src.vision.colors import FRUIT_NAMES
 from src.vision.state import Fruit
-from tests.expected_fruits import BLOCKED, EXPECTED, EXPECTED_HELD, KNOWN_FAILURES
+from tests.expected_fruits import (
+    BLOCKED,
+    EXPECTED,
+    EXPECTED_HELD,
+    EXPECTED_NEXT,
+    KNOWN_FAILURES,
+)
 
 SCREENSHOTS = Path(__file__).resolve().parents[1] / "screenshots"
 
@@ -125,6 +131,7 @@ def test_dialog_hides_board(name: str) -> None:
     # Cannot be read while covered. Must not return an old board.
     assert result.fruits is None
     assert result.held_fruit is None
+    assert result.next_fruit is None
 
 
 @pytest.mark.parametrize("name", _ordered(EXPECTED_HELD))
@@ -142,6 +149,22 @@ def test_held_fruit(name: str) -> None:
     assert held.fruit.name == expected_name, f"{name}: misclassified {expected_name} -> {detail}"
     # The drop column. Off by more than the radius means it picked up another blob.
     assert abs(held.x - expected_x) <= held.radius, f"{name}: wrong position {expected_x} -> {detail}"
+
+
+@pytest.mark.parametrize("name", _ordered(EXPECTED_NEXT))
+def test_next_fruit(name: str) -> None:
+    """The contents of the next bubble. The fruit that comes after the waiting one."""
+    result = _result(name)
+    next_fruit = result.next_fruit
+
+    assert next_fruit is not None and next_fruit.fruit is not None, (
+        f"{name}: missed the next fruit"
+    )
+
+    detail = f"{next_fruit.fruit.name} ratio {next_fruit.radius_ratio:.3f}"
+    assert next_fruit.fruit.name == EXPECTED_NEXT[name], (
+        f"{name}: misclassified {EXPECTED_NEXT[name]} -> {detail}"
+    )
 
 
 @pytest.mark.parametrize("name", _fruit_cases())

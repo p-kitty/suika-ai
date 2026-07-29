@@ -14,7 +14,7 @@ from .normalized import (
     NORMALIZED_HEIGHT,
     NORMALIZED_WIDTH,
     inverse_warp_matrix,
-    transform_point,
+    screen_circle,
     warp_matrix,
 )
 from .state import Fruit
@@ -100,7 +100,7 @@ def draw_frame_debug(frame: np.ndarray, result: BoardResult) -> np.ndarray:
         draw_held_debug(output, result.corners, result.held_fruit)
 
     if result.next_fruit is not None:
-        draw_next_debug(output, result.next_fruit)
+        draw_next_debug(output, result.corners, result.next_fruit)
 
     if result.fruits is not None:
         _draw_fruits(output, result.corners, result.fruits)
@@ -126,9 +126,7 @@ def _draw_fruits(
     show_radius = load().get("debug_radius", False)
 
     for fruit in fruits:
-        center = transform_point(matrix, fruit.x, fruit.y)
-        edge = transform_point(matrix, fruit.x + fruit.radius, fruit.y)
-        radius = max(2, int(np.hypot(edge[0] - center[0], edge[1] - center[1])))
+        center, radius = screen_circle(matrix, fruit.x, fruit.y, fruit.radius)
         color = (0, 255, 0) if fruit.confidence >= 50 else (0, 165, 255)
 
         cv2.circle(output, center, radius, color, 2)
