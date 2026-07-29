@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -54,7 +53,6 @@ def world(monkeypatch: pytest.MonkeyPatch) -> FakeWorld:
     monkeypatch.setattr(control, "load", lambda: LOOK_CFG)
     monkeypatch.setattr(control, "move_by", fake.move_by)
     monkeypatch.setattr(control, "click", fake.click)
-    monkeypatch.setattr(control, "focus", lambda _title: None)
     monkeypatch.setattr(control.time, "sleep", lambda _sec: None)
     return fake
 
@@ -105,17 +103,11 @@ def test_aim_fails_when_blocked(world: FakeWorld) -> None:
 
 
 def test_step_drops_settles_and_recenters(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Env.step が 落とす → 静止待ち → 中央復帰 の順で、最後に窓を戻す。"""
+    """Env.step が 落とす → 静止待ち → 中央復帰 の順。"""
     from src.env import Env
     from src.observe import Observation
 
     events: list[str] = []
-
-    @contextmanager
-    def fake_hidden(_title: str):
-        events.append("hide")
-        yield
-        events.append("show")
 
     ready = Observation(
         ready=True,
@@ -136,7 +128,6 @@ def test_step_drops_settles_and_recenters(monkeypatch: pytest.MonkeyPatch) -> No
 
     env = Env()
     monkeypatch.setattr(env, "observe", lambda frame=None: ready)
-    monkeypatch.setattr(control, "hidden", fake_hidden)
     monkeypatch.setattr(
         control,
         "drop_column",
@@ -161,7 +152,4 @@ def test_step_drops_settles_and_recenters(monkeypatch: pytest.MonkeyPatch) -> No
     assert result.info == "ok"
     assert result.done is False
     assert result.target_x == 250.0
-    assert events[0] == "playable"
-    assert events[1] == "hide"
-    assert events[-1] == "show"
-    assert events[2:-1] == ["drop:250", "held_gone", "playable", "recenter"]
+    assert events == ["playable", "drop:250", "held_gone", "playable", "recenter"]

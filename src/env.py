@@ -73,30 +73,28 @@ class Env:
         target = clamp_drop_x(x, before.held_type)
         read = self._aim_read
 
-        # 操作〜静止待ち〜中央復帰のあいだ Suika を隠し、最後に一度だけ戻す。
-        with control.hidden(control.SUIKA_TITLE):
-            aimed = control.drop_column(target, read=read)
-            info_aim = "ok" if aimed else "aim_timeout"
+        aimed = control.drop_column(target, read=read)
+        info_aim = "ok" if aimed else "aim_timeout"
 
-            # 落としたあと、いったん held が消えるのを待つ。消えないまま静止判定に
-            # 入ると、雲が動いただけの揺れで止まってしまう。
-            _wait_held_gone(self.observe, before.held_x)
+        # 落としたあと、いったん held が消えるのを待つ。消えないまま静止判定に
+        # 入ると、雲が動いただけの揺れで止まってしまう。
+        _wait_held_gone(self.observe, before.held_x)
 
-            after = settle.wait_playable(self.observe)
-            done = after.blocked or not after.ready
-            if after.blocked:
-                info = "dialog"
-            elif not after.ready:
-                info = "timeout"
-            elif not aimed:
-                info = info_aim
-            else:
-                info = "ok"
+        after = settle.wait_playable(self.observe)
+        done = after.blocked or not after.ready
+        if after.blocked:
+            info = "dialog"
+        elif not after.ready:
+            info = "timeout"
+        elif not aimed:
+            info = info_aim
+        else:
+            info = "ok"
 
-            # 次の手が端から始まらないよう、新しい落下待ちを中央へ戻す。
-            if not done and after.ready:
-                control.recenter(read)
-                after = self.observe()
+        # 次の手が端から始まらないよう、新しい落下待ちを中央へ戻す。
+        if not done and after.ready:
+            control.recenter(read)
+            after = self.observe()
 
         return StepResult(after, target, done=done, info=info)
 
