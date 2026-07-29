@@ -151,3 +151,29 @@ def test_orange_on_top_when_ordered_side_blocked() -> None:
     blocker = Fruit(type=2, x=side_x, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90)
     x = choose_x(_obs(held_type=4, fruits=(apple, blocker)))
     assert abs(x - apple.x) < apple_r * 0.9
+
+
+def test_prefers_merging_wedged_small_over_stacking_on_larger() -> None:
+    # リンゴ2つの間にブドウが挟まっている。held もブドウ。
+    # 右にオレンジの並ぶ側が空いていても、挟まった同種の合成を優先する。
+    apple_r = _radius(5)
+    grape_r = _radius(2)
+    orange_r = _radius(4)
+    floor_apple = NORMALIZED_HEIGHT - apple_r
+    floor_grape = NORMALIZED_HEIGHT - grape_r
+    floor_orange = NORMALIZED_HEIGHT - orange_r
+    left = Fruit(type=5, x=apple_r + 10, y=floor_apple, radius=apple_r, confidence=90)
+    mid_x = left.x + apple_r + grape_r - 2
+    wedged = Fruit(type=2, x=mid_x, y=floor_grape, radius=grape_r, confidence=90)
+    right = Fruit(type=5, x=mid_x + grape_r + apple_r - 2, y=floor_apple, radius=apple_r, confidence=90)
+    orange = Fruit(
+        type=4,
+        x=min(NORMALIZED_WIDTH - orange_r - 5, right.x + apple_r + orange_r + 30),
+        y=floor_orange,
+        radius=orange_r,
+        confidence=90,
+    )
+    x = choose_x(_obs(held_type=2, fruits=(left, wedged, right, orange)))
+    assert abs(x - wedged.x) < grape_r * 2
+    after, merges = _after_drop(_obs(held_type=2, fruits=(left, wedged, right, orange)), x)
+    assert merges >= 1
