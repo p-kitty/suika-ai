@@ -10,9 +10,9 @@
     "debug_radius": true,
     "debug_dump_interval_sec": 0,
     "control_enabled": true,
-    "look_gain": 0.4,
+    "look_gain": 0.55,
     "look_tolerance": 8,
     "look_timeout_sec": 4.0,
-    "look_max_step": 24,
+    "look_max_step": 48,
     "recenter_tolerance": 14
 }

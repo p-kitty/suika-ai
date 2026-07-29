@@ -73,32 +73,34 @@ class Env:
         if self.dry_run:
             return StepResult(before, target, done=False, info="dry_run")
 
-        aimed = control.drop_column(target, read=read, dry_run=False)
-        info_aim = "ok" if aimed else "aim_timeout"
+        # Hide Suika during controls, settle wait and return to center, and bring it back once at the end.
+        with control.hidden(control.SUIKA_TITLE):
+            aimed = control.drop_column(target, read=read, dry_run=False)
+            info_aim = "ok" if aimed else "aim_timeout"
 
-        # After dropping, wait once for held to disappear. If it does not disappear, the settle check
-        # stops on wobble that is only the clouds moving.
-        _wait_held_gone(self.observe, before.held_x)
+            # After dropping, wait once for held to disappear. If it does not disappear, the settle check
+            # stops on wobble that is only the clouds moving.
+            _wait_held_gone(self.observe, before.held_x)
 
-        settled = settle.wait_settled(self.observe)
-        if settled.blocked:
-            return StepResult(settled, target, done=True, info="dialog")
+            settled = settle.wait_settled(self.observe)
+            if settled.blocked:
+                return StepResult(settled, target, done=True, info="dialog")
 
-        ready = settle.wait_ready(self.observe)
-        done = ready.blocked or not ready.ready
-        if ready.blocked:
-            info = "dialog"
-        elif not ready.ready:
-            info = "timeout"
-        elif not aimed:
-            info = info_aim
-        else:
-            info = "ok"
+            ready = settle.wait_ready(self.observe)
+            done = ready.blocked or not ready.ready
+            if ready.blocked:
+                info = "dialog"
+            elif not ready.ready:
+                info = "timeout"
+            elif not aimed:
+                info = info_aim
+            else:
+                info = "ok"
 
-        # Return the new waiting fruit to center so the next move does not start from the edge.
-        if not done and ready.ready:
-            control.recenter(read)
-            ready = self.observe()
+            # Return the new waiting fruit to center so the next move does not start from the edge.
+            if not done and ready.ready:
+                control.recenter(read)
+                ready = self.observe()
 
         return StepResult(ready, target, done=done, info=info)
 
