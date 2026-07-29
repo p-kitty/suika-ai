@@ -13,11 +13,13 @@ from .vision.state import Fruit
 # Movement below this is considered wobble (normalized coordinates px).
 DEFAULT_STILL_PX = 2.5
 # If quiet for this long throughout, consider it stopped.
-DEFAULT_STILL_SEC = 0.45
+DEFAULT_STILL_SEC = 0.7
 # Give up if it has not moved by this long after the drop.
 DEFAULT_TIMEOUT_SEC = 8.0
 # Cap on the wait from the waiting fruit disappearing until the next one appears.
 DEFAULT_HELD_TIMEOUT_SEC = 4.0
+# Cap until 'the next move can be made', including waiting for ready.
+DEFAULT_PLAYABLE_TIMEOUT_SEC = 12.0
 
 
 def motion(previous: list[Fruit] | tuple[Fruit, ...], current: list[Fruit] | tuple[Fruit, ...]) -> float:
@@ -89,6 +91,39 @@ def wait_ready(
             return last
         time.sleep(1 / 30)
         last = read()
+
+    return last
+
+
+def wait_playable(
+    read: Callable[[], Observation],
+    *,
+    timeout_sec: float = DEFAULT_PLAYABLE_TIMEOUT_SEC,
+) -> Observation:
+    """Return an observation where the board has stopped and the waiting fruit is readable.
+
+    After held appears the board may move again through a cascade, so right after not ready → ready
+    right after, confirm stopping once more.
+    """
+    deadline = time.monotonic() + timeout_sec
+    last = read()
+
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+
+        last = wait_settled(read, timeout_sec=remaining)
+        if last.blocked or last.ready:
+            return last
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        last = wait_ready(read, timeout_sec=min(remaining, DEFAULT_HELD_TIMEOUT_SEC))
+        if last.blocked:
+            return last
+        # Right after becoming ready, so settle again at the top of the loop.
 
     return last
 

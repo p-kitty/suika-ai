@@ -153,12 +153,8 @@ def test_step_drops_settles_and_recenters(monkeypatch: pytest.MonkeyPatch) -> No
         lambda *_args, **_kwargs: events.append("held_gone"),
     )
     monkeypatch.setattr(
-        "src.env.settle.wait_settled",
-        lambda *_args, **_kwargs: events.append("settled") or ready,
-    )
-    monkeypatch.setattr(
-        "src.env.settle.wait_ready",
-        lambda *_args, **_kwargs: events.append("ready") or after,
+        "src.env.settle.wait_playable",
+        lambda *_args, **_kwargs: events.append("playable") or after,
     )
     monkeypatch.setattr(
         control,
@@ -171,6 +167,7 @@ def test_step_drops_settles_and_recenters(monkeypatch: pytest.MonkeyPatch) -> No
     assert result.info == "ok"
     assert result.done is False
     assert result.target_x == 250.0
-    assert events[0] == "hide"
+    assert events[0] == "playable"
+    assert events[1] == "hide"
     assert events[-1] == "show"
-    assert events[1:-1] == ["drop:250", "held_gone", "settled", "ready", "recenter"]
+    assert events[2:-1] == ["drop:250", "held_gone", "playable", "recenter"]
