@@ -136,6 +136,24 @@ EXPECTED_HELD = {
     "8.png": ("cherry", 194),
     "9.png": ("strawberry", 248),
     "10.png": ("orange", 214),
+    # 盤面を左から斜めに見た視点。
+    "11.png": ("strawberry", 63),
+}
+
+# next の泡の中身。落下待ちのさらに次に来るフルーツ。
+# 泡は盤面から離れて画面の端寄りに写るので、視点を振ったときに狂いやすい。
+# 11.png は斜めから見た視点で、盤面幅を基準に測っていた頃は orange と誤った。
+EXPECTED_NEXT = {
+    "1.png": "grape",
+    "2.png": "orange",
+    "3.png": "strawberry",
+    "4.png": "grape",
+    "5.png": "orange",
+    "6.png": "cherry",
+    "8.png": "cherry",
+    "9.png": "cherry",
+    "10.png": "cherry",
+    "11.png": "dekopon",
 }
 
 # まだ直っていない取り違え。直したらこの印を外す。

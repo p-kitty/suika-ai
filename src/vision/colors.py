@@ -55,6 +55,12 @@ BOARD_FRAME_HSV = ((14, 60, 100), (45, 255, 255))
 # フルーツはどれも鮮やかで、下地との差は彩度に出る。
 DEFAULT_FRUIT_SATURATION_MIN = 95
 
+# 盤面の外 (夜空、next の泡の中) は暗いが彩度は高く、彩度だけでは切れない。
+# 一方そこに写る淡くて明るいもの (雲、泡、星) は彩度で落ちる。明るさと彩度の
+# 両方を要求すると、残るのはフルーツだけになる。
+DEFAULT_VIVID_SATURATION_MIN = 130
+DEFAULT_VIVID_VALUE_MIN = 110
+
 COLOR_FAMILIES = {
     "red_orange": [0, 1, 3, 4, 5],
     "purple": [2],
@@ -67,6 +73,15 @@ def saturated_mask(hsv: np.ndarray) -> np.ndarray:
     """彩度でフルーツらしい画素だけを残す。"""
     saturation_min = load().get("fruit_saturation_min", DEFAULT_FRUIT_SATURATION_MIN)
     return cv2.inRange(hsv, (0, saturation_min, 45), (180, 255, 255))
+
+
+def vivid_mask(hsv: np.ndarray) -> np.ndarray:
+    """明るくて鮮やかな画素だけを残す。盤面の外でフルーツを取るのに使う。"""
+    cfg = load()
+    saturation_min = cfg.get("vivid_saturation_min", DEFAULT_VIVID_SATURATION_MIN)
+    value_min = cfg.get("vivid_value_min", DEFAULT_VIVID_VALUE_MIN)
+
+    return cv2.inRange(hsv, (0, saturation_min, value_min), (180, 255, 255))
 
 
 def color_family(h: float, s: float) -> str:

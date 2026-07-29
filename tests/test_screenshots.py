@@ -18,7 +18,13 @@ from src.vision.board import NORMALIZED_WIDTH, localize
 from src.vision.classify import fruit_radius_ratios
 from src.vision.colors import FRUIT_NAMES
 from src.vision.state import Fruit
-from tests.expected_fruits import BLOCKED, EXPECTED, EXPECTED_HELD, KNOWN_FAILURES
+from tests.expected_fruits import (
+    BLOCKED,
+    EXPECTED,
+    EXPECTED_HELD,
+    EXPECTED_NEXT,
+    KNOWN_FAILURES,
+)
 
 SCREENSHOTS = Path(__file__).resolve().parents[1] / "screenshots"
 
@@ -125,6 +131,7 @@ def test_dialog_hides_board(name: str) -> None:
     # 覆われている間は読めない。古い盤面を返さないこと。
     assert result.fruits is None
     assert result.held_fruit is None
+    assert result.next_fruit is None
 
 
 @pytest.mark.parametrize("name", _ordered(EXPECTED_HELD))
@@ -142,6 +149,22 @@ def test_held_fruit(name: str) -> None:
     assert held.fruit.name == expected_name, f"{name}: 誤分類 {expected_name} -> {detail}"
     # 落とす列。半径ぶん以上ずれていたら別の塊を拾っている。
     assert abs(held.x - expected_x) <= held.radius, f"{name}: 位置ちがい {expected_x} -> {detail}"
+
+
+@pytest.mark.parametrize("name", _ordered(EXPECTED_NEXT))
+def test_next_fruit(name: str) -> None:
+    """next の泡の中身。落下待ちのさらに次に来るフルーツ。"""
+    result = _result(name)
+    next_fruit = result.next_fruit
+
+    assert next_fruit is not None and next_fruit.fruit is not None, (
+        f"{name}: next のフルーツを取り逃がした"
+    )
+
+    detail = f"{next_fruit.fruit.name} 比 {next_fruit.radius_ratio:.3f}"
+    assert next_fruit.fruit.name == EXPECTED_NEXT[name], (
+        f"{name}: 誤分類 {EXPECTED_NEXT[name]} -> {detail}"
+    )
 
 
 @pytest.mark.parametrize("name", _fruit_cases())

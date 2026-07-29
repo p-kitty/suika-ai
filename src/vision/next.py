@@ -3,76 +3,81 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from ..config import load
 from ..draw import Color, put_text
-from .blobs import circle_peaks
+from .blobs import circle_peaks, solid_mask
 from .classify import ClassifyResult, classify, fruit_radius_ratios, sample_hsv
-from .colors import SPAWN_MAX_TYPE, saturated_mask
-from .next_crop import crop_next_region
+from .colors import SPAWN_MAX_TYPE, vivid_mask
+from .normalized import (
+    NORMALIZED_WIDTH,
+    inverse_warp_matrix,
+    screen_circle,
+    warp_window,
+)
 
-# crop 中心からこの割合より離れたピークは next のフルーツではない。
-CENTER_TOLERANCE_RATIO = 0.35
+# 泡は盤面の右上あたりに浮いている。盤面の面に投げた影として見たときの中心で、
+# 実測では 11 枚すべて (538〜557, -10〜10) に収まる。
+BUBBLE_X = 550
+BUBBLE_Y = 5
+
+# 中心の周りに取る窓の半径。下の Merge Order の輪や右の木を入れない広さ。
+WINDOW_HALF = 100
+# 泡の中心からこれだけ離れた塊は next のフルーツではない。
+CENTER_TOLERANCE = 45
 
 
 @dataclass
 class NextResult:
+    """next の泡の中身。落下待ちのさらに次に来るフルーツ。"""
+
     fruit: ClassifyResult | None
-    region: tuple[int, int, int, int] | None
+    # 正規化した盤面の座標。盤面の右外なので x は幅より大きい。
+    x: float | None = None
+    y: float | None = None
+    radius: float | None = None
     radius_ratio: float | None = None
-    blob: tuple[float, float, float] | None = None
 
 
 def detect(frame: np.ndarray, corners: np.ndarray) -> NextResult:
-    region = crop_next_region(frame, corners)
-    if region is None:
-        return NextResult(fruit=None, region=None)
+    window = _warp_window(frame, corners)
+    mask = _window_mask(window)
 
-    top_left, top_right, _bottom_right, _bottom_left = corners
-    board_width = float(np.linalg.norm(top_right - top_left))
-    if board_width <= 0:
-        return NextResult(fruit=None, region=region)
-
-    x1, y1, x2, y2 = region
-    next_crop = frame[y1:y2, x1:x2]
-    if next_crop.size == 0:
-        return NextResult(fruit=None, region=region)
-
-    mask = _blob_mask(next_crop)
-    scale = load().get("next_radius_scale", 1.0) or 1.0
-    blob = _find_blob(mask, board_width, scale)
+    blob = _find_blob(mask)
     if blob is None:
-        return NextResult(fruit=None, region=region)
+        return NextResult(fruit=None)
 
     x, y, radius = blob
-    radius_ratio = (radius / board_width) * scale
-    hsv_mean = sample_hsv(next_crop, x, y, radius, valid_mask=mask)
+    # 泡の中のフルーツは、盤面に置いたときとほぼ同じ大きさに写る
+    # (実測 11 枚の中央値で 1.00 倍)。尺度の読み替えはいらない。
+    radius_ratio = radius / NORMALIZED_WIDTH
+
+    hsv_mean = sample_hsv(window, x, y, radius, valid_mask=mask)
     fruit = classify(radius_ratio, hsv_mean, max_type=SPAWN_MAX_TYPE)
 
     return NextResult(
         fruit=fruit,
-        region=region,
+        x=BUBBLE_X - WINDOW_HALF + x,
+        y=BUBBLE_Y - WINDOW_HALF + y,
+        radius=radius,
         radius_ratio=radius_ratio,
-        blob=blob,
     )
 
 
-def draw_debug(frame: np.ndarray, result: NextResult) -> None:
+def draw_debug(frame: np.ndarray, corners: np.ndarray, result: NextResult) -> None:
     label, color = _label(result)
 
-    if result.region is None:
+    if result.x is None or result.y is None or result.radius is None:
         put_text(frame, label, (8, 52), color)
         return
 
-    x1, y1, x2, y2 = result.region
-    cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 255), 2)
+    center, radius = screen_circle(
+        inverse_warp_matrix(corners), result.x, result.y, result.radius
+    )
 
-    if result.blob is not None:
-        bx, by, br = result.blob
-        center = (int(x1 + bx), int(y1 + by))
-        cv2.circle(frame, center, max(2, int(br)), (255, 0, 255), 2)
-        cv2.circle(frame, center, 3, (255, 0, 255), -1)
+    cv2.circle(frame, center, radius, color, 2)
+    cv2.circle(frame, center, 2, color, -1)
 
-    put_text(frame, label, (x1, max(16, y1 - 8)), color, scale=0.55)
+    origin = (center[0] - radius, max(12, center[1] - radius - 6))
+    put_text(frame, label, origin, color, scale=0.45, thickness=1)
 
 
 def _label(result: NextResult) -> tuple[str, Color]:
@@ -83,48 +88,44 @@ def _label(result: NextResult) -> tuple[str, Color]:
     return "next: ---", (0, 0, 255)
 
 
-def _blob_mask(crop: np.ndarray) -> np.ndarray:
-    """next のフルーツだけを残す。
+def _warp_window(frame: np.ndarray, corners: np.ndarray) -> np.ndarray:
+    """泡のあたりを盤面と同じ尺度に起こす。
 
-    プレビューは彩度の低い白い玉に包まれているので、彩度で切れば
-    玉ではなく中のフルーツが残る。
+    盤面幅で割って測ると、視点を振ったときに狂う。盤面は画面の中央寄り、
+    泡は端寄りに写るので、射影で引き伸ばされる量が両者で違ってくる。
+    盤面と同じ射影で起こせば、泡の位置での引き伸ばしも一緒に戻る。
     """
-    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    mask = saturated_mask(hsv)
+    return warp_window(
+        frame,
+        corners,
+        BUBBLE_X - WINDOW_HALF,
+        BUBBLE_Y - WINDOW_HALF,
+        WINDOW_HALF * 2,
+        WINDOW_HALF * 2,
+    )
 
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    return mask
+
+def _window_mask(window: np.ndarray) -> np.ndarray:
+    """泡の中のフルーツだけを残す。
+
+    泡を包む玉と星は淡いので彩度で落ちるが、玉を透かして見える夜空は
+    暗いだけで彩度は高い。彩度だけで切ると泡がまるごと残り、測るのは
+    中のフルーツではなく泡の大きさになってしまう。
+    """
+    return solid_mask(vivid_mask(cv2.cvtColor(window, cv2.COLOR_BGR2HSV)))
 
 
-def _find_blob(
-    mask: np.ndarray,
-    board_width: float,
-    scale: float,
-) -> tuple[float, float, float] | None:
-    height, width = mask.shape[:2]
-    if height < 4 or width < 4:
-        return None
-
+def _find_blob(mask: np.ndarray) -> tuple[float, float, float] | None:
     # next は cherry〜orange しか出ないので、その範囲外の大きさは
     # 玉や背景を拾っているだけと判断できる。
     ratios = fruit_radius_ratios()
-    min_radius = max(2.0, board_width * ratios[0] * 0.6 / scale)
-    max_radius = max(min_radius + 1.0, board_width * ratios[SPAWN_MAX_TYPE] * 1.4 / scale)
-
-    peaks = circle_peaks(mask, min_radius, max_radius)
-    if not peaks:
-        return None
-
-    center_x = width / 2
-    center_y = height / 2
-    tolerance = min(width, height) * CENTER_TOLERANCE_RATIO
+    min_radius = max(2.0, NORMALIZED_WIDTH * ratios[0] * 0.6)
+    max_radius = max(min_radius + 1.0, NORMALIZED_WIDTH * ratios[SPAWN_MAX_TYPE] * 1.4)
 
     centered = [
         peak
-        for peak in peaks
-        if np.hypot(peak[0] - center_x, peak[1] - center_y) <= tolerance
+        for peak in circle_peaks(mask, min_radius, max_radius)
+        if np.hypot(peak[0] - WINDOW_HALF, peak[1] - WINDOW_HALF) <= CENTER_TOLERANCE
     ]
     if not centered:
         return None

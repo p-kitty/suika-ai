@@ -61,6 +61,41 @@ def circle_peaks(
     return circles
 
 
+def solid_mask(mask: np.ndarray, kernel_size: int = 3) -> np.ndarray:
+    """しきい値のざらつきを落とし、囲まれた穴を埋める。
+
+    円を探す前の下準備。ざらつきは距離変換を削り、穴はピークを中心から
+    追い出して一つの塊を小さな円いくつかに割ってしまう。
+
+    穴を無条件に埋めてよいのは、塊の中にフルーツ以外が写らない場合だけ。
+    盤面の中は触れ合ったフルーツに囲まれた下地も穴になるので、fruits 側は
+    色を見て選んでいる。
+    """
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+    return _fill_holes(mask)
+
+
+def _fill_holes(mask: np.ndarray) -> np.ndarray:
+    background = (mask == 0).astype(np.uint8)
+    count, labels, _, _ = cv2.connectedComponentsWithStats(background, connectivity=8)
+
+    enclosed = np.ones(count, dtype=bool)
+    enclosed[0] = False
+    enclosed[_border_labels(labels)] = False
+
+    filled = mask.copy()
+    filled[enclosed[labels]] = 255
+
+    return filled
+
+
+def _border_labels(labels: np.ndarray) -> np.ndarray:
+    return np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+
+
 def _is_apex(distance: np.ndarray, x: int, y: int, radius: float) -> bool:
     """自分の半径に見合った広さで最大かどうか。
 
