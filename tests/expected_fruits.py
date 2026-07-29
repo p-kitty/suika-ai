@@ -124,6 +124,20 @@ EXPECTED = {
     ],
 }
 
+# The next fruit to fall, held by the cloud. Its type and drop column on the normalized board
+# (0-400). 7.png is covered by a dialog and not read.
+EXPECTED_HELD = {
+    "1.png": ("grape", 203),
+    "2.png": ("strawberry", 224),
+    "3.png": ("dekopon", 239),
+    "4.png": ("cherry", 116),
+    "5.png": ("cherry", 352),
+    "6.png": ("orange", 77),
+    "8.png": ("cherry", 194),
+    "9.png": ("strawberry", 248),
+    "10.png": ("orange", 214),
+}
+
 # Misreads not yet fixed. Remove the mark once fixed.
 KNOWN_FAILURES = {
     # The 7 at the top (peach/dekopon/apple x2/strawberry x2/cherry) are all reddish, and

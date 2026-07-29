@@ -3,8 +3,9 @@ import numpy as np
 
 from ..config import load
 
-# The largest stage appearing in next (orange). Apple and above never come.
-NEXT_MAX_TYPE = 4
+# The largest stage of newly appearing fruits (orange). Apple and above never come.
+# Applies to both the waiting fruit and the next bubble.
+SPAWN_MAX_TYPE = 4
 
 FRUIT_NAMES = [
     "cherry",

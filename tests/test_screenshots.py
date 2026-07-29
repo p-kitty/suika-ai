@@ -18,7 +18,7 @@ from src.vision.board import NORMALIZED_WIDTH, localize
 from src.vision.classify import fruit_radius_ratios
 from src.vision.colors import FRUIT_NAMES
 from src.vision.state import Fruit
-from tests.expected_fruits import BLOCKED, EXPECTED, KNOWN_FAILURES
+from tests.expected_fruits import BLOCKED, EXPECTED, EXPECTED_HELD, KNOWN_FAILURES
 
 SCREENSHOTS = Path(__file__).resolve().parents[1] / "screenshots"
 
@@ -124,6 +124,24 @@ def test_dialog_hides_board(name: str) -> None:
     assert result.blocked
     # Cannot be read while covered. Must not return an old board.
     assert result.fruits is None
+    assert result.held_fruit is None
+
+
+@pytest.mark.parametrize("name", _ordered(EXPECTED_HELD))
+def test_held_fruit(name: str) -> None:
+    """The next fruit to fall, held by the cloud."""
+    result = _result(name)
+    held = result.held_fruit
+    expected_name, expected_x = EXPECTED_HELD[name]
+
+    assert held is not None and held.fruit is not None and held.x is not None, (
+        f"{name}: missed the waiting fruit"
+    )
+
+    detail = f"{held.fruit.name} x={held.x:.0f} r={held.radius:.1f} above the top edge {-held.y:.0f}"
+    assert held.fruit.name == expected_name, f"{name}: misclassified {expected_name} -> {detail}"
+    # The drop column. Off by more than the radius means it picked up another blob.
+    assert abs(held.x - expected_x) <= held.radius, f"{name}: wrong position {expected_x} -> {detail}"
 
 
 @pytest.mark.parametrize("name", _fruit_cases())
