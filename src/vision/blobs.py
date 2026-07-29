@@ -5,6 +5,12 @@ MAX_PEAK_CANDIDATES = 400
 # Peaks closer than this ratio are considered the same circle.
 NMS_RATIO = 0.65
 
+# Range for checking whether a peak is a summit. A ratio of its own radius.
+APEX_REACH_RATIO = 0.7
+# The distance transform is approximate, so even a flat top has slightly varying heights. Measured, real ones
+# stay within 1.001x, peaks on ridges are 1.13x or more, and there is a gap between.
+APEX_TOLERANCE = 1.05
+
 
 def circle_peaks(
     mask: np.ndarray,
@@ -38,8 +44,11 @@ def circle_peaks(
         if radius > max_radius:
             continue
 
-        x = float(xs[index])
-        y = float(ys[index])
+        x = int(xs[index])
+        y = int(ys[index])
+
+        if not _is_apex(distance, x, y, radius):
+            continue
 
         if any(
             np.hypot(x - cx, y - cy) < max(radius, cr) * NMS_RATIO
@@ -47,9 +56,34 @@ def circle_peaks(
         ):
             continue
 
-        circles.append((x, y, radius))
+        circles.append((float(x), float(y), radius))
 
     return circles
+
+
+def _is_apex(distance: np.ndarray, x: int, y: int, radius: float) -> bool:
+    """Whether it is a maximum over an area proportionate to its own radius.
+
+    Between touching fruits a ridge forms where the inscribed circle grows toward either center.
+    Peaks rise on ridges too, but there is no ball there. For a real one
+    the inscribed circle always shrinks when moved slightly, so a summit test tells them apart.
+
+    The window that picks up peaks is a fixed width matched to the smallest fruit, and does not reach wide ridges
+    between big fruits. Re-check it scaled to the radius.
+    """
+    reach = max(1, int(radius * APEX_REACH_RATIO))
+    height, width = distance.shape
+
+    top, bottom = max(0, y - reach), min(height, y + reach + 1)
+    left, right = max(0, x - reach), min(width, x + reach + 1)
+
+    rows = np.arange(top, bottom)[:, None]
+    columns = np.arange(left, right)[None, :]
+    inside = (columns - x) ** 2 + (rows - y) ** 2 <= reach * reach
+
+    return bool(
+        distance[top:bottom, left:right][inside].max() <= distance[y, x] * APEX_TOLERANCE
+    )
 
 
 def _padded_distance(mask: np.ndarray) -> np.ndarray:

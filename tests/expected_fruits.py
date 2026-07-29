@@ -126,8 +126,11 @@ EXPECTED = {
 
 # Misreads not yet fixed. Remove the mark once fixed.
 KNOWN_FAILURES = {
-    "1.png": "produces a strawberry in the gap between peach and watermelon",
-    "3.png": "produces a strawberry in the gap between pineapple and watermelon",
-    "6.png": "produces a grape in the gap between peach and watermelon",
-    "10.png": "when the board is full it misses fruits at the top edge and also produces them in gaps",
+    # The 7 at the top (peach/dekopon/apple x2/strawberry x2/cherry) are all reddish, and
+    # when they touch the mask fuses into one blob. The distance transform of a fused blob has no peaks
+    # for the fruits inside, so 2 of the 4 missed never even become candidates.
+    # The peach's radius also becomes the blob's, so it is read as an apple.
+    # Cutting the mask by visible contours would separate them, but the stripes of watermelon and the net of melon
+    # get cut too and big fruits shatter, so the segmentation needs rebuilding.
+    "10.png": "when similar-colored fruits touch the mask fuses and inner peaks do not rise",
 }
