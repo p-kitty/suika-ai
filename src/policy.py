@@ -86,10 +86,14 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
     before = list(obs.fruits)
     after, merges = _simulate_drop(before, obs.held_type, x)
     land_y = _land_y(before, x, held_r)
+    cleared_wedge = _clears_wedged(before, x, obs.held_type, held_r, merges)
 
     score = _board_score(after, merges, land_y=land_y)
+    score += _wedged_priority(before, obs.held_type, cleared_wedge)
     score += _larger_neighbor_bonus(before, x, obs.held_type, held_r, land_y)
-    score -= _ignored_larger_penalty(before, x, obs.held_type, held_r, land_y)
+    # Moves merging a wedged same type do not force leaning toward the big fruit.
+    if not cleared_wedge:
+        score -= _ignored_larger_penalty(before, x, obs.held_type, held_r, land_y)
 
     # Without a merge, lean toward the 'lining-up side' of a one-tier-bigger fruit.
     if merges == 0:
@@ -111,14 +115,69 @@ def _best_next_score(fruits: list[Fruit], next_type: int) -> float:
         nx = clamp_drop_x(nx, next_type)
         after, merges = _simulate_drop(fruits, next_type, nx)
         land_y = _land_y(fruits, nx, next_r)
+        cleared_wedge = _clears_wedged(fruits, nx, next_type, next_r, merges)
         value = _board_score(after, merges, land_y=land_y)
+        value += _wedged_priority(fruits, next_type, cleared_wedge)
         value += _larger_neighbor_bonus(fruits, nx, next_type, next_r, land_y)
-        value -= _ignored_larger_penalty(fruits, nx, next_type, next_r, land_y)
+        if not cleared_wedge:
+            value -= _ignored_larger_penalty(fruits, nx, next_type, next_r, land_y)
         if merges == 0:
             value -= abs(nx - _anchor_x(next_type, fruits, next_r)) * 0.45
         if value > best:
             best = value
     return 0.0 if best == -math.inf else best
+
+
+def _is_wedged(fruit: Fruit, fruits: list[Fruit] | tuple[Fruit, ...]) -> bool:
+    """Bigger fruits are close on both left and right, wedging it in."""
+    left_big: Fruit | None = None
+    right_big: Fruit | None = None
+    for other in fruits:
+        if other is fruit or other.type <= fruit.type:
+            continue
+        if abs(other.y - fruit.y) > (other.radius + fruit.radius) * 1.5:
+            continue
+        reach = other.radius + fruit.radius + MERGE_SLACK
+        dx = other.x - fruit.x
+        if -reach * 1.25 <= dx < 0:
+            if left_big is None or other.x > left_big.x:
+                left_big = other
+        elif 0 < dx <= reach * 1.25:
+            if right_big is None or other.x < right_big.x:
+                right_big = other
+    return left_big is not None and right_big is not None
+
+
+def _clears_wedged(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    x: float,
+    drop_type: int,
+    held_r: float,
+    merges: int,
+) -> bool:
+    """Whether the drop merges a wedged same type."""
+    if merges < 1:
+        return False
+    for fruit in fruits:
+        if fruit.type != drop_type or not _is_wedged(fruit, fruits):
+            continue
+        if abs(x - fruit.x) <= fruit.radius + held_r + MERGE_SLACK:
+            return True
+    return False
+
+
+def _wedged_priority(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_type: int,
+    cleared_wedge: bool,
+) -> float:
+    """A same type wedged by big fruits is grown before ordering."""
+    has_wedge = any(f.type == drop_type and _is_wedged(f, fruits) for f in fruits)
+    if not has_wedge:
+        return 0.0
+    if cleared_wedge:
+        return 220.0
+    return -220.0
 
 
 def _board_score(fruits: list[Fruit], merges: int, *, land_y: float) -> float:
@@ -137,7 +196,11 @@ def _board_score(fruits: list[Fruit], merges: int, *, land_y: float) -> float:
 
     score -= 90.0 * _bury_penalty(fruits)
     score -= _size_order_penalty(fruits)
-    score -= 1.2 * _height_variance(fruits)
+    # When there is a dangerous pile, go low rather than flattening. Do not go 'evening out' heights by placing beside it.
+    variance = _height_variance(fruits)
+    if crown < DANGER_Y:
+        variance *= 0.15
+    score -= 1.2 * variance
     return score
 
 
@@ -232,14 +295,7 @@ def _land_y_excluding(
     *,
     exclude: Fruit,
 ) -> float:
-    top = float(NORMALIZED_HEIGHT)
-    for fruit in fruits:
-        if fruit is exclude:
-            continue
-        if abs(fruit.x - x) > fruit.radius + held_r:
-            continue
-        top = min(top, fruit.y - fruit.radius)
-    return top - held_r
+    return _land_y((f for f in fruits if f is not exclude), x, held_r)
 
 
 def _is_on_top(support: Fruit, x: float, held_r: float, land_y: float) -> bool:
@@ -394,13 +450,19 @@ def _height_variance(fruits: list[Fruit]) -> float:
 
 
 def _land_y(fruits: tuple[Fruit, ...] | list[Fruit], x: float, held_r: float) -> float:
-    """Center y when dropped at column x. The floor, or on top of the crown of an overlapping fruit."""
-    top = float(NORMALIZED_HEIGHT)
+    """Center y when dropped at column x. The floor, or where the circles touch.
+
+    With a sideways offset it slides along a big fruit's side, so it reaches small fruits fallen into gaps.
+    """
+    best = float(NORMALIZED_HEIGHT) - held_r
     for fruit in fruits:
-        if abs(fruit.x - x) > fruit.radius + held_r:
+        dx = abs(fruit.x - x)
+        gap = fruit.radius + held_r
+        if dx >= gap:
             continue
-        top = min(top, fruit.y - fruit.radius)
-    return top - held_r
+        dy = math.sqrt(gap * gap - dx * dx)
+        best = min(best, fruit.y - dy)
+    return best
 
 
 def _column_fruits(
