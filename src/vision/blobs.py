@@ -5,6 +5,12 @@ MAX_PEAK_CANDIDATES = 400
 # ピーク同士がこの割合より近ければ同じ円とみなす。
 NMS_RATIO = 0.65
 
+# ピークが頂点かどうかを見る範囲。自分の半径に対する割合。
+APEX_REACH_RATIO = 0.7
+# 距離変換は近似なので、平らな頂上でも高さがわずかにばらつく。実測では本物が
+# 1.001 倍までに収まり、尾根の上のピークは 1.13 倍以上で、間は空いている。
+APEX_TOLERANCE = 1.05
+
 
 def circle_peaks(
     mask: np.ndarray,
@@ -38,8 +44,11 @@ def circle_peaks(
         if radius > max_radius:
             continue
 
-        x = float(xs[index])
-        y = float(ys[index])
+        x = int(xs[index])
+        y = int(ys[index])
+
+        if not _is_apex(distance, x, y, radius):
+            continue
 
         if any(
             np.hypot(x - cx, y - cy) < max(radius, cr) * NMS_RATIO
@@ -47,9 +56,34 @@ def circle_peaks(
         ):
             continue
 
-        circles.append((x, y, radius))
+        circles.append((float(x), float(y), radius))
 
     return circles
+
+
+def _is_apex(distance: np.ndarray, x: int, y: int, radius: float) -> bool:
+    """自分の半径に見合った広さで最大かどうか。
+
+    触れ合ったフルーツの間には、どちらの中心へ寄っても内接円が大きくなる
+    尾根ができる。尾根の上にもピークは立つが、そこに球はない。本物なら
+    内接円は少し動かすと必ず小さくなるので、頂点かどうかで見分けられる。
+
+    ピークを拾う窓は最小のフルーツに合わせた固定幅で、大きなフルーツの
+    間にできる幅の広い尾根には届かない。半径に比例させて見直す。
+    """
+    reach = max(1, int(radius * APEX_REACH_RATIO))
+    height, width = distance.shape
+
+    top, bottom = max(0, y - reach), min(height, y + reach + 1)
+    left, right = max(0, x - reach), min(width, x + reach + 1)
+
+    rows = np.arange(top, bottom)[:, None]
+    columns = np.arange(left, right)[None, :]
+    inside = (columns - x) ** 2 + (rows - y) ** 2 <= reach * reach
+
+    return bool(
+        distance[top:bottom, left:right][inside].max() <= distance[y, x] * APEX_TOLERANCE
+    )
 
 
 def _padded_distance(mask: np.ndarray) -> np.ndarray:

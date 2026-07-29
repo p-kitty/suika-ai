@@ -126,8 +126,11 @@ EXPECTED = {
 
 # まだ直っていない取り違え。直したらこの印を外す。
 KNOWN_FAILURES = {
-    "1.png": "peach と watermelon の隙間に strawberry を出す",
-    "3.png": "pineapple と watermelon の隙間に strawberry を出す",
-    "6.png": "peach と watermelon の隙間に grape を出す",
-    "10.png": "盤面が埋まると上端のフルーツを取り逃がし、隙間にも出す",
+    # 上端の 7 個 (peach/dekopon/apple x2/strawberry x2/cherry) はどれも赤系で、
+    # 触れ合うとマスクが一つの塊に融合する。融合した塊の距離変換には内側の
+    # フルーツのピークが立たないので、取り逃がした 4 個のうち 2 個は候補すら
+    # 出ない。peach の半径も塊のものになるため apple と読む。
+    # マスクを見える輪郭で切れば分かれるが、watermelon の縞や melon の網目も
+    # 一緒に切れて大きいフルーツが砕けるため、切り出しの作り直しが必要。
+    "10.png": "同系色のフルーツが触れ合うとマスクが融合し、内側のピークが立たない",
 }
