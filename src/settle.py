@@ -12,8 +12,8 @@ from .vision.state import Fruit
 
 # 静止判定は raw_fruits (Tracker 平滑化前) を見る。
 # 完全静止は待たず、遅い動きなら着手してよい。
-# 正規化盤でだいたい 60px/s 以下なら「ほぼ止まっている」。
-DEFAULT_STILL_SPEED = 60.0
+# 正規化盤 (幅400) で 25px/s ≒ 0.4秒で約10px。検出ノイズより上、転がりより下。
+DEFAULT_STILL_SPEED = 25.0
 # この長さずっと遅ければ止まったとみなす。
 DEFAULT_STILL_SEC = 0.4
 # 落としてからここまで動かなければ諦める。

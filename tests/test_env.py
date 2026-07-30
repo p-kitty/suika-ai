@@ -125,17 +125,17 @@ def test_wait_settled_true_after_quiet(monkeypatch) -> None:
 
 
 def test_wait_settled_allows_slow_creep(monkeypatch) -> None:
-    # 完全静止でなく、遅い動き (〜30px/s) なら着手してよい。
+    # 完全静止でなく、遅い動き (〜15px/s) なら着手してよい。
     monkeypatch.setattr("src.settle.time.sleep", lambda _sec: None)
     now = {"t": 0.0}
     monkeypatch.setattr("src.settle.time.monotonic", lambda: now["t"])
 
     def read() -> Observation:
         now["t"] += 0.05
-        return _obs(x=10.0 + now["t"] * 30.0)
+        return _obs(x=10.0 + now["t"] * 15.0)
 
     obs, settled = wait_settled(
-        read, still_speed=60.0, still_sec=0.2, timeout_sec=2.0
+        read, still_speed=25.0, still_sec=0.2, timeout_sec=2.0
     )
     assert settled
     assert obs.ready
