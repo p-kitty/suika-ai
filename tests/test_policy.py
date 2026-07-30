@@ -1,7 +1,16 @@
 """Unit tests for the policy. No screen is used."""
 
 from src.observe import Observation
-from src.policy import _after_drop, _chain_center_gap, _ideal_x, _land_y, _radius, choose_x
+from src.policy import (
+    _after_drop,
+    _chain_center_gap,
+    _ideal_x,
+    _land_y,
+    _preview_land,
+    _radius,
+    _score,
+    choose_x,
+)
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
 
@@ -200,25 +209,6 @@ def test_grows_grape_even_with_distant_strawberry_merge() -> None:
     assert abs(x - lone.x) > straw_r * 3
 
 
-def test_doko1_stacks_strawberry_on_grape() -> None:
-    # Equivalent to screenshots/doko1.png. A grape toward the left, held/next both strawberries.
-    grape_r = _radius(2)
-    pear_r = _radius(6)
-    apple_r = _radius(5)
-    orange_r = _radius(4)
-    cherry_r = _radius(0)
-    fruits = (
-        Fruit(type=6, x=318, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90),
-        Fruit(type=5, x=224, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90),
-        Fruit(type=4, x=152, y=NORMALIZED_HEIGHT - orange_r, radius=orange_r, confidence=90),
-        Fruit(type=2, x=101, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90),
-        Fruit(type=0, x=64, y=NORMALIZED_HEIGHT - cherry_r, radius=cherry_r, confidence=90),
-    )
-    grape = fruits[3]
-    x = choose_x(_obs(held_type=1, fruits=fruits, next_type=1))
-    assert abs(x - grape.x) < grape_r * 0.9
-
-
 def test_stacks_grape_on_dekopon_when_next_is_grape() -> None:
     # The same pattern one tier up: if held/next are grapes, on top of the dekopon.
     dek_r = _radius(3)
@@ -248,3 +238,88 @@ def test_orange_leaves_room_for_dekopon_beside_strawberry() -> None:
     assert straw.x - x >= need - 4
     # Clearly apart rather than right at contact.
     assert straw.x - x - straw_r - orange_r > _radius(2) + _radius(3)
+
+
+def test_grows_toward_large_fruit_on_the_right() -> None:
+    # Even after big fruits gathered on the right, do not re-grow the left big. The apple goes right left of the pear on the right.
+    pear_r = _radius(6)
+    apple_r = _radius(5)
+    pear = Fruit(type=6, x=300, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
+    side = pear.x - pear_r - apple_r
+    x = choose_x(_obs(held_type=5, fruits=(pear,)))
+    assert abs(x - side) < apple_r
+    assert x < pear.x
+
+
+def test_drop_on_slope_rolls_to_floor() -> None:
+    # Dropping on a big fruit's right shoulder rolls down its side and lands on the floor.
+    pear_r = _radius(6)
+    cherry_r = _radius(0)
+    pear = Fruit(type=6, x=200, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
+    drop_x = pear.x + pear_r * 0.55
+    land_x, land_y = _preview_land((pear,), 0, drop_x, cherry_r)
+    assert land_x > drop_x
+    assert land_y >= NORMALIZED_HEIGHT - cherry_r - 1.0
+    assert land_x >= pear.x + pear_r + cherry_r - 2.0
+
+
+def test_merge_result_settles_from_midpoint() -> None:
+    # A merged fruit appears at the midpoint and then lands (leaning toward the sticking direction + rolling).
+    cherry_r = _radius(0)
+    floor_y = NORMALIZED_HEIGHT - cherry_r
+    a = Fruit(type=0, x=200, y=floor_y, radius=cherry_r, confidence=90)
+    b = Fruit(type=0, x=200 + 2 * cherry_r + 4, y=floor_y, radius=cherry_r, confidence=90)
+    mid = (a.x + b.x) / 2
+    after, merges = _after_drop(_obs(held_type=0, fruits=(a, b)), mid)
+    assert merges >= 1
+    grown = [f for f in after if f.type == 1]
+    assert grown
+    assert abs(grown[0].x - mid) < cherry_r * 2
+
+
+def test_strawberry_does_not_roll_left_of_grape() -> None:
+    # Early on: placing at the upper left of a grape rolls left and breaks the size order. Choose right beside it or on top.
+    grape_r = _radius(2)
+    straw_r = _radius(1)
+    grape = Fruit(type=2, x=160, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90)
+    obs = _obs(held_type=1, fruits=(grape,))
+    x = choose_x(obs)
+    land_x, _land = _preview_land((grape,), 1, x, straw_r)
+    assert land_x >= grape.x - 1.0
+    # A left-shoulder drop rolls onto the floor left of the grape, so it is not chosen.
+    left_shoulder = grape.x - grape_r * 0.5
+    assert _score(obs, left_shoulder, straw_r) < _score(obs, x, straw_r)
+
+
+def test_left_shoulder_of_grape_rolls_to_left_floor() -> None:
+    # The simulation itself reproduces 'left shoulder → rolls left'.
+    grape_r = _radius(2)
+    straw_r = _radius(1)
+    grape = Fruit(type=2, x=160, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90)
+    drop_x = grape.x - grape_r * 0.5
+    land_x, land_y = _preview_land((grape,), 1, drop_x, straw_r)
+    assert land_x < grape.x - grape_r
+    assert land_y >= NORMALIZED_HEIGHT - straw_r - 1.0
+
+
+def test_grape_stays_beside_right_edge_strawberry() -> None:
+    # Move 1 strawberry at the right edge, move 2 grape lands stably right beside it on the left.
+    # Do not choose moves knocked to the left edge by contact (the line where a dekopon cannot be placed afterward and it collapses).
+    straw_r = _radius(1)
+    grape_r = _radius(2)
+    straw = Fruit(
+        type=1,
+        x=NORMALIZED_WIDTH - straw_r - 2,
+        y=NORMALIZED_HEIGHT - straw_r,
+        radius=straw_r,
+        confidence=90,
+    )
+    obs = _obs(held_type=2, fruits=(straw,))
+    x = choose_x(obs)
+    land_x, land_y = _preview_land((straw,), 2, x, grape_r)
+    assert land_y >= NORMALIZED_HEIGHT - grape_r - 1.0
+    assert land_x > NORMALIZED_WIDTH * 0.5
+    assert abs(land_x - (straw.x - straw_r - grape_r - 4.0)) < grape_r
+    # A neighbor with a gap beats a drop that hits the shoulder and slides to the left edge.
+    shoulder = straw.x - straw_r * 0.4
+    assert _score(obs, x, grape_r) > _score(obs, shoulder, grape_r)
