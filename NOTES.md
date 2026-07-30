@@ -19,3 +19,10 @@
 - 学習: `python scripts/train_sim.py` (収集 → オフライン BC。既定 max-steps=100 は打ち切りであり負けラインではない)
 - `src/agent.py`: 離散列 32 ビン / hidden 128 の MLP (旧 20/64 の npz は再学習が必要)
 - 実プレイ: `python main.py` (npz があれば既定 learned。`L` で bootstrap 切替、`--policy bootstrap`)
+
+## 予定: RL (REINFORCE)
+
+- いまはまだ早い。BC が浅いと素の REINFORCE は壊しやすい（過去に確認済み）
+- 足す条件: `match` が高め（目安 60–70%+）かつ `student_r` が bootstrap（~70）に近い
+- やり方: BC 完了後に短い微調整だけ（例: `--episodes 50 --lr 0.002`）。既定はオフのまま
+- それまでは BC（収集量・epoch）を厚くする方が先
