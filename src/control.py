@@ -54,21 +54,26 @@ def drop_column(
     target_x: float,
     *,
     read: Callable[[], tuple[object, np.ndarray | None]],
+    abort: Callable[[], bool] | None = None,
 ) -> bool:
     """Line up the waiting column with target_x, then click."""
-    aimed = aim(target_x, read)
+    aimed = aim(target_x, read, abort=abort)
+    # Do not drop if interrupted during or right after aiming.
+    if abort is not None and abort():
+        return False
     click()
     return aimed
 
 
 def recenter(
     read: Callable[[], tuple[object, np.ndarray | None]],
+    abort: Callable[[], bool] | None = None,
 ) -> bool:
     """Before the next move, return the waiting fruit to the board center. Does not click."""
     cfg = load()
     # The center need not be exact. Prefer not wobbling left and right without reaching it.
     tolerance = float(cfg.get("recenter_tolerance", 14))
-    return aim(NORMALIZED_WIDTH / 2, read, tolerance=tolerance)
+    return aim(NORMALIZED_WIDTH / 2, read, tolerance=tolerance, abort=abort)
 
 
 def aim(
@@ -76,6 +81,7 @@ def aim(
     read: Callable[[], tuple[object, np.ndarray | None]],
     *,
     tolerance: float | None = None,
+    abort: Callable[[], bool] | None = None,
 ) -> bool:
     """Bring held_x close to target_x. If it overshoots, stop without correcting back.
 
@@ -95,6 +101,8 @@ def aim(
     stall_moves = 0
 
     while time.monotonic() < deadline:
+        if abort is not None and abort():
+            return False
         obs, _corners = read()
         if getattr(obs, "blocked", False):
             return False

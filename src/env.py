@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -55,8 +56,11 @@ class Env:
     def board(self) -> BoardResult | None:
         return self._last_board
 
-    def step(self, x: float) -> StepResult:
-        """Line up the view with column x (normalized coordinates), drop, and return the next observation."""
+    def step(self, x: float, abort: Callable[[], bool] | None = None) -> StepResult:
+        """Line up the view with column x (normalized coordinates), drop, and return the next observation.
+
+        If abort returns true, the operation is aborted (for stopping auto mode).
+        """
         before = self.observe()
         if before.blocked:
             return StepResult(before, None, done=True, info="dialog")
@@ -64,7 +68,9 @@ class Env:
             return StepResult(before, None, done=False, info="not ready")
 
         # Dropping right after ready in auto play can still be mid-cascade.
-        before = settle.wait_playable(self.observe)
+        before = settle.wait_playable(self.observe, abort=abort)
+        if abort is not None and abort():
+            return StepResult(before, None, done=False, info="aborted")
         if before.blocked:
             return StepResult(before, None, done=True, info="dialog")
         if not before.ready:
@@ -73,14 +79,19 @@ class Env:
         target = clamp_drop_x(x, before.held_type)
         read = self._aim_read
 
-        aimed = control.drop_column(target, read=read)
+        aimed = control.drop_column(target, read=read, abort=abort)
+        if abort is not None and abort():
+            # Whether it stopped before the click or right after dropping is already branched in drop_column.
+            return StepResult(self.observe(), target, done=False, info="aborted")
         info_aim = "ok" if aimed else "aim_timeout"
 
         # After dropping, wait once for held to disappear. If it does not disappear, the settle check
         # stops on wobble that is only the clouds moving.
-        _wait_held_gone(self.observe, before.held_x)
+        _wait_held_gone(self.observe, before.held_x, abort=abort)
 
-        after = settle.wait_playable(self.observe)
+        after = settle.wait_playable(self.observe, abort=abort)
+        if abort is not None and abort():
+            return StepResult(after, target, done=False, info="aborted")
         done = after.blocked or not after.ready
         if after.blocked:
             info = "dialog"
@@ -93,7 +104,7 @@ class Env:
 
         # Return the new waiting fruit to center so the next move does not start from the edge.
         if not done and after.ready:
-            control.recenter(read)
+            control.recenter(read, abort=abort)
             after = self.observe()
 
         return StepResult(after, target, done=done, info=info)
@@ -114,13 +125,20 @@ def _grab():
     raise RuntimeError("cannot capture the screen")
 
 
-def _wait_held_gone(read, previous_x: float | None, timeout_sec: float = 2.0) -> None:
+def _wait_held_gone(
+    read,
+    previous_x: float | None,
+    timeout_sec: float = 2.0,
+    abort: Callable[[], bool] | None = None,
+) -> None:
     """Wait until the waiting fruit disappears or the column moves a lot.
 
     A sign that the click worked. If it did not, proceed straight to the settle wait.
     """
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
+        if abort is not None and abort():
+            return
         obs = read()
         if obs.blocked:
             return

@@ -66,3 +66,27 @@ def test_motion_treats_new_fruit_as_movement() -> None:
         Fruit(type=1, x=50, y=80, radius=8, confidence=90),
     ]
     assert motion(before, after) >= 8.0
+
+
+def test_wait_settled_returns_early_on_abort(monkeypatch) -> None:
+    from src.observe import Observation
+    from src.settle import wait_settled
+
+    monkeypatch.setattr("src.settle.time.sleep", lambda _sec: None)
+    obs = Observation(
+        ready=True,
+        blocked=False,
+        fruits=(Fruit(type=0, x=10, y=20, radius=5, confidence=90),),
+        held_type=0,
+        held_x=100.0,
+        next_type=None,
+    )
+    calls = {"n": 0}
+
+    def abort() -> bool:
+        calls["n"] += 1
+        return calls["n"] >= 2
+
+    result = wait_settled(lambda: obs, timeout_sec=5.0, abort=abort)
+    assert result is obs
+    assert calls["n"] >= 2
