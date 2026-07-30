@@ -1,8 +1,6 @@
 import cv2
 import numpy as np
 
-from ..config import load
-
 # The largest stage of newly appearing fruits (orange). Apple and above never come.
 # Applies to both the waiting fruit and the next bubble.
 SPAWN_MAX_TYPE = 4
@@ -39,9 +37,8 @@ FRUIT_RELATIVE_RADIUS = [
     1.000,   # watermelon
 ]
 
-# watermelon radius / board width. Overridden by config's
-# watermelon_radius_ratio to match measurement.
-DEFAULT_WATERMELON_RATIO = 0.24
+# watermelon radius / board width. From measurement.
+WATERMELON_RADIUS_RATIO = 0.24
 
 # The board background (beige). V is not narrowed so it can be removed even when darkened by shadow.
 BOARD_BG_HSV = ((10, 0, 55), (35, 100, 255))
@@ -53,13 +50,13 @@ BOARD_BG_HSV = ((10, 0, 55), (35, 100, 255))
 BOARD_FRAME_HSV = ((14, 60, 100), (45, 255, 255))
 
 # Every fruit is vivid, and the difference from the background shows in saturation.
-DEFAULT_FRUIT_SATURATION_MIN = 95
+FRUIT_SATURATION_MIN = 95
 
 # Outside the board (the night sky, inside the next bubble) is dark but highly saturated, so saturation alone cannot cut it.
 # Meanwhile pale bright things there (clouds, bubbles, stars) drop out on saturation. Requiring both brightness and
 # saturation leaves only fruits.
-DEFAULT_VIVID_SATURATION_MIN = 130
-DEFAULT_VIVID_VALUE_MIN = 110
+VIVID_SATURATION_MIN = 130
+VIVID_VALUE_MIN = 110
 
 COLOR_FAMILIES = {
     "red_orange": [0, 1, 3, 4, 5],
@@ -71,17 +68,12 @@ COLOR_FAMILIES = {
 
 def saturated_mask(hsv: np.ndarray) -> np.ndarray:
     """Keep only pixels that look like fruit by saturation."""
-    saturation_min = load().get("fruit_saturation_min", DEFAULT_FRUIT_SATURATION_MIN)
-    return cv2.inRange(hsv, (0, saturation_min, 45), (180, 255, 255))
+    return cv2.inRange(hsv, (0, FRUIT_SATURATION_MIN, 45), (180, 255, 255))
 
 
 def vivid_mask(hsv: np.ndarray) -> np.ndarray:
     """Keep only bright, vivid pixels. Used to pick up fruit outside the board."""
-    cfg = load()
-    saturation_min = cfg.get("vivid_saturation_min", DEFAULT_VIVID_SATURATION_MIN)
-    value_min = cfg.get("vivid_value_min", DEFAULT_VIVID_VALUE_MIN)
-
-    return cv2.inRange(hsv, (0, saturation_min, value_min), (180, 255, 255))
+    return cv2.inRange(hsv, (0, VIVID_SATURATION_MIN, VIVID_VALUE_MIN), (180, 255, 255))
 
 
 def color_family(h: float, s: float) -> str:

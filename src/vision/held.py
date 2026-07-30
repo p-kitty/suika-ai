@@ -3,7 +3,6 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from ..config import load
 from ..draw import Color, put_text
 from .blobs import circle_peaks, solid_mask
 from .classify import ClassifyResult, classify, fruit_radius_ratios, sample_hsv
@@ -26,7 +25,7 @@ DROP_HEIGHT_TOLERANCE = 15.0
 
 # The waiting fruit appears slightly smaller than fruits on the board. It lies where the projection is extended
 # beyond the top edge, so its scale differs slightly from inside the board.
-DEFAULT_RADIUS_SCALE = 0.93
+HELD_RADIUS_SCALE = 0.93
 
 
 @dataclass
@@ -49,7 +48,7 @@ def detect(frame: np.ndarray, corners: np.ndarray) -> HeldResult:
         return HeldResult(fruit=None)
 
     x, y, radius = blob
-    radius_ratio = radius / (NORMALIZED_WIDTH * _radius_scale())
+    radius_ratio = radius / (NORMALIZED_WIDTH * HELD_RADIUS_SCALE)
 
     hsv_mean = sample_hsv(band, x, y, radius, valid_mask=mask)
     fruit = classify(radius_ratio, hsv_mean, max_type=SPAWN_MAX_TYPE)
@@ -105,12 +104,13 @@ def _find_blob(mask: np.ndarray) -> tuple[float, float, float] | None:
     The band also shows fruits on their way down and fruits stacked on the board past the rim.
     Only the waiting one sits at the drop point's height, so it is chosen by the offset from there.
     """
-    scale = _radius_scale()
-
     # Only cherry-orange can be dropped. Sizes outside that range are looking at something else.
     ratios = fruit_radius_ratios()
-    min_radius = max(2.0, NORMALIZED_WIDTH * scale * ratios[0] * 0.6)
-    max_radius = max(min_radius + 1.0, NORMALIZED_WIDTH * scale * ratios[SPAWN_MAX_TYPE] * 1.4)
+    min_radius = max(2.0, NORMALIZED_WIDTH * HELD_RADIUS_SCALE * ratios[0] * 0.6)
+    max_radius = max(
+        min_radius + 1.0,
+        NORMALIZED_WIDTH * HELD_RADIUS_SCALE * ratios[SPAWN_MAX_TYPE] * 1.4,
+    )
 
     mask = _without_overhang(mask)
 
@@ -162,7 +162,3 @@ def _without_overhang(mask: np.ndarray) -> np.ndarray:
 
 def _height_error(y: float) -> float:
     return abs((BAND_HEIGHT - y) - DROP_HEIGHT)
-
-
-def _radius_scale() -> float:
-    return load().get("held_radius_scale", DEFAULT_RADIUS_SCALE) or DEFAULT_RADIUS_SCALE
