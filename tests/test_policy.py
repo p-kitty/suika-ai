@@ -400,7 +400,7 @@ def test_strawberry_stays_beside_right_edge_cherry() -> None:
 
 def test_pushes_near_orange_pair_from_outside() -> None:
     # Two close oranges: push from the left outside to join them rather than stacking on top.
-    # With a big fruit on the right, pushing from the right outside is unfavorable (same type as doko2).
+    # With a big fruit on the right, pushing from the right outside is unfavorable.
     orange_r = _radius(4)
     apple_r = _radius(5)
     pear_r = _radius(6)

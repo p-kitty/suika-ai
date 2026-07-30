@@ -65,21 +65,5 @@
 
 ## Deferred
 
-- **Training (RL)**: while holes in observation and policy remain it becomes noise. Only after position UTs reduce misplacements and play runs for minutes without stopping
+- **Training (RL)**: fine to start once the thin bootstrap policy keeps playing for minutes. Per-position placement UTs were dropped (adding concrete heuristics becomes a long-term habit)
 - **`10.png` vision**: similar-color mask fusion + a strawberry outside the frame. Needs a redesign of the cropping; worse value for effort than the policy / held
-
-## Placement UT
-
-- For boards, look at `screenshots/doko*.png`. No fruit coordinate lists are kept
-- `tests/expected_drops.py`: held/next (human ground truth) and `expect_x=(lo,hi)` (drop column)
-- `tests/test_drops.py` runs localize → choose_x end to end
-  - held/next: compare detection results against expected (do not pass expected straight to the policy)
-  - expect_x: unique by column even with multiple same types. Name references (`on grape`) are not used
-- Unsolvable positions get a strict xfail in `KNOWN_DROP_FAILURES` (for policy mistakes; broken detection stays red)
-- **Teach only one move**: the second move depends on the next held (the current next), so it is not written
-- Priority guide: same-type merge → if held/next are the same type, growing one tier up (the side where it lines up / push to the big side; not directly above the center of a different type) → pushing a broken size order back to the edge → a column that does not break size order. Placements that collapse, such as on a melon's shoulder, are not allowed
-- **Directly above the center of a different type**: penalized rather than rewarded. If the lining-up side is open go there, if blocked push to the big side (`_foreign_center_penalty`, `_large_side_x`). Pinned with doko3/8/9
-- **Push-in**: with a held of a different type, hitting the outside of a nearby same-type pair to join them is rewarded (`_push_merge_bonus`). Pinned with doko2
-- **Restoring push**: when size order is locally inverted, push from the small side's outside toward the big side's edge with a held of dekopon or bigger (`_restore_order_bonus`). The size-order penalty was strengthened too. Pinned by position UTs
-- **Gap junk**: do not stuff a small fruit between fruits 2 or more stages bigger than itself. The same for floor gaps and tight valleys (shoulders) (`_gap_junk_penalty`). Such as a cherry between an orange and a grape. Pinned by position UTs
-- Main holes among the remaining xfails: sliding next to a merge column (doko12), gap sliding and melon shoulders (doko4/10/11), doko5/7
