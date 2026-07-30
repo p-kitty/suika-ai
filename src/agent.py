@@ -1,6 +1,8 @@
-"""離散列を選ぶ線形方策。numpy のみ。"""
+"""離散列を選ぶ方策。numpy のみ。"""
 
 from __future__ import annotations
+
+from os import PathLike
 
 import numpy as np
 
@@ -10,6 +12,7 @@ from .vision.normalized import NORMALIZED_WIDTH
 
 # 落とす列のビン数。
 N_ACTIONS = 20
+HIDDEN = 64
 
 
 def action_to_x(action: int, held_type: int | None) -> float:
@@ -21,19 +24,43 @@ def action_to_x(action: int, held_type: int | None) -> float:
     return clamp_drop_x(x, held_type)
 
 
-class LinearPolicy:
-    """softmax(W @ obs + b) の離散方策。"""
+def x_to_action(x: float) -> int:
+    """正規化列 -> 最も近い離散行動。"""
+    width = float(NORMALIZED_WIDTH)
+    if width <= 0:
+        return 0
+    action = int(x / width * N_ACTIONS)
+    return max(0, min(N_ACTIONS - 1, action))
 
-    def __init__(self, rng: np.random.Generator | None = None) -> None:
+
+class LinearPolicy:
+    """1 隠れ層 MLP + softmax。名前は互換のため残す。"""
+
+    def __init__(
+        self,
+        rng: np.random.Generator | None = None,
+        *,
+        hidden: int = HIDDEN,
+    ) -> None:
         self.rng = rng or np.random.default_rng()
-        scale = 0.01
-        self.weight = self.rng.normal(0.0, scale, size=(N_ACTIONS, OBS_DIM)).astype(
+        self.hidden = hidden
+        scale = 0.05
+        self.w1 = self.rng.normal(0.0, scale, size=(hidden, OBS_DIM)).astype(np.float64)
+        self.b1 = np.zeros(hidden, dtype=np.float64)
+        self.w2 = self.rng.normal(0.0, scale, size=(N_ACTIONS, hidden)).astype(
             np.float64
         )
-        self.bias = np.zeros(N_ACTIONS, dtype=np.float64)
+        self.b2 = np.zeros(N_ACTIONS, dtype=np.float64)
+
+    def _forward(self, obs_vec: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        x = obs_vec.astype(np.float64)
+        pre = self.w1 @ x + self.b1
+        h = np.maximum(pre, 0.0)
+        logits = self.w2 @ h + self.b2
+        return h, logits
 
     def logits(self, obs_vec: np.ndarray) -> np.ndarray:
-        return self.weight @ obs_vec.astype(np.float64) + self.bias
+        return self._forward(obs_vec)[1]
 
     def probs(self, obs_vec: np.ndarray) -> np.ndarray:
         z = self.logits(obs_vec)
@@ -61,21 +88,59 @@ class LinearPolicy:
         *,
         lr: float = 0.01,
     ) -> float:
-        """REINFORCE。平均損失 (負の期待報酬近似) を返す。"""
+        """REINFORCE / BC 共通。平均損失 (負の加重対数尤度) を返す。"""
         if not batch_obs:
             return 0.0
-        grad_w = np.zeros_like(self.weight)
-        grad_b = np.zeros_like(self.bias)
+        gw1 = np.zeros_like(self.w1)
+        gb1 = np.zeros_like(self.b1)
+        gw2 = np.zeros_like(self.w2)
+        gb2 = np.zeros_like(self.b2)
         loss = 0.0
         for obs_vec, action, adv in zip(batch_obs, batch_actions, batch_advantages):
-            probs = self.probs(obs_vec)
+            x = obs_vec.astype(np.float64)
+            h, logits = self._forward(x)
+            z = logits - logits.max()
+            exp = np.exp(z)
+            probs = exp / exp.sum()
             loss -= adv * np.log(probs[action] + 1e-12)
-            # d log π(a|s) / d logits = one_hot - probs
+
             dlog = -probs
             dlog[action] += 1.0
-            grad_w += adv * np.outer(dlog, obs_vec)
-            grad_b += adv * dlog
+            dlogits = adv * dlog
+
+            gw2 += np.outer(dlogits, h)
+            gb2 += dlogits
+            dh = self.w2.T @ dlogits
+            dh *= (h > 0.0).astype(np.float64)
+            gw1 += np.outer(dh, x)
+            gb1 += dh
+
         n = float(len(batch_obs))
-        self.weight += lr * grad_w / n
-        self.bias += lr * grad_b / n
+        self.w1 += lr * gw1 / n
+        self.b1 += lr * gb1 / n
+        self.w2 += lr * gw2 / n
+        self.b2 += lr * gb2 / n
         return float(loss / n)
+
+    def bc_update(
+        self,
+        batch_obs: list[np.ndarray],
+        batch_actions: list[int],
+        *,
+        lr: float = 0.05,
+    ) -> float:
+        """教師行動へのクロスエントロピー。平均 NLL を返す。"""
+        return self.update(
+            batch_obs, batch_actions, [1.0] * len(batch_actions), lr=lr
+        )
+
+    def save(self, path: str | PathLike) -> None:
+        np.savez(path, w1=self.w1, b1=self.b1, w2=self.w2, b2=self.b2)
+
+    def load(self, path: str | PathLike) -> None:
+        data = np.load(path)
+        self.w1 = data["w1"]
+        self.b1 = data["b1"]
+        self.w2 = data["w2"]
+        self.b2 = data["b2"]
+        self.hidden = int(self.w1.shape[0])

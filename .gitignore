@@ -28,6 +28,7 @@ Desktop.ini
 
 # Project artifacts
 debug/
+artifacts/
 
 # Test / cache
 .pytest_cache/
