@@ -18,3 +18,4 @@
 - 評価: `python scripts/eval_bootstrap.py`
 - 学習: `python scripts/train_sim.py` (先生データ収集 → オフライン BC。最良 student_r を保存。RL 既定オフ)
 - `src/agent.py`: 離散列 20 ビンの MLP 方策
+- 実プレイ: `python main.py` (npz があれば既定 learned。`L` で bootstrap 切替、`--policy bootstrap`)
