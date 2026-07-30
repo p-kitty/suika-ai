@@ -12,8 +12,8 @@ from .vision.state import Fruit
 
 # The settle check looks at raw_fruits (before Tracker smoothing).
 # Do not wait for complete stillness; slow movement is fine to move on.
-# On the normalized board, roughly 60px/s or less is 'nearly stopped'.
-DEFAULT_STILL_SPEED = 60.0
+# On the normalized board (width 400), 25px/s ≒ about 10px in 0.4 seconds. Above detection noise, below rolling.
+DEFAULT_STILL_SPEED = 25.0
 # If slow for this long throughout, consider it stopped.
 DEFAULT_STILL_SEC = 0.4
 # Give up if it has not moved by this long after the drop.
