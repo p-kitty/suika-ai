@@ -630,15 +630,14 @@ def _gap_junk_penalty(
     drop_type: int,
     held_r: float,
 ) -> float:
-    """自分より2段階以上大きい実どうしの隙間に小さい実を詰める減点。
+    """自分より2段階以上大きい実どうしの間に小さい実を詰める減点。
 
-    床のくぼみを平坦化したくてチェリーをナシとリンゴの間へ入れる、のような手。
+    床の隙間でも、密着した実の谷 (肩) でも同じ。序盤にオレンジとブドウの
+    間へチェリーを落とす、ナシとリンゴの間を埋める、のような手。
     一段差の並ぶ側 (オレンジ↔リンゴ) は対象外。
+    land_y はシグネチャ互換用 (床でも谷でも同じ減点)。
     """
-    floor = NORMALIZED_HEIGHT - held_r
-    if land_y < floor - 4.0:
-        return 0.0
-
+    _ = land_y
     left_big: Fruit | None = None
     right_big: Fruit | None = None
     for fruit in fruits:
@@ -659,8 +658,8 @@ def _gap_junk_penalty(
 
     sep = right_big.x - left_big.x
     touch = left_big.radius + right_big.radius
-    # すでに密着、または広すぎて「間」ではない床は除外。
-    if sep <= touch or sep > touch + held_r * 2.8 + MERGE_SLACK:
+    # 広すぎて「間」ではない床は除外。密着〜少し開いた隙間／谷は対象。
+    if sep > touch + held_r * 2.8 + MERGE_SLACK:
         return 0.0
     return GAP_JUNK_PENALTY
 

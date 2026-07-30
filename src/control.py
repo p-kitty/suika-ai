@@ -193,16 +193,24 @@ def _near_edge(x: float) -> bool:
 
 
 def _edge_close_enough(target_x: float, held_x: float, tolerance: float) -> bool:
-    """壁際の狙いで、held が同じ側の端まで来ていれば十分とみなす。"""
-    if not _near_edge(target_x):
+    """壁際の狙いで、held が同じ側の端まで来ていれば十分とみなす。
+
+    EDGE_BAND 全体だと「端チェリーの左隣」みたいな内側狙いまで端扱いになり、
+    held が壁際に居残ったまま落ちる (肩 → 対岸まで弾かれる)。
+    本当に壁際の列だけを対象にする。
+    """
+    # 壁そのもの付近。EDGE_BAND (48) より狭い。
+    wall = max(EDGE_TOLERANCE * 2, 28.0)
+    near_wall = target_x >= NORMALIZED_WIDTH - wall or target_x <= wall
+    if not near_wall:
         return False
     limit = max(tolerance, EDGE_TOLERANCE)
     if abs(target_x - held_x) <= limit:
         return True
     # 右端狙い: held が目標以上に右へ来ている / 左端は対称。
-    if target_x >= NORMALIZED_WIDTH - EDGE_BAND and held_x >= target_x - limit:
+    if target_x >= NORMALIZED_WIDTH - wall and held_x >= target_x - limit:
         return True
-    if target_x <= EDGE_BAND and held_x <= target_x + limit:
+    if target_x <= wall and held_x <= target_x + limit:
         return True
     return False
 

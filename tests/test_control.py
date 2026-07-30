@@ -120,6 +120,17 @@ def test_aim_stops_early_near_left_edge(world: FakeWorld) -> None:
     assert world.moves == []
 
 
+def test_aim_does_not_stop_early_for_inward_target_from_edge(world: FakeWorld) -> None:
+    # 一手目で右端付近に居残ったあと、端寄りの内側列 (隣) を狙うとき。
+    # EDGE_BAND 内でも壁そのものではない狙いで早期打ち切りしない
+    # (さもないと肩に落ちて対岸まで弾かれる)。
+    world.held_x = NORMALIZED_WIDTH - 18.0
+    target = NORMALIZED_WIDTH - 55.0
+    assert control.aim(target, world.read) is True
+    assert world.moves
+    assert abs(world.held_x - target) <= LOOK_CFG["look_tolerance"]
+
+
 def test_aim_fails_when_blocked(world: FakeWorld) -> None:
     world.blocked = True
     assert control.aim(200.0, world.read) is False
