@@ -243,6 +243,30 @@ def test_does_not_stuff_cherry_between_pear_and_apple() -> None:
     assert abs(x - gap_x) > apple_r
 
 
+def test_does_not_stuff_cherry_in_orange_grape_valley() -> None:
+    # Early on: when an orange and a grape are close, do not drop a cherry into their valley (shoulder).
+    # Not only floor gaps but near-tight valleys are junk too. To the open floor on the small side.
+    orange_r = _radius(4)
+    grape_r = _radius(2)
+    cherry_r = _radius(0)
+    orange = Fruit(type=4, x=180, y=NORMALIZED_HEIGHT - orange_r, radius=orange_r, confidence=90)
+    grape = Fruit(
+        type=2,
+        x=180 + orange_r + grape_r - 5,
+        y=NORMALIZED_HEIGHT - grape_r,
+        radius=grape_r,
+        confidence=90,
+    )
+    obs = _obs(held_type=0, fruits=(orange, grape))
+    x = choose_x(obs)
+    land_x, land_y = _preview_land((orange, grape), 0, x, cherry_r)
+    assert land_x > grape.x
+    assert not (orange.x < land_x < grape.x)
+    assert land_y >= NORMALIZED_HEIGHT - cherry_r - 1.0
+    valley = (orange.x + grape.x) / 2
+    assert _score(obs, x, cherry_r) > _score(obs, valley, cherry_r)
+
+
 def test_orange_leaves_room_for_dekopon_beside_strawberry() -> None:
     # Cherry and strawberry on the right. Placing the orange right left of the strawberry leaves
     # no column for dekopon and grape to line up, so keep the intermediate stages' distance.
@@ -348,6 +372,30 @@ def test_grape_stays_beside_right_edge_strawberry() -> None:
     # A neighbor with a gap beats a drop that hits the shoulder and slides to the left edge.
     shoulder = straw.x - straw_r * 0.4
     assert _score(obs, x, grape_r) > _score(obs, shoulder, grape_r)
+
+
+def test_strawberry_stays_beside_right_edge_cherry() -> None:
+    # Move 1 cherry at the right edge, move 2 strawberry to the left neighbor. Directly on top (slightly left due to the limit) hits the shoulder → knocked to the left edge.
+    cherry_r = _radius(0)
+    straw_r = _radius(1)
+    cherry = Fruit(
+        type=0,
+        x=NORMALIZED_WIDTH - cherry_r,
+        y=NORMALIZED_HEIGHT - cherry_r,
+        radius=cherry_r,
+        confidence=90,
+    )
+    obs = _obs(held_type=1, fruits=(cherry,))
+    x = choose_x(obs)
+    land_x, land_y = _preview_land((cherry,), 1, x, straw_r)
+    assert land_y >= NORMALIZED_HEIGHT - straw_r - 1.0
+    assert land_x > NORMALIZED_WIDTH * 0.5
+    assert land_x < cherry.x
+    # A column that becomes 'directly on top' through drop column clamping slides to the far side, so it is not chosen.
+    above = NORMALIZED_WIDTH - straw_r
+    above_land, _ = _preview_land((cherry,), 1, above, straw_r)
+    assert above_land < NORMALIZED_WIDTH * 0.25
+    assert _score(obs, x, straw_r) > _score(obs, above, straw_r)
 
 
 def test_pushes_near_orange_pair_from_outside() -> None:

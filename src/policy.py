@@ -630,15 +630,14 @@ def _gap_junk_penalty(
     drop_type: int,
     held_r: float,
 ) -> float:
-    """Penalty for stuffing a small fruit into gaps between fruits 2 or more stages bigger than itself.
+    """Penalty for stuffing a small fruit between fruits 2 or more stages bigger than itself.
 
-    Moves like putting a cherry between a pear and an apple to flatten a floor dip.
+    The same for a floor gap or the valley (shoulder) of touching fruits. Moves like dropping a cherry
+    between an orange and a grape early on, or filling between a pear and an apple.
     The lining-up side with a one-tier difference (orange↔apple) is out of scope.
+    land_y is for signature compatibility (the same penalty on the floor or in a valley).
     """
-    floor = NORMALIZED_HEIGHT - held_r
-    if land_y < floor - 4.0:
-        return 0.0
-
+    _ = land_y
     left_big: Fruit | None = None
     right_big: Fruit | None = None
     for fruit in fruits:
@@ -659,8 +658,8 @@ def _gap_junk_penalty(
 
     sep = right_big.x - left_big.x
     touch = left_big.radius + right_big.radius
-    # Floors already tight, or too wide to be 'between', are excluded.
-    if sep <= touch or sep > touch + held_r * 2.8 + MERGE_SLACK:
+    # Floors too wide to be 'between' are excluded. Tight to slightly open gaps / valleys are in scope.
+    if sep > touch + held_r * 2.8 + MERGE_SLACK:
         return 0.0
     return GAP_JUNK_PENALTY
 

@@ -39,6 +39,22 @@
 - **Noted on**: 2026-07-31
 - **Status**: fixed — early stop in the edge band + stall when held does not move. `recenter` only pulls back lightly from the edge. Pinned in `tests/test_control.py`
 
+## Cherries packed into the valley between orange and grape
+
+- **Symptom**: early on, drops held=cherry between the orange and grape (a tight valley / shoulder). Fills the firing point and easily breaks size order too
+- **Suspected cause**: `_gap_junk_penalty` only looked at floor landings and missed valleys on shoulders
+- **Where to look**: `src/policy.py` (`_gap_junk_penalty`)
+- **Noted on**: 2026-07-31
+- **Status**: fixed — penalized on the floor and in valleys alike. Pinned in `tests/test_policy.py`
+
+## After an edge cherry, strawberries get knocked to the far side
+
+- **Symptom**: move 1 cherry at the right edge, move 2 strawberry dropped "directly on top" (slightly left due to the drop column limit) hits the shoulder, slides to the left edge, giving cherry at the right edge / strawberry at the left edge
+- **Suspected cause**: the policy chooses the left neighbor, but aim's early edge stop applied to the whole `EDGE_BAND`. Even for an inner aim near the edge, held stayed at the wall and was treated as "enough", dropping onto the shoulder
+- **Where to look**: `src/control.py` (`_edge_close_enough`), `src/policy.py` (neighbor vs directly on top)
+- **Noted on**: 2026-07-31
+- **Status**: fixed — the early stop applies only right at the wall itself. Pinned in `tests/test_control.py` / `tests/test_policy.py`
+
 ## Push-in aims miss
 
 - **Symptom**: it looks like aiming to join same types / push to the edge, but it falls inside and misses
@@ -65,5 +81,5 @@
 - **Directly above the center of a different type**: penalized rather than rewarded. If the lining-up side is open go there, if blocked push to the big side (`_foreign_center_penalty`, `_large_side_x`). Pinned with doko3/8/9
 - **Push-in**: with a held of a different type, hitting the outside of a nearby same-type pair to join them is rewarded (`_push_merge_bonus`). Pinned with doko2
 - **Restoring push**: when size order is locally inverted, push from the small side's outside toward the big side's edge with a held of dekopon or bigger (`_restore_order_bonus`). The size-order penalty was strengthened too. Pinned by position UTs
-- **Gap junk**: do not stuff a small fruit into the floor between fruits 2 or more stages bigger than itself (`_gap_junk_penalty`). Pinned by position UTs
+- **Gap junk**: do not stuff a small fruit between fruits 2 or more stages bigger than itself. The same for floor gaps and tight valleys (shoulders) (`_gap_junk_penalty`). Such as a cherry between an orange and a grape. Pinned by position UTs
 - Main holes among the remaining xfails: sliding next to a merge column (doko12), gap sliding and melon shoulders (doko4/10/11), doko5/7

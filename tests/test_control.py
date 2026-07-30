@@ -120,6 +120,17 @@ def test_aim_stops_early_near_left_edge(world: FakeWorld) -> None:
     assert world.moves == []
 
 
+def test_aim_does_not_stop_early_for_inward_target_from_edge(world: FakeWorld) -> None:
+    # When, after staying near the right edge on the first move, aiming at the inner column next to the edge.
+    # Do not stop early for an aim inside EDGE_BAND that is not the wall itself
+    # (otherwise it lands on the shoulder and gets knocked to the far side).
+    world.held_x = NORMALIZED_WIDTH - 18.0
+    target = NORMALIZED_WIDTH - 55.0
+    assert control.aim(target, world.read) is True
+    assert world.moves
+    assert abs(world.held_x - target) <= LOOK_CFG["look_tolerance"]
+
+
 def test_aim_fails_when_blocked(world: FakeWorld) -> None:
     world.blocked = True
     assert control.aim(200.0, world.read) is False

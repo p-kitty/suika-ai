@@ -193,16 +193,24 @@ def _near_edge(x: float) -> bool:
 
 
 def _edge_close_enough(target_x: float, held_x: float, tolerance: float) -> bool:
-    """When aiming at a wall column, consider it enough if held has reached the edge on the same side."""
-    if not _near_edge(target_x):
+    """When aiming at a wall column, consider it enough if held has reached the edge on the same side.
+
+    The whole EDGE_BAND would treat inner aims such as 'just left of an edge cherry' as edges too,
+    and held would drop while still sitting at the wall (shoulder → knocked to the far side).
+    Only columns truly at the wall are targeted.
+    """
+    # Right at the wall itself. Narrower than EDGE_BAND (48).
+    wall = max(EDGE_TOLERANCE * 2, 28.0)
+    near_wall = target_x >= NORMALIZED_WIDTH - wall or target_x <= wall
+    if not near_wall:
         return False
     limit = max(tolerance, EDGE_TOLERANCE)
     if abs(target_x - held_x) <= limit:
         return True
     # Right-edge aim: held has come further right than the target / the left edge is symmetric.
-    if target_x >= NORMALIZED_WIDTH - EDGE_BAND and held_x >= target_x - limit:
+    if target_x >= NORMALIZED_WIDTH - wall and held_x >= target_x - limit:
         return True
-    if target_x <= EDGE_BAND and held_x <= target_x + limit:
+    if target_x <= wall and held_x <= target_x + limit:
         return True
     return False
 
