@@ -36,6 +36,8 @@ SIDE_CLEARANCE = 4.0
 PUSH_MERGE_BONUS = 160.0
 # 押し込み理想列への近さ (この距離以内で加点)。
 PUSH_ALIGN_RANGE = 36.0
+# 狙い誤差で内側に入ると外すので、接触より少し外側を狙う。
+PUSH_OUTSET = 14.0
 # 異種の中央真上は崩壊しやすいので、大側へこの分だけ寄せた列を見る。
 LARGE_SIDE_BIAS = 0.4
 # 異種のほぼ中央真上への減点。
@@ -120,17 +122,8 @@ def _candidates(
         xs.add(beside)
 
     # 同種ペアを、held と別種で外側から押す列。
-    for i, a in enumerate(fruits):
-        for b in fruits[i + 1 :]:
-            if a.type == drop_type or a.type != b.type or _touching(a, b):
-                continue
-            sep = abs(a.x - b.x)
-            need = a.radius + b.radius
-            if sep <= need or sep > need + held_r * 2.2:
-                continue
-            left, right = (a, b) if a.x <= b.x else (b, a)
-            xs.add(max(lo, left.x - (left.radius + held_r)))
-            xs.add(min(hi, right.x + (right.radius + held_r)))
+    for _outer, push_x in _push_pair_outers(fruits, drop_type, held_r):
+        xs.add(push_x)
 
     # 大小逆転している実の小側外側 (大側端へ押し戻す列)。
     for _victim, push_x in _restore_push_targets(fruits, drop_type, held_r, sign):
@@ -690,8 +683,12 @@ def _push_pair_outers(
             if sep <= need or sep > need + held_r * 2.2:
                 continue
             left, right = (a, b) if a.x <= b.x else (b, a)
-            outers.append((left, max(lo, left.x - (left.radius + held_r))))
-            outers.append((right, min(hi, right.x + (right.radius + held_r))))
+            outers.append(
+                (left, max(lo, left.x - (left.radius + held_r) - PUSH_OUTSET))
+            )
+            outers.append(
+                (right, min(hi, right.x + (right.radius + held_r) + PUSH_OUTSET))
+            )
     return outers
 
 
@@ -787,7 +784,7 @@ def _restore_push_targets(
             if key in seen:
                 continue
             seen.add(key)
-            push_x = victim.x + sign * (victim.radius + held_r)
+            push_x = victim.x + sign * (victim.radius + held_r + PUSH_OUTSET)
             targets.append((victim, max(lo, min(hi, push_x))))
     return targets
 
