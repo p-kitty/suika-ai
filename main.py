@@ -20,7 +20,7 @@ WINDOW_TITLE = "Suika"
 MESSAGE_SECONDS = 3.0
 
 DUMP_KEY = ord("s")
-POLICY_KEY = ord("p")
+STEP_KEY = ord(" ")
 QUIT_KEY = 27
 # フォーカスに関係なく auto トグルする (VK_G)。
 VK_G = 0x47
@@ -114,7 +114,7 @@ def main() -> None:
         poll_g_toggle()
 
         # 新しいキャプチャが来たときだけ検出。映像とオーバーレイを同じ周期にする。
-        if fresh is not None or key in (POLICY_KEY, DUMP_KEY):
+        if fresh is not None or key in (STEP_KEY, DUMP_KEY):
             obs = env.observe(frame)
         board = env.board
 
@@ -131,10 +131,10 @@ def main() -> None:
                 message_until = now + MESSAGE_SECONDS
                 print(message)
 
-        # p = 方策で 1 手。g で連続自動中なら ready のたびに落とす。
+        # Space = 1 手。g で連続自動中なら ready のたびに落とす。
         # 待ちに入る前に AUTO/LIVE を描画して見せる。
-        from_auto = auto_play and key != POLICY_KEY
-        if key == POLICY_KEY or (auto_play and obs.ready and not obs.blocked):
+        from_auto = auto_play and key != STEP_KEY
+        if key == STEP_KEY or (auto_play and obs.ready and not obs.blocked):
             message = "settling..."
             message_until = now + MESSAGE_SECONDS
             _show(frame, board, obs, aim_x, auto_play, message, message_until, now)
@@ -147,7 +147,7 @@ def main() -> None:
                 return False
 
             if not obs.ready:
-                message = "policy: not ready"
+                message = "step: not ready"
                 print(message)
             else:
                 # 静止確認→同じ観測で列決め→狙い。動いている盤を読まない。
@@ -156,7 +156,7 @@ def main() -> None:
                     message = "auto=off"
                     frame, obs, board = _refresh(env, frame, obs)
                 elif result.info == "not settled":
-                    message = "policy: not settled"
+                    message = "step: not settled"
                     print(message)
                     frame, obs, board = _refresh(env, frame, obs)
                 else:
@@ -203,7 +203,7 @@ def _show(
             _draw_aim(output, board.corners, aim_x)
 
     mode_badge(output, auto_play)
-    hint = "p: policy  g: auto on/off  s: save"
+    hint = "Space: step  g: auto on/off  s: save"
     put_text(output, f"aim x={aim_x:.0f}" if aim_x is not None else "aim —", (8, 128), (0, 255, 255))
     put_text(
         output,
