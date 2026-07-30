@@ -20,7 +20,7 @@ class StepResult:
     observation: Observation
     # Target column (normalized coordinates).
     target_x: float | None
-    # A dialog hid the board, or it could not get back to ready due to a timeout.
+    # Stop only when a dialog hides the board. A settle-wait timeout is not done.
     done: bool
     info: str
 
@@ -92,22 +92,18 @@ class Env:
         after = settle.wait_playable(self.observe, abort=abort)
         if abort is not None and abort():
             return StepResult(after, target, done=False, info="aborted")
-        done = after.blocked or not after.ready
+        # A settle-wait timeout is a temporary failure. Only a dialog aborts.
         if after.blocked:
-            info = "dialog"
-        elif not after.ready:
-            info = "timeout"
-        elif not aimed:
-            info = info_aim
-        else:
-            info = "ok"
+            return StepResult(after, target, done=True, info="dialog")
+        if not after.ready:
+            return StepResult(after, target, done=False, info="timeout")
+        info = info_aim if not aimed else "ok"
 
         # Return the new waiting fruit to center so the next move does not start from the edge.
-        if not done and after.ready:
-            control.recenter(read, abort=abort)
-            after = self.observe()
+        control.recenter(read, abort=abort)
+        after = self.observe()
 
-        return StepResult(after, target, done=done, info=info)
+        return StepResult(after, target, done=False, info=info)
 
     def _aim_read(self):
         obs = self.observe()

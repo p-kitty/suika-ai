@@ -10,16 +10,17 @@ import numpy as np
 from .observe import Observation
 from .vision.state import Fruit
 
-# Movement below this is considered wobble (normalized coordinates px).
-DEFAULT_STILL_PX = 2.5
+# Tracker smooths positions, so they look smaller than raw detections.
+# Not so strict that detection noise keeps settle from ever finishing.
+DEFAULT_STILL_PX = 1.5
 # If quiet for this long throughout, consider it stopped.
-DEFAULT_STILL_SEC = 0.7
+DEFAULT_STILL_SEC = 1.0
 # Give up if it has not moved by this long after the drop.
-DEFAULT_TIMEOUT_SEC = 8.0
+DEFAULT_TIMEOUT_SEC = 12.0
 # Cap on the wait from the waiting fruit disappearing until the next one appears.
 DEFAULT_HELD_TIMEOUT_SEC = 4.0
 # Cap until 'the next move can be made', including waiting for ready.
-DEFAULT_PLAYABLE_TIMEOUT_SEC = 12.0
+DEFAULT_PLAYABLE_TIMEOUT_SEC = 20.0
 
 
 def motion(previous: list[Fruit] | tuple[Fruit, ...], current: list[Fruit] | tuple[Fruit, ...]) -> float:
@@ -36,8 +37,13 @@ def motion(previous: list[Fruit] | tuple[Fruit, ...], current: list[Fruit] | tup
     matched_curr = {b for _, b in pairs}
 
     distances = [float(np.hypot(previous[a].x - current[b].x, previous[a].y - current[b].y)) for a, b in pairs]
-    distances.extend(previous[i].radius for i in range(len(previous)) if i not in matched_prev)
-    distances.extend(current[i].radius for i in range(len(current)) if i not in matched_curr)
+    # Appearing / disappearing is movement too, but the whole radius makes detection blinking keep settle from ever finishing.
+    for i in range(len(previous)):
+        if i not in matched_prev:
+            distances.append(min(previous[i].radius, 10.0))
+    for i in range(len(current)):
+        if i not in matched_curr:
+            distances.append(min(current[i].radius, 10.0))
 
     return max(distances) if distances else 0.0
 
@@ -49,20 +55,23 @@ def wait_settled(
     still_sec: float = DEFAULT_STILL_SEC,
     timeout_sec: float = DEFAULT_TIMEOUT_SEC,
     abort: Callable[[], bool] | None = None,
-) -> Observation:
-    """Return an observation where the board's fruits have stopped."""
+) -> tuple[Observation, bool]:
+    """Return an observation where the board's fruits have stopped.
+
+    Returns (observation, stopped). On timeout or interruption, the last observation and False.
+    """
     deadline = time.monotonic() + timeout_sec
     quiet_since: float | None = None
     previous = read()
 
     while time.monotonic() < deadline:
         if abort is not None and abort():
-            return previous
+            return previous, False
         time.sleep(1 / 30)
         current = read()
 
         if current.blocked:
-            return current
+            return current, True
 
         moved = motion(previous.fruits, current.fruits)
         previous = current
@@ -71,11 +80,11 @@ def wait_settled(
             if quiet_since is None:
                 quiet_since = time.monotonic()
             elif time.monotonic() - quiet_since >= still_sec:
-                return current
+                return current, True
         else:
             quiet_since = None
 
-    return previous
+    return previous, False
 
 
 def wait_ready(
@@ -110,7 +119,7 @@ def wait_playable(
     """Return an observation where the board has stopped and the waiting fruit is readable.
 
     After held appears the board may move again through a cascade, so right after not ready → ready
-    right after, confirm stopping once more.
+    confirm stopping once more. Do not return even when ready until stopping is confirmed.
     """
     deadline = time.monotonic() + timeout_sec
     last = read()
@@ -123,11 +132,16 @@ def wait_playable(
         if remaining <= 0:
             break
 
-        last = wait_settled(read, timeout_sec=remaining, abort=abort)
+        last, settled = wait_settled(read, timeout_sec=remaining, abort=abort)
         if abort is not None and abort():
             return last
-        if last.blocked or last.ready:
+        if last.blocked:
             return last
+        if settled and last.ready:
+            return last
+        if not settled:
+            # Timed out while still moving. Do not decide a move on a moving board.
+            break
 
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -143,7 +157,18 @@ def wait_playable(
             return last
         # Right after becoming ready, so settle again at the top of the loop.
 
-    return last
+    # When it did not fully stop / could not get back to ready, set ready=False
+    # so the caller can treat it as 'cannot move'.
+    if last.blocked or not last.ready:
+        return last
+    return Observation(
+        ready=False,
+        blocked=False,
+        fruits=last.fruits,
+        held_type=last.held_type,
+        held_x=last.held_x,
+        next_type=last.next_type,
+    )
 
 
 def _pair(

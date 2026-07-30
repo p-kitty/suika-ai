@@ -24,6 +24,14 @@
 - **Noted on**: 2026-07-30
 - **Status**: fixed — side rolling + floor sliding, penalties for dropping on the big side and knock distance, preferring right next to smaller fruits. Pinned in `tests/test_policy.py`
 
+## Moves were made while the board was still moving
+
+- **Symptom**: even mid-roll / mid-cascade, when held is visible it captures → makes a policy decision
+- **Suspected cause**: `wait_playable` returned when `ready` even after a settle timeout. On top of that, Tracker smoothing tends to treat slow rolling as still
+- **Where to look**: `src/settle.py` (`wait_settled`, `wait_playable`)
+- **Noted on**: 2026-07-31
+- **Status**: fixed — playable only when stillness is confirmed. Thresholds tightened too. A timeout does not stop auto. Pinned in `tests/test_env.py`
+
 ## Deferred
 
 - **Training (RL)**: while holes in observation and policy remain it becomes noise. Only after position UTs reduce misplacements and play runs for minutes without stopping
