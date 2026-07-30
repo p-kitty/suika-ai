@@ -1,9 +1,12 @@
+import argparse
 import ctypes
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
 
+from src.agent import LinearPolicy
 from src.capture import CAPTURE_FPS, capture
 from src.config import load
 from src.debug_dump import dump
@@ -18,18 +21,38 @@ from src.window import maximize_window
 
 WINDOW_TITLE = "Suika"
 MESSAGE_SECONDS = 3.0
+DEFAULT_CKPT = Path(__file__).resolve().parent / "artifacts" / "policy_sim.npz"
 
 DUMP_KEY = ord("s")
 QUIT_KEY = 27
 # Work regardless of focus (even with VRC in front). Space is not used since it collides with jump.
 VK_G = 0x47
 VK_P = 0x50
+VK_L = 0x4C
 
 # Preview while waiting. Only the video runs; stale detection circles are not drawn.
 PUMP_HZ = float(CAPTURE_FPS)
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Suika screen agent")
+    parser.add_argument(
+        "--policy",
+        choices=("bootstrap", "learned"),
+        default=None,
+        help="policy for the drop column. When omitted, learned if an npz exists, otherwise bootstrap",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=DEFAULT_CKPT,
+        help="weights for learned (npz)",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = _parse_args()
     env = Env()
     message = ""
     message_until = 0.0
@@ -46,10 +69,32 @@ def main() -> None:
         next_type=None,
     )
 
+    learned_policy: LinearPolicy | None = None
+    if args.checkpoint.is_file():
+        learned_policy = LinearPolicy()
+        learned_policy.load(args.checkpoint)
+        print(f"loaded {args.checkpoint}")
+
+    if args.policy is None:
+        policy_name = "learned" if learned_policy is not None else "bootstrap"
+    else:
+        policy_name = args.policy
+    if policy_name == "learned" and learned_policy is None:
+        raise SystemExit(f"no weights for learned: {args.checkpoint}")
+
+    def choose(obs_in: Observation) -> float:
+        if policy_name == "learned":
+            assert learned_policy is not None
+            _, x, _ = learned_policy.act(obs_in, greedy=True)
+            return x
+        return choose_x(obs_in)
+
     maximize_window(WINDOW_TITLE)
     g_was_down = False
     p_was_down = False
+    l_was_down = False
     frame: np.ndarray | None = None
+    print(f"policy={policy_name}")
 
     def _edge(vk: int, was_down: bool) -> tuple[bool, bool]:
         """Rising edge of a global key. (pressed, down)."""
@@ -67,6 +112,22 @@ def main() -> None:
         message_until = time.monotonic() + MESSAGE_SECONDS
         print(message)
         return True
+
+    def poll_policy_toggle() -> None:
+        """Switch bootstrap / learned with L."""
+        nonlocal policy_name, l_was_down, message, message_until
+        pressed, l_was_down = _edge(VK_L, l_was_down)
+        if not pressed:
+            return
+        if learned_policy is None:
+            message = "learned ckpt missing"
+            message_until = time.monotonic() + MESSAGE_SECONDS
+            print(message)
+            return
+        policy_name = "bootstrap" if policy_name == "learned" else "learned"
+        message = f"policy={policy_name}"
+        message_until = time.monotonic() + MESSAGE_SECONDS
+        print(message)
 
     def poll_step_key() -> bool:
         """One move on the rising edge of P. While waiting only the state is updated."""
@@ -92,6 +153,7 @@ def main() -> None:
         # No detection overlay. Drawing the previous board on a new frame stutters.
         output = frame.copy()
         mode_badge(output, auto_play)
+        put_text(output, f"policy={policy_name}", (8, 152), (0, 220, 255), scale=0.5)
         put_text(
             output,
             message if now < message_until else "settling...",
@@ -121,9 +183,10 @@ def main() -> None:
         key = cv2.waitKey(1) & 0xFF
         now = time.monotonic()
 
-        # G / P are detected globally so they work even with VRChat in front. Holding does not repeat.
+        # G / P / L are detected globally so they work even with VRChat in front. Holding does not repeat.
         # While waiting in step / settle, the same detection runs via should_abort / pump_ui.
         poll_g_toggle()
+        poll_policy_toggle()
         step_pressed = poll_step_key()
 
         # Detect only when a new capture arrives. Keeps video and overlay on the same cycle.
@@ -150,7 +213,17 @@ def main() -> None:
         if step_pressed or (auto_play and obs.ready and not obs.blocked):
             message = "settling..."
             message_until = now + MESSAGE_SECONDS
-            _show(frame, board, obs, aim_x, auto_play, message, message_until, now)
+            _show(
+                frame,
+                board,
+                obs,
+                aim_x,
+                auto_play,
+                policy_name,
+                message,
+                message_until,
+                now,
+            )
 
             def abort() -> bool:
                 # Keep the preview running while waiting. On auto, G can abort it.
@@ -164,7 +237,7 @@ def main() -> None:
                 print(message)
             else:
                 # Confirm settle → decide the column on the same observation → aim. Do not read a moving board.
-                result = env.step(abort=abort, choose=choose_x)
+                result = env.step(abort=abort, choose=choose)
                 if from_auto and not auto_play:
                     message = "auto=off"
                     frame, obs, board = _refresh(env, frame, obs)
@@ -178,9 +251,9 @@ def main() -> None:
                     if target is not None:
                         aim_x = target
                     message = (
-                        f"auto x={target:.0f} -> {result.info}"
+                        f"{policy_name} x={target:.0f} -> {result.info}"
                         if target is not None
-                        else f"auto -> {result.info}"
+                        else f"{policy_name} -> {result.info}"
                     )
                     obs = result.observation
                     frame, obs, board = _refresh(env, frame, obs)
@@ -192,7 +265,17 @@ def main() -> None:
                         message = f"{message} (stop)"
             message_until = time.monotonic() + MESSAGE_SECONDS
 
-        _show(frame, board, obs, aim_x, auto_play, message, message_until, now)
+        _show(
+            frame,
+            board,
+            obs,
+            aim_x,
+            auto_play,
+            policy_name,
+            message,
+            message_until,
+            now,
+        )
 
         if key == QUIT_KEY:
             break
@@ -206,6 +289,7 @@ def _show(
     obs: Observation,
     aim_x: float | None,
     auto_play: bool,
+    policy_name: str,
     message: str,
     message_until: float,
     now: float,
@@ -217,8 +301,9 @@ def _show(
             _draw_aim(output, board.corners, aim_x)
 
     mode_badge(output, auto_play)
-    hint = "p: step  g: auto on/off  s: save"
+    hint = "p: step  g: auto  l: policy  s: save"
     put_text(output, f"aim x={aim_x:.0f}" if aim_x is not None else "aim —", (8, 128), (0, 255, 255))
+    put_text(output, f"policy={policy_name}", (8, 152), (0, 220, 255), scale=0.5)
     put_text(
         output,
         message if now < message_until else hint,

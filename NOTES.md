@@ -18,3 +18,4 @@
 - Evaluation: `python scripts/eval_bootstrap.py`
 - Training: `python scripts/train_sim.py` (teacher data collection → offline BC. Saves the best student_r. RL off by default)
 - `src/agent.py`: MLP policy over 20 discrete column bins
+- Live play: `python main.py` (defaults to learned if an npz exists. `L` toggles bootstrap, `--policy bootstrap`)
