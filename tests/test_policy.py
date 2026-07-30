@@ -2,6 +2,7 @@
 
 from src.observe import Observation
 from src.policy import (
+    SIDE_CLEARANCE,
     _after_drop,
     _chain_center_gap,
     _ideal_x,
@@ -150,8 +151,8 @@ def test_orange_stacks_on_apple_even_with_next_cherry() -> None:
     assert x < NORMALIZED_WIDTH / 2
 
 
-def test_orange_on_top_when_ordered_side_blocked() -> None:
-    # When the spot right of the apple is blocked, stack on top.
+def test_orange_biases_large_side_when_ordered_side_blocked() -> None:
+    # When the apple's lining-up side (right) is blocked, go to the big side (left), not directly above the center.
     apple_r = _radius(5)
     orange_r = _radius(4)
     grape_r = _radius(2)
@@ -159,7 +160,8 @@ def test_orange_on_top_when_ordered_side_blocked() -> None:
     side_x = apple.x + apple_r + orange_r
     blocker = Fruit(type=2, x=side_x, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90)
     x = choose_x(_obs(held_type=4, fruits=(apple, blocker)))
-    assert abs(x - apple.x) < apple_r * 0.9
+    assert x < apple.x
+    assert abs(x - apple.x) > apple_r * 0.2
 
 
 def test_prefers_merging_wedged_small_over_stacking_on_larger() -> None:
@@ -188,14 +190,15 @@ def test_prefers_merging_wedged_small_over_stacking_on_larger() -> None:
     assert merges >= 1
 
 
-def test_stacks_strawberry_on_grape_when_next_is_strawberry() -> None:
-    # NOTES: when wanting to grow a grape and held/next are strawberries, on top of the grape.
-    # Even if the neighboring floor is open, choose on top of the target grown with a same-type next.
+def test_grows_strawberry_beside_grape_when_next_is_strawberry() -> None:
+    # If held/next are strawberries, grow the grape. To the lining-up side, not directly above the center of a different type.
     grape_r = _radius(2)
     straw_r = _radius(1)
     grape = Fruit(type=2, x=120, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90)
+    side = grape.x + grape_r + straw_r + SIDE_CLEARANCE
     x = choose_x(_obs(held_type=1, fruits=(grape,), next_type=1))
-    assert abs(x - grape.x) < grape_r * 0.85
+    assert abs(x - side) < straw_r * 2
+    assert abs(x - grape.x) > grape_r * 0.2
 
 
 def test_grows_grape_even_with_distant_strawberry_merge() -> None:
@@ -205,17 +208,39 @@ def test_grows_grape_even_with_distant_strawberry_merge() -> None:
     grape = Fruit(type=2, x=100, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90)
     lone = Fruit(type=1, x=320, y=NORMALIZED_HEIGHT - straw_r, radius=straw_r, confidence=90)
     x = choose_x(_obs(held_type=1, fruits=(grape, lone), next_type=1))
-    assert abs(x - grape.x) < grape_r * 0.85
+    assert abs(x - grape.x) < grape_r + straw_r * 3
     assert abs(x - lone.x) > straw_r * 3
 
 
-def test_stacks_grape_on_dekopon_when_next_is_grape() -> None:
-    # The same pattern one tier up: if held/next are grapes, on top of the dekopon.
+def test_grows_grape_beside_dekopon_when_next_is_grape() -> None:
+    # The same pattern one tier up: if held/next are grapes, the dekopon's lining-up side (right).
     dek_r = _radius(3)
     grape_r = _radius(2)
     dek = Fruit(type=3, x=110, y=NORMALIZED_HEIGHT - dek_r, radius=dek_r, confidence=90)
+    side = dek.x + dek_r + grape_r + SIDE_CLEARANCE
     x = choose_x(_obs(held_type=2, fruits=(dek,), next_type=2))
-    assert abs(x - dek.x) < dek_r * 0.85
+    assert abs(x - side) < grape_r * 2
+    assert abs(x - dek.x) > dek_r * 0.2
+
+
+def test_does_not_stuff_cherry_between_pear_and_apple() -> None:
+    # Stuffing a cherry into the floor between a pear and an apple is junk. Put it out to the small side (right).
+    pear_r = _radius(6)
+    apple_r = _radius(5)
+    cherry_r = _radius(0)
+    pear = Fruit(type=6, x=80, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
+    # A gap a cherry fits exactly into.
+    apple = Fruit(
+        type=5,
+        x=80 + pear_r + apple_r + cherry_r * 2 + 10,
+        y=NORMALIZED_HEIGHT - apple_r,
+        radius=apple_r,
+        confidence=90,
+    )
+    gap_x = (pear.x + apple.x) / 2
+    x = choose_x(_obs(held_type=0, fruits=(pear, apple)))
+    assert x > apple.x
+    assert abs(x - gap_x) > apple_r
 
 
 def test_orange_leaves_room_for_dekopon_beside_strawberry() -> None:
@@ -352,3 +377,33 @@ def test_pushes_near_orange_pair_from_outside() -> None:
     x = choose_x(obs)
     assert x < left.x
     assert x <= left.x - left.radius * 0.45
+
+
+def test_orange_pushes_inverted_fruit_toward_large_edge() -> None:
+    # The pear on the left fixes sign=+1. A grape left of the apple = a local inversion.
+    # held=orange pushes back from the apple's right outside to the left.
+    pear_r = _radius(6)
+    apple_r = _radius(5)
+    grape_r = _radius(2)
+    orange_r = _radius(4)
+    pear = Fruit(type=6, x=70, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
+    grape = Fruit(type=2, x=180, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90)
+    apple = Fruit(type=5, x=260, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
+    x = choose_x(_obs(held_type=4, fruits=(pear, grape, apple)))
+    assert x > apple.x
+    assert x >= apple.x + apple_r * 0.45
+
+
+def test_restore_not_used_when_size_order_ok() -> None:
+    # If already in size order, the orange goes to the apple's lining-up side. It does not go to push from the right outside.
+    pear_r = _radius(6)
+    apple_r = _radius(5)
+    orange_r = _radius(4)
+    pear = Fruit(type=6, x=70, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
+    apple = Fruit(type=5, x=200, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
+    side = apple.x + apple_r + orange_r + SIDE_CLEARANCE
+    push_outer = apple.x + apple_r + orange_r
+    x = choose_x(_obs(held_type=4, fruits=(pear, apple)))
+    # The lining-up side (with a gap). This rather than the outer contact column of the restoring push.
+    assert abs(x - side) < orange_r * 2
+    assert abs(x - side) <= abs(x - push_outer) + 1.0

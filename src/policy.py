@@ -36,6 +36,20 @@ SIDE_CLEARANCE = 4.0
 PUSH_MERGE_BONUS = 160.0
 # Closeness to the ideal push-in column (bonus within this distance).
 PUSH_ALIGN_RANGE = 36.0
+# Directly above the center of a different type collapses easily, so look at a column pushed this much toward the big side.
+LARGE_SIDE_BIAS = 0.4
+# Penalty for directly above nearly the center of a different type.
+FOREIGN_CENTER_PENALTY = 140.0
+# Penalty per type difference of an inverted size pair.
+SIZE_ORDER_PAIR_WEIGHT = 28.0
+# Penalty per mean distance of each fruit from its ideal column.
+SIZE_ORDER_IDEAL_WEIGHT = 0.35
+# Bonus for pushing a broken size order back to the big-side edge with a mid-to-large held (below push merge).
+RESTORE_ORDER_BONUS = 110.0
+# Helds smaller than this do not sweep (cherry/strawberry/grape).
+RESTORE_MIN_TYPE = 3
+# Penalty for stuffing into gaps between fruits 2 or more stages bigger than itself.
+GAP_JUNK_PENALTY = 200.0
 
 
 def choose_x(obs: Observation) -> float:
@@ -75,6 +89,9 @@ def _candidates(
         if fruit.type < drop_type or fruit.type > drop_type + 2:
             continue
         xs.add(fruit.x)
+        # For different types, add a column pushed toward the big side rather than directly above the center.
+        if fruit.type != drop_type:
+            xs.add(_large_side_x(fruit, sign, held_r))
         gap = held_r + fruit.radius
         xs.add(fruit.x - gap)
         xs.add(fruit.x + gap)
@@ -115,6 +132,10 @@ def _candidates(
             xs.add(max(lo, left.x - (left.radius + held_r)))
             xs.add(min(hi, right.x + (right.radius + held_r)))
 
+    # The small-side outside of fruits with inverted size order (columns pushing back to the big-side edge).
+    for _victim, push_x in _restore_push_targets(fruits, drop_type, held_r, sign):
+        xs.add(push_x)
+
     return [x for x in xs if lo <= x <= hi]
 
 
@@ -130,20 +151,27 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
 
     score = _board_score(after, merges, land_y=land_y, sign=sign)
     score += _wedged_priority(before, obs.held_type, cleared_wedge)
-    score += _larger_neighbor_bonus(
-        before,
-        land_x,
-        obs.held_type,
-        held_r,
-        land_y,
-        grow_target=grow_target,
-        sign=sign,
-    )
-    # Moves merging a wedged same type do not force leaning toward the big fruit.
-    if not cleared_wedge:
-        score -= _ignored_larger_penalty(
-            before, land_x, obs.held_type, held_r, land_y, sign=sign
+    if merges == 0:
+        score += _larger_neighbor_bonus(
+            before,
+            land_x,
+            obs.held_type,
+            held_r,
+            land_y,
+            drop_x=x,
+            grow_target=grow_target,
+            sign=sign,
         )
+        # Moves merging a wedged same type do not force leaning toward the big fruit.
+        if not cleared_wedge:
+            score -= _ignored_larger_penalty(
+                before, land_x, obs.held_type, held_r, land_y, drop_x=x, sign=sign
+            )
+    else:
+        # Merging is on the same-type side. Do not let a different type's big-side push steal the column. Only big-side landings are looked at.
+        score += _merge_large_side_bonus(before, land_x, obs.held_type, sign)
+    # Directly above the center of a non-same type collapses easily, so it is penalized.
+    score -= _foreign_center_penalty(before, x, land_x, land_y, obs.held_type, held_r)
 
     # Moves where hitting the shoulder rolls a small fruit onto the big side are dropped hard.
     # (e.g. upper left of a grape → rolls left → size order breaks)
@@ -152,24 +180,32 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
         before, land_x, land_y, obs.held_type, held_r, sign
     ) if merges == 0 else 0.0
     score -= _coast_away_penalty(before, x, land_x, land_y, held_r)
+    # Moves stuffing small junk between big fruits. Not looked at for merges.
+    if merges == 0:
+        score -= _gap_junk_penalty(before, land_x, land_y, obs.held_type, held_r)
 
     # Without a merge, lean toward the 'lining-up side' of a one-tier-bigger fruit.
     # Only when lining up on the floor, penalize crushing the columns of intermediate stages (x of stacking is out of scope).
-    # Moves putting it on the target when growing get no pull toward the lining-up side.
+    # Moves pushing to the big side of the target when growing get no pull toward the lining-up side.
     # Push-in merges are not pulled directly above the same type (anchor) either.
     if merges == 0:
         on_grow = grow_target is not None and any(
-            f.type == grow_target and _is_on_top(f, land_x, held_r, land_y) for f in before
+            f.type == grow_target and _near_support(f, x, land_x, held_r, land_y)
+            for f in before
         )
         push = _push_merge_bonus(before, land_x, land_y, obs.held_type, held_r)
-        if not on_grow and push <= 0:
+        restore = _restore_order_bonus(
+            before, land_x, land_y, obs.held_type, held_r, sign
+        )
+        if not on_grow and push <= 0 and restore <= 0:
             score -= abs(x - _anchor_x(obs.held_type, before, held_r, sign)) * 0.45
         floor = NORMALIZED_HEIGHT - held_r
-        if land_y >= floor - 4.0 and not on_grow and push <= 0:
+        if land_y >= floor - 4.0 and not on_grow and push <= 0 and restore <= 0:
             score -= _chain_spacing_penalty(before, land_x, obs.held_type, sign)
         if not _column_fruits(before, x, held_r):
             score += 3.0
         score += push
+        score += restore
         if push > 0:
             # Prefer drops close to the outer contact column (aim outward even if the landing is the same).
             score += _push_outer_align(before, x, obs.held_type, held_r)
@@ -202,29 +238,39 @@ def _best_next_score(fruits: list[Fruit], next_type: int) -> float:
         cleared_wedge = _clears_wedged(fruits, land_x, next_type, next_r, merges)
         value = _board_score(after, merges, land_y=land_y, sign=sign)
         value += _wedged_priority(fruits, next_type, cleared_wedge)
-        value += _larger_neighbor_bonus(
-            fruits, land_x, next_type, next_r, land_y, sign=sign
-        )
-        if not cleared_wedge:
-            value -= _ignored_larger_penalty(
-                fruits, land_x, next_type, next_r, land_y, sign=sign
+        if merges == 0:
+            value += _larger_neighbor_bonus(
+                fruits, land_x, next_type, next_r, land_y, drop_x=nx, sign=sign
             )
+            if not cleared_wedge:
+                value -= _ignored_larger_penalty(
+                    fruits, land_x, next_type, next_r, land_y, drop_x=nx, sign=sign
+                )
+        else:
+            value += _merge_large_side_bonus(fruits, land_x, next_type, sign)
+        value -= _foreign_center_penalty(fruits, nx, land_x, land_y, next_type, next_r)
         if merges == 0:
             value -= _wrong_side_roll_penalty(
                 fruits, land_x, land_y, next_type, next_r, sign
             )
+            value -= _gap_junk_penalty(fruits, land_x, land_y, next_type, next_r)
             on_grow = any(
-                f.type == next_type + 1 and _is_on_top(f, land_x, next_r, land_y)
+                f.type == next_type + 1
+                and _near_support(f, nx, land_x, next_r, land_y)
                 for f in fruits
             ) and next_type + 1 <= MAX_FRUIT_TYPE
-            # next alone has no held/next same-type growing flag, so only on top of a one-tier-bigger fruit is exempt.
-            if not on_grow:
+            restore = _restore_order_bonus(
+                fruits, land_x, land_y, next_type, next_r, sign
+            )
+            # next alone has no held/next same-type growing flag, so only near a one-tier-bigger fruit is exempt.
+            if not on_grow and restore <= 0:
                 value -= abs(nx - _anchor_x(next_type, fruits, next_r, sign)) * 0.45
                 floor = NORMALIZED_HEIGHT - next_r
                 if land_y >= floor - 4.0:
                     value -= _chain_spacing_penalty(fruits, land_x, next_type, sign)
             if not _column_fruits(fruits, nx, next_r):
                 value += 3.0
+            value += restore
         value -= _coast_away_penalty(fruits, nx, land_x, land_y, next_r)
         if value > best:
             best = value
@@ -377,31 +423,39 @@ def _larger_neighbor_bonus(
     held_r: float,
     land_y: float,
     *,
+    drop_x: float | None = None,
     grow_target: int | None = None,
     sign: int = 1,
 ) -> float:
-    """Relation to a one-tier-bigger fruit. An open 'lining-up side' > on top > the opposite side.
+    """Relation to a one-tier-bigger fruit. An open 'lining-up side' > pushing to the big side > directly above the center.
 
     The neighbor is chosen according to the size-order direction (sign). With sign=+1, small goes right of big.
 
-    But in positions where held and next are the same type and grow the one-tier-bigger fruit,
-    'on top' of it takes priority over the lining-up side (put the second on it, merge → grow).
+    Directly above the center of a different type gets no bonus (no merit other than a same-type merge, and it collapses easily).
+    When growing with held/next of the same type, pushing to the target's big side takes priority over the lining-up side.
     """
     supports = [f for f in fruits if 1 <= f.type - drop_type <= 2]
     if not supports:
         return 0.0
 
+    aim_x = x if drop_x is None else drop_x
     best = 0.0
     for support in supports:
         gap = support.type - drop_type
         side_x = _ordered_side_x(support, drop_type, held_r, sign)
+        other_x = _ordered_side_x(support, drop_type, held_r, -sign)
         side_free = _side_slot_free(fruits, support, side_x, held_r)
+        other_free = _side_slot_free(fruits, support, other_x, held_r)
         on_top = _is_on_top(support, x, held_r, land_y)
-        beside = abs(x - side_x) <= max(held_r, MERGE_SLACK)
+        beside = abs(aim_x - side_x) <= max(held_r, MERGE_SLACK)
+        beside_other = abs(aim_x - other_x) <= max(held_r, MERGE_SLACK)
+        toward_large = _toward_large(support, aim_x, sign)
+        near = _near_support(support, aim_x, x, held_r, land_y)
         growing = grow_target is not None and support.type == grow_target
+        centered = abs(aim_x - support.x) <= support.radius * 0.2
 
-        if growing and on_top:
-            # On top of the target grown with a same-type next. Stronger than the lining-up side + low landing.
+        if growing and beside and side_free:
+            # For growing, an open lining-up side comes first (does not break size order).
             best = max(best, 330.0 if gap == 1 else 150.0)
             continue
 
@@ -409,15 +463,24 @@ def _larger_neighbor_bonus(
             best = max(best, 200.0 if gap == 1 else 90.0)
             continue
 
-        if on_top:
-            if side_free:
-                # On top is weak when the neighbor is open.
-                best = max(best, 35.0 if gap == 1 else 15.0)
-            else:
-                best = max(best, 150.0 if gap == 1 else 70.0)
+        if beside_other and other_free:
+            # The big-side floor when the lining-up side is blocked.
+            best = max(best, 180.0 if gap == 1 else 80.0)
             continue
 
-        if abs(x - support.x) <= support.radius + held_r + MERGE_SLACK:
+        if near and toward_large and not centered:
+            # Big-side shoulder / leaning big side. Better than directly above the center. If the lining-up side is open, the branch above wins.
+            if growing:
+                best = max(best, 300.0 if gap == 1 else 140.0)
+            else:
+                best = max(best, 170.0 if gap == 1 else 75.0)
+            continue
+
+        if on_top and centered:
+            # Directly above the center of a different type gets no bonus.
+            continue
+
+        if near:
             best = max(best, 25.0 if gap == 1 else 10.0)
 
     return best
@@ -430,20 +493,89 @@ def _ignored_larger_penalty(
     held_r: float,
     land_y: float,
     *,
+    drop_x: float | None = None,
     sign: int = 1,
 ) -> float:
-    """Penalty when a one-tier-bigger fruit exists but it is placed neither on the lining-up side nor on top."""
+    """Penalty when a one-tier-bigger fruit exists but it is placed on neither the lining-up side nor the big side.
+
+    Directly above the center of a different type does not count as 'dealt with'.
+    """
     supports = [f for f in fruits if f.type - drop_type == 1]
     if not supports:
         return 0.0
 
+    aim_x = x if drop_x is None else drop_x
     for support in supports:
         side_x = _ordered_side_x(support, drop_type, held_r, sign)
-        if abs(x - side_x) <= max(held_r, MERGE_SLACK):
+        other_x = _ordered_side_x(support, drop_type, held_r, -sign)
+        if abs(aim_x - side_x) <= max(held_r, MERGE_SLACK):
             return 0.0
-        if _is_on_top(support, x, held_r, land_y):
+        if abs(aim_x - other_x) <= max(held_r, MERGE_SLACK):
+            return 0.0
+        if (
+            _near_support(support, aim_x, x, held_r, land_y)
+            and _toward_large(support, aim_x, sign)
+            and abs(aim_x - support.x) > support.radius * 0.2
+        ):
             return 0.0
     return 110.0
+
+
+def _foreign_center_penalty(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_x: float,
+    land_x: float,
+    land_y: float,
+    drop_type: int,
+    held_r: float,
+) -> float:
+    """Penalty for dropping nearly directly above the center of a non-same type."""
+    for fruit in fruits:
+        if fruit.type == drop_type:
+            continue
+        if not _is_on_top(fruit, land_x, held_r, land_y):
+            continue
+        if abs(drop_x - fruit.x) <= fruit.radius * 0.25:
+            return FOREIGN_CENTER_PENALTY
+    return 0.0
+
+
+def _merge_large_side_bonus(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    drop_type: int,
+    sign: int,
+) -> float:
+    """A same-type merge landing gets a bonus if on the big side of the partner, a penalty if on the small side."""
+    mates = [f for f in fruits if f.type == drop_type]
+    if not mates:
+        return 0.0
+    mate = min(mates, key=lambda f: abs(f.x - land_x))
+    return (land_x - mate.x) * (-sign) * 3.0
+
+
+def _large_side_x(support: Fruit, sign: int, held_r: float) -> float:
+    """A column pushed to the big side of the support. With sign=+1 big is on the left, so the negative direction."""
+    return support.x - sign * min(held_r, support.radius * LARGE_SIDE_BIAS)
+
+
+def _toward_large(support: Fruit, x: float, sign: int) -> bool:
+    """Whether x is on the big side of support."""
+    return (x - support.x) * (-sign) > 0
+
+
+def _near_support(
+    support: Fruit,
+    drop_x: float,
+    land_x: float,
+    held_r: float,
+    land_y: float,
+) -> bool:
+    """Whether the drop column or landing is near the support."""
+    reach = support.radius + held_r + MERGE_SLACK
+    if abs(drop_x - support.x) <= reach or abs(land_x - support.x) <= reach:
+        return True
+    return _is_on_top(support, land_x, held_r, land_y)
 
 
 def _wrong_side_roll_penalty(
@@ -496,6 +628,48 @@ def _coast_away_penalty(
     if land_y >= floor - 4.0 and drifted > NORMALIZED_WIDTH * 0.25:
         penalty += 120.0
     return penalty
+
+
+def _gap_junk_penalty(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    land_y: float,
+    drop_type: int,
+    held_r: float,
+) -> float:
+    """Penalty for stuffing a small fruit into gaps between fruits 2 or more stages bigger than itself.
+
+    Moves like putting a cherry between a pear and an apple to flatten a floor dip.
+    The lining-up side with a one-tier difference (orange↔apple) is out of scope.
+    """
+    floor = NORMALIZED_HEIGHT - held_r
+    if land_y < floor - 4.0:
+        return 0.0
+
+    left_big: Fruit | None = None
+    right_big: Fruit | None = None
+    for fruit in fruits:
+        if fruit.type <= drop_type:
+            continue
+        if fruit.x < land_x:
+            if left_big is None or fruit.x > left_big.x:
+                left_big = fruit
+        elif fruit.x > land_x:
+            if right_big is None or fruit.x < right_big.x:
+                right_big = fruit
+    if left_big is None or right_big is None:
+        return 0.0
+
+    # 'Stuffing junk' only when both neighbors are 2 or more stages bigger than held.
+    if min(left_big.type, right_big.type) - drop_type < 2:
+        return 0.0
+
+    sep = right_big.x - left_big.x
+    touch = left_big.radius + right_big.radius
+    # Floors already tight, or too wide to be 'between', are excluded.
+    if sep <= touch or sep > touch + held_r * 2.8 + MERGE_SLACK:
+        return 0.0
+    return GAP_JUNK_PENALTY
 
 
 def _push_pair_outers(
@@ -564,6 +738,90 @@ def _push_outer_align(
     best = 0.0
     for _outer, ideal_x in _push_pair_outers(fruits, drop_type, held_r):
         best = max(best, max(0.0, PUSH_ALIGN_RANGE - abs(drop_x - ideal_x)))
+    return best
+
+
+def _has_size_inversion(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    sign: int,
+) -> bool:
+    """Whether there is a pair with inverted left-right size order."""
+    for i, a in enumerate(fruits):
+        for b in fruits[i + 1 :]:
+            if abs(a.x - b.x) < min(a.radius, b.radius) * 0.5:
+                continue
+            left, right = (a, b) if a.x <= b.x else (b, a)
+            if sign > 0 and left.type < right.type:
+                return True
+            if sign < 0 and left.type > right.type:
+                return True
+    return False
+
+
+def _restore_push_targets(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_type: int,
+    held_r: float,
+    sign: int,
+) -> list[tuple[Fruit, float]]:
+    """A column pushing the small-side member of an inverted pair from further outside on the small side."""
+    if drop_type < RESTORE_MIN_TYPE or not _has_size_inversion(fruits, sign):
+        return []
+    lo = held_r
+    hi = NORMALIZED_WIDTH - held_r
+    targets: list[tuple[Fruit, float]] = []
+    seen: set[int] = set()
+    for i, a in enumerate(fruits):
+        for b in fruits[i + 1 :]:
+            if abs(a.x - b.x) < min(a.radius, b.radius) * 0.5:
+                continue
+            left, right = (a, b) if a.x <= b.x else (b, a)
+            inverted = (sign > 0 and left.type < right.type) or (
+                sign < 0 and left.type > right.type
+            )
+            if not inverted:
+                continue
+            # Push a fruit on the small side toward the big side. With sign=+1, push the right fruit from its right outside to the left.
+            victim = right if sign > 0 else left
+            key = id(victim)
+            if key in seen:
+                continue
+            seen.add(key)
+            push_x = victim.x + sign * (victim.radius + held_r)
+            targets.append((victim, max(lo, min(hi, push_x))))
+    return targets
+
+
+def _restore_order_bonus(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    land_y: float,
+    drop_type: int,
+    held_r: float,
+    sign: int,
+) -> float:
+    """Bonus for landings that push a broken size order back from the small-side outside toward the big-side edge.
+
+    The simulation does not move other fruits, so it looks only at contact direction.
+    Directly above the center of a different type is out of scope. Kept weaker than push merge.
+    """
+    best = 0.0
+    for victim, _push_x in _restore_push_targets(fruits, drop_type, held_r, sign):
+        if _is_on_top(victim, land_x, held_r, land_y):
+            continue
+        if sign > 0:
+            # Push from the right outside to the left.
+            if land_x < victim.x + victim.radius * 0.45:
+                continue
+        else:
+            # Push from the left outside to the right.
+            if land_x > victim.x - victim.radius * 0.45:
+                continue
+        if abs(land_x - victim.x) > victim.radius + held_r + MERGE_SLACK:
+            continue
+        if land_y + held_r < victim.y - victim.radius - MERGE_SLACK:
+            continue
+        best = max(best, RESTORE_ORDER_BONUS)
     return best
 
 
@@ -678,10 +936,10 @@ def _anchor_x(
     held_r: float,
     sign: int = 1,
 ) -> float:
-    """The column to place in. The lining-up side of a one-tier-bigger fruit if open, directly on top if blocked.
+    """The column to place in. The lining-up side of a one-tier-bigger fruit if open, pushing to the big side if blocked.
 
-    With no big support, prefer right next to a small fruit on the small side
-    (avoiding knock-aways / being too far from leaving space up to ideal).
+    No anchor directly above the center of a different type. With no big support, prefer right next to a small fruit
+    on the small side (avoiding knock-aways from leaving space up to ideal).
     """
     supports = [f for f in fruits if 1 <= f.type - drop_type <= 2]
     if supports:
@@ -690,7 +948,10 @@ def _anchor_x(
         side_x = _ordered_side_x(support, drop_type, held_r, sign)
         if _side_slot_free(fruits, support, side_x, held_r):
             return side_x
-        return support.x
+        other_x = _ordered_side_x(support, drop_type, held_r, -sign)
+        if _side_slot_free(fruits, support, other_x, held_r):
+            return other_x
+        return _large_side_x(support, sign, held_r)
 
     beside = _smaller_neighbor_x(fruits, drop_type, held_r, sign)
     if beside is not None:
@@ -711,10 +972,14 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
             left, right = (a, b) if a.x <= b.x else (b, a)
             # sign=+1: the left should be bigger. sign=-1: the left should be smaller.
             if sign > 0 and left.type < right.type:
-                penalty += (right.type - left.type) * 12.0
+                penalty += (right.type - left.type) * SIZE_ORDER_PAIR_WEIGHT
             elif sign < 0 and left.type > right.type:
-                penalty += (left.type - right.type) * 12.0
-    penalty += sum(abs(f.x - _ideal_x(f.type, sign)) for f in fruits) / len(fruits) * 0.12
+                penalty += (left.type - right.type) * SIZE_ORDER_PAIR_WEIGHT
+    penalty += (
+        sum(abs(f.x - _ideal_x(f.type, sign)) for f in fruits)
+        / len(fruits)
+        * SIZE_ORDER_IDEAL_WEIGHT
+    )
     return penalty
 
 

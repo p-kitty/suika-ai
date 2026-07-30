@@ -22,8 +22,8 @@ EXPECTED_DROPS: dict[str, DropCase] = {
     "doko1.png": {
         "held": "strawberry",
         "next": "strawberry",
-        "expect_x": (85, 120),
-        "note": "on the grape (x≈101). On top even if the neighboring floor is open",
+        "expect_x": (85, 145),
+        "note": "toward the big side of the grape (x≈101). Avoid directly above the center of a different type",
     },
     "doko2.png": {
         "held": "dekopon",
@@ -97,12 +97,9 @@ EXPECTED_DROPS: dict[str, DropCase] = {
 # Positions the policy cannot solve yet. strict xfail. Remove once fixed.
 # When detection itself is broken, do not put it here; leave the test red.
 KNOWN_DROP_FAILURES: dict[str, str] = {
-    "doko3.png": "chooses directly above the apple, not the right side (pushing toward the pear)",
     "doko4.png": "gets pulled into the left gap and slides to the left edge",
     "doko5.png": "chooses right of the apple column (toward the grape)",
     "doko7.png": "chooses left of the dekopon column (toward the apple)",
-    "doko8.png": "chooses directly above the apple, not the right side",
-    "doko9.png": "chooses directly above the orange, not the right side to the melon's upper right",
     "doko10.png": "pushes toward the melon's right shoulder",
     "doko11.png": "stacks on the dekopon on a tall pile",
     "doko12.png": "the dekopon merge leans right, not pushed enough toward the orange on the left",

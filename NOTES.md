@@ -14,7 +14,7 @@
 - **Suspected cause**: the policy / evaluation centers on "the fruit held now" and does not sufficiently consider cascades and growing based on NEXT and HELD
 - **Where to look**: `src/policy.py`, placement scoring / candidate evaluation
 - **Noted on**: 2026-07-30
-- **Status**: fixed — when held/next are the same type, prefer "on top of" the growing target. Pinned by position UTs in `tests/test_policy.py`
+- **Status**: fixed — when held/next are the same type, prefer the side where the growing target lines up / pushing to the big side (not directly above the center of a different type). Pinned by position UTs in `tests/test_policy.py`
 
 ## Size order breaks because rolling is not predicted
 
@@ -53,6 +53,9 @@
   - expect_x: unique by column even with multiple same types. Name references (`on grape`) are not used
 - Unsolvable positions get a strict xfail in `KNOWN_DROP_FAILURES` (for policy mistakes; broken detection stays red)
 - **Teach only one move**: the second move depends on the next held (the current next), so it is not written
-- Priority guide: same-type merge → if held/next are the same type, growing one tier up → a column that does not break size order. Placements that collapse, such as on a melon's shoulder, are not allowed
+- Priority guide: same-type merge → if held/next are the same type, growing one tier up (the side where it lines up / push to the big side; not directly above the center of a different type) → pushing a broken size order back to the edge → a column that does not break size order. Placements that collapse, such as on a melon's shoulder, are not allowed
+- **Directly above the center of a different type**: penalized rather than rewarded. If the lining-up side is open go there, if blocked push to the big side (`_foreign_center_penalty`, `_large_side_x`). Pinned with doko3/8/9
 - **Push-in**: with a held of a different type, hitting the outside of a nearby same-type pair to join them is rewarded (`_push_merge_bonus`). Pinned with doko2
-- Main holes among the remaining xfails: pushing toward the big side rather than "directly on top" of a fruit one tier bigger (doko3/8/9), sliding next to a merge column (doko12), gap sliding, melon shoulders and so on
+- **Restoring push**: when size order is locally inverted, push from the small side's outside toward the big side's edge with a held of dekopon or bigger (`_restore_order_bonus`). The size-order penalty was strengthened too. Pinned by position UTs
+- **Gap junk**: do not stuff a small fruit into the floor between fruits 2 or more stages bigger than itself (`_gap_junk_penalty`). Pinned by position UTs
+- Main holes among the remaining xfails: sliding next to a merge column (doko12), gap sliding and melon shoulders (doko4/10/11), doko5/7
