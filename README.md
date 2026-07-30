@@ -33,7 +33,7 @@ python main.py
 
 | Key | Action |
 |-----|--------|
-| `Space` | Drop one fruit (one step) |
+| `p` | Drop one fruit (one step; global hotkey) |
 | `g` | Toggle auto-play (global hotkey; works without focus) |
 | `s` | Save a debug frame |
 | `Esc` | Quit |

@@ -20,10 +20,10 @@ WINDOW_TITLE = "Suika"
 MESSAGE_SECONDS = 3.0
 
 DUMP_KEY = ord("s")
-STEP_KEY = ord(" ")
 QUIT_KEY = 27
-# Toggle auto regardless of focus (VK_G).
+# Work regardless of focus (even with VRC in front). Space is not used since it collides with jump.
 VK_G = 0x47
+VK_P = 0x50
 
 # Preview while waiting. Only the video runs; stale detection circles are not drawn.
 PUMP_HZ = float(CAPTURE_FPS)
@@ -48,14 +48,18 @@ def main() -> None:
 
     maximize_window(WINDOW_TITLE)
     g_was_down = False
+    p_was_down = False
     frame: np.ndarray | None = None
+
+    def _edge(vk: int, was_down: bool) -> tuple[bool, bool]:
+        """Rising edge of a global key. (pressed, down)."""
+        down = bool(ctypes.windll.user32.GetAsyncKeyState(vk) & 0x8000)
+        return down and not was_down, down
 
     def poll_g_toggle() -> bool:
         """Toggle auto on the rising edge of G. True when pressed."""
         nonlocal auto_play, g_was_down, message, message_until
-        down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_G) & 0x8000)
-        pressed = down and not g_was_down
-        g_was_down = down
+        pressed, g_was_down = _edge(VK_G, g_was_down)
         if not pressed:
             return False
         auto_play = not auto_play
@@ -64,9 +68,17 @@ def main() -> None:
         print(message)
         return True
 
+    def poll_step_key() -> bool:
+        """One move on the rising edge of P. While waiting only the state is updated."""
+        nonlocal p_was_down
+        pressed, p_was_down = _edge(VK_P, p_was_down)
+        return pressed
+
     def pump_ui() -> None:
         """Keep only the video running while waiting for settle / aim. Stale detection circles are not drawn."""
         nonlocal frame, next_pump
+        # Do not misfire on a key held or pressed again while waiting after returning.
+        poll_step_key()
         now = time.monotonic()
         if now < next_pump:
             cv2.waitKey(1)
@@ -109,12 +121,13 @@ def main() -> None:
         key = cv2.waitKey(1) & 0xFF
         now = time.monotonic()
 
-        # G is detected globally so it works even with VRChat in front. Holding does not repeat.
-        # While waiting in step / settle, the same detection runs via should_abort.
+        # G / P are detected globally so they work even with VRChat in front. Holding does not repeat.
+        # While waiting in step / settle, the same detection runs via should_abort / pump_ui.
         poll_g_toggle()
+        step_pressed = poll_step_key()
 
         # Detect only when a new capture arrives. Keeps video and overlay on the same cycle.
-        if fresh is not None or key in (STEP_KEY, DUMP_KEY):
+        if fresh is not None or step_pressed or key == DUMP_KEY:
             obs = env.observe(frame)
         board = env.board
 
@@ -131,10 +144,10 @@ def main() -> None:
                 message_until = now + MESSAGE_SECONDS
                 print(message)
 
-        # Space = one move. During continuous auto with g, drop on every ready.
+        # P = one move (global). During continuous auto with g, drop on every ready.
         # Draw AUTO/LIVE before entering the wait so it shows.
-        from_auto = auto_play and key != STEP_KEY
-        if key == STEP_KEY or (auto_play and obs.ready and not obs.blocked):
+        from_auto = auto_play and not step_pressed
+        if step_pressed or (auto_play and obs.ready and not obs.blocked):
             message = "settling..."
             message_until = now + MESSAGE_SECONDS
             _show(frame, board, obs, aim_x, auto_play, message, message_until, now)
@@ -203,7 +216,7 @@ def _show(
             _draw_aim(output, board.corners, aim_x)
 
     mode_badge(output, auto_play)
-    hint = "Space: step  g: auto on/off  s: save"
+    hint = "p: step  g: auto on/off  s: save"
     put_text(output, f"aim x={aim_x:.0f}" if aim_x is not None else "aim —", (8, 128), (0, 255, 255))
     put_text(
         output,
