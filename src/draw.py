@@ -19,7 +19,7 @@ def put_text(
 
 
 def mode_badge(image: np.ndarray, auto: bool) -> None:
-    """画面左上に AUTO / LIVE を常時表示する。一時メッセージに消されない。"""
+    """画面右上に AUTO / LIVE を常時表示する。左上の board/next と被らない。"""
     label = "AUTO" if auto else "LIVE"
     fg: Color = (40, 255, 120) if auto else (170, 170, 170)
     bg: Color = (20, 70, 30) if auto else (36, 36, 36)
@@ -27,8 +27,9 @@ def mode_badge(image: np.ndarray, auto: bool) -> None:
     scale = 1.15
     thickness = 3
     (tw, th), baseline = cv2.getTextSize(label, FONT, scale, thickness)
-    x, y = 14, 42
     pad_x, pad_y = 12, 8
+    x = image.shape[1] - tw - pad_x - 8
+    y = 14 + th
     top_left = (x - pad_x, y - th - pad_y)
     bottom_right = (x + tw + pad_x, y + baseline + pad_y // 2)
     cv2.rectangle(image, top_left, bottom_right, bg, -1)
