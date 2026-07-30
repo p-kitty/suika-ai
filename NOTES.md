@@ -19,3 +19,10 @@
 - Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=100 is a cap, not the losing line)
 - `src/agent.py`: MLP with 32 discrete column bins / hidden 128 (old 20/64 npz files need retraining)
 - Live play: `python main.py` (defaults to learned if an npz exists. `L` toggles bootstrap, `--policy bootstrap`)
+
+## Planned: RL (REINFORCE)
+
+- Still too early. Plain REINFORCE easily breaks things when BC is shallow (confirmed in the past)
+- Condition for adding it: `match` fairly high (roughly 60–70%+) and `student_r` close to bootstrap (~70)
+- How: only a short fine-tune after BC finishes (e.g. `--episodes 50 --lr 0.002`). Off by default
+- Until then, thickening BC (collection size, epochs) comes first
