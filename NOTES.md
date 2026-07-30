@@ -73,3 +73,10 @@
 - `src/policy.py` は RL 前の薄い方策。合成・危険高さ・埋め込み・薄い大小順・転がり／弾かれ／隙間ゴミの事故防止だけ
 - 持たないもの: 押し込み合成、復元押し、育成優先、連鎖隙間空け、一段上への強制寄り
 - 具体手順の UT は増やさない。壊れたら事故防止か観測側を見る
+
+## 学習まわり
+
+- `src/reward.py`: 生存・合成・最大段階・スイカ／ダブルスイカ・死亡
+- `src/encode.py`: 固定長観測ベクトル
+- `src/sim_env.py`: 画面なし落下 sim (`policy.simulate_drop`)
+- 評価: `python scripts/eval_bootstrap.py`
