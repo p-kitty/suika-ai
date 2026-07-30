@@ -27,7 +27,7 @@
 ## Deferred
 
 - **Training (RL)**: while holes in observation and policy remain it becomes noise. Only after position UTs reduce misplacements and play runs for minutes without stopping
-- **`10.png` vision**: similar-color mask fusion + a strawberry outside the frame. Needs a redesign of the cropping; worse value for effort than policy / held
+- **`10.png` vision**: similar-color mask fusion + a strawberry outside the frame. Needs a redesign of the cropping; worse value for effort than the policy / held
 
 ## Placement UT
 
@@ -39,3 +39,5 @@
 - Unsolvable positions get a strict xfail in `KNOWN_DROP_FAILURES` (for policy mistakes; broken detection stays red)
 - **Teach only one move**: the second move depends on the next held (the current next), so it is not written
 - Priority guide: same-type merge → if held/next are the same type, growing one tier up → a column that does not break size order. Placements that collapse, such as on a melon's shoulder, are not allowed
+- **Push-in**: with a held of a different type, hitting the outside of a nearby same-type pair to join them is rewarded (`_push_merge_bonus`). Pinned with doko2
+- Main holes among the remaining xfails: pushing toward the big side rather than "directly on top" of a fruit one tier bigger (doko3/8/9), sliding next to a merge column (doko12), gap sliding, melon shoulders and so on

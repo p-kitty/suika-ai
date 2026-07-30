@@ -32,6 +32,10 @@ SETTLE_STEP = 3.0
 SETTLE_MAX_ITERS = 48
 # When lining up next to it, exact contact rides onto the shoulder and gets knocked, so leave a small gap.
 SIDE_CLEARANCE = 4.0
+# Bonus for landings likely to hit the outside of a same-type pair and push them into a merge.
+PUSH_MERGE_BONUS = 160.0
+# Closeness to the ideal push-in column (bonus within this distance).
+PUSH_ALIGN_RANGE = 36.0
 
 
 def choose_x(obs: Observation) -> float:
@@ -98,6 +102,19 @@ def _candidates(
     if beside is not None:
         xs.add(beside)
 
+    # Columns pushing a same-type pair from the outside with a held of a different type.
+    for i, a in enumerate(fruits):
+        for b in fruits[i + 1 :]:
+            if a.type == drop_type or a.type != b.type or _touching(a, b):
+                continue
+            sep = abs(a.x - b.x)
+            need = a.radius + b.radius
+            if sep <= need or sep > need + held_r * 2.2:
+                continue
+            left, right = (a, b) if a.x <= b.x else (b, a)
+            xs.add(max(lo, left.x - (left.radius + held_r)))
+            xs.add(min(hi, right.x + (right.radius + held_r)))
+
     return [x for x in xs if lo <= x <= hi]
 
 
@@ -139,17 +156,23 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
     # Without a merge, lean toward the 'lining-up side' of a one-tier-bigger fruit.
     # Only when lining up on the floor, penalize crushing the columns of intermediate stages (x of stacking is out of scope).
     # Moves putting it on the target when growing get no pull toward the lining-up side.
+    # Push-in merges are not pulled directly above the same type (anchor) either.
     if merges == 0:
         on_grow = grow_target is not None and any(
             f.type == grow_target and _is_on_top(f, land_x, held_r, land_y) for f in before
         )
-        if not on_grow:
+        push = _push_merge_bonus(before, land_x, land_y, obs.held_type, held_r)
+        if not on_grow and push <= 0:
             score -= abs(x - _anchor_x(obs.held_type, before, held_r, sign)) * 0.45
         floor = NORMALIZED_HEIGHT - held_r
-        if land_y >= floor - 4.0 and not on_grow:
+        if land_y >= floor - 4.0 and not on_grow and push <= 0:
             score -= _chain_spacing_penalty(before, land_x, obs.held_type, sign)
         if not _column_fruits(before, x, held_r):
             score += 3.0
+        score += push
+        if push > 0:
+            # Prefer drops close to the outer contact column (aim outward even if the landing is the same).
+            score += _push_outer_align(before, x, obs.held_type, held_r)
 
     if obs.next_type is not None:
         score += NEXT_DISCOUNT * _best_next_score(after, obs.next_type)
@@ -473,6 +496,75 @@ def _coast_away_penalty(
     if land_y >= floor - 4.0 and drifted > NORMALIZED_WIDTH * 0.25:
         penalty += 120.0
     return penalty
+
+
+def _push_pair_outers(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_type: int,
+    held_r: float,
+) -> list[tuple[Fruit, float]]:
+    """(outer fruit, column to drop) for push-in targets. Same-type pairs with held are excluded."""
+    outers: list[tuple[Fruit, float]] = []
+    lo = held_r
+    hi = NORMALIZED_WIDTH - held_r
+    for i, a in enumerate(fruits):
+        for b in fruits[i + 1 :]:
+            if a.type == drop_type or a.type != b.type or _touching(a, b):
+                continue
+            sep = abs(a.x - b.x)
+            need = a.radius + b.radius
+            if sep <= need or sep > need + held_r * 2.2:
+                continue
+            left, right = (a, b) if a.x <= b.x else (b, a)
+            outers.append((left, max(lo, left.x - (left.radius + held_r))))
+            outers.append((right, min(hi, right.x + (right.radius + held_r))))
+    return outers
+
+
+def _push_merge_bonus(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    land_y: float,
+    drop_type: int,
+    held_r: float,
+) -> float:
+    """Bonus when a held of a different type hits the outside of a same-type pair and is likely to push them into a merge.
+
+    The simulation does not move other fruits, so it looks only at contact direction and spacing.
+    """
+    best = 0.0
+    for outer, ideal_x in _push_pair_outers(fruits, drop_type, held_r):
+        # Directly above is not a push-in.
+        if _is_on_top(outer, land_x, held_r, land_y):
+            continue
+        # The landing touches the outer fruit on the side opposite the pair.
+        if ideal_x < outer.x:
+            # Push from the left outside.
+            if land_x > outer.x - outer.radius * 0.45:
+                continue
+        else:
+            # Push from the right outside.
+            if land_x < outer.x + outer.radius * 0.45:
+                continue
+        if abs(land_x - outer.x) > outer.radius + held_r + MERGE_SLACK:
+            continue
+        if land_y + held_r < outer.y - outer.radius - MERGE_SLACK:
+            continue
+        best = max(best, PUSH_MERGE_BONUS)
+    return best
+
+
+def _push_outer_align(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_x: float,
+    drop_type: int,
+    held_r: float,
+) -> float:
+    """Closeness to the ideal push-in column (outer contact). 0 when off (no penalty)."""
+    best = 0.0
+    for _outer, ideal_x in _push_pair_outers(fruits, drop_type, held_r):
+        best = max(best, max(0.0, PUSH_ALIGN_RANGE - abs(drop_x - ideal_x)))
+    return best
 
 
 def _ordered_side_x(
