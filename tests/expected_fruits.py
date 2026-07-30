@@ -86,10 +86,12 @@ EXPECTED = {
         ("grape", 75, 454),
         ("cherry", 42, 466),
     ],
+    # Tests that fruits near the bottom of the board are recognized even when looking slightly upward.
     "8.png": [
         ("grape", 255, 453),
         ("cherry", 151, 464),
     ],
+    # Same as above.
     "9.png": [
         ("orange", 220, 445),
         ("dekopon", 59, 452),
@@ -97,12 +99,13 @@ EXPECTED = {
     ],
     # A nearly full board. Fruits at the top edge are cut by the edge band.
     "10.png": [
+        ("strawberry", 260, -5),
         ("dekopon", 234, 44),
         ("cherry", 340, 45),
         ("apple", 293, 55),
         ("peach", 127, 62),
         ("strawberry", 50, 70),
-        ("strawberry", 269, 79),
+        ("strawberry", 252, 78),
         ("strawberry", 345, 80),
         ("apple", 197, 85),
         ("dekopon", 63, 118),
@@ -121,6 +124,17 @@ EXPECTED = {
         ("dekopon", 73, 442),
         ("grape", 339, 454),
         ("cherry", 42, 465),
+    ],
+    "11.png": [
+        ("cherry", 42, 356),
+        ("strawberry", 76, 359),
+        ("orange", 222, 374),
+        ("dekopon", 113, 378),
+        ("grape", 53, 396),
+        ("peach", 307, 406),
+        ("apple", 164, 429),
+        ("orange", 92, 438),
+        ("cherry", 44, 466),
     ],
 }
 
@@ -158,11 +172,11 @@ EXPECTED_NEXT = {
 
 # Misreads not yet fixed. Remove the mark once fixed.
 KNOWN_FAILURES = {
-    # The 7 at the top (peach/dekopon/apple x2/strawberry x2/cherry) are all reddish, and
-    # when they touch the mask fuses into one blob. The distance transform of a fused blob has no peaks
-    # for the fruits inside, so 2 of the 4 missed never even become candidates.
+    # When the reddish fruits at the top (peach/dekopon/apple x2/strawberry/cherry) touch, the mask
+    # fuses into one blob. The distance transform of a fused blob has no inner peaks.
+    # The strawberry sticking out above the frame (260,-5) drops out of the mask with the edge band and never becomes a candidate.
     # The peach's radius also becomes the blob's, so it is read as an apple.
     # Cutting the mask by visible contours would separate them, but the stripes of watermelon and the net of melon
     # get cut too and big fruits shatter, so the segmentation needs rebuilding.
-    "10.png": "when similar-colored fruits touch the mask fuses and inner peaks do not rise",
+    "10.png": "similar colors fuse, and a strawberry sticking out of the frame drops with the edge band",
 }
