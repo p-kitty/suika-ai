@@ -174,13 +174,14 @@ def main() -> None:
                     frame, obs, board = _refresh(env, frame, obs)
                 else:
                     target = result.target_x
-                    aim_x = target
+                    # The aim line is the dropped column. held is the next fruit's position, so do not overwrite it.
+                    if target is not None:
+                        aim_x = target
                     message = (
                         f"auto x={target:.0f} -> {result.info}"
                         if target is not None
                         else f"auto -> {result.info}"
                     )
-                    aim_x = result.observation.held_x
                     obs = result.observation
                     frame, obs, board = _refresh(env, frame, obs)
                     print(message)

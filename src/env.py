@@ -13,6 +13,7 @@ from .capture import capture
 from .observe import Observation, clamp_drop_x, from_board
 from .tracker import Tracker
 from .vision.board import BoardResult, localize
+from .vision.state import Fruit
 
 
 @dataclass
@@ -44,7 +45,7 @@ class Env:
         result = localize(frame, self.previous_corners)
         self.previous_corners = result.corners
 
-        raw: list | None
+        raw: list[Fruit] | None
         if result.fruits is None:
             self.tracker.reset()
             raw = None
@@ -120,13 +121,13 @@ class Env:
 
         return StepResult(after, target, done=False, info=info)
 
-    def _aim_read(self):
+    def _aim_read(self) -> tuple[Observation, np.ndarray | None]:
         obs = self.observe()
         corners = None if self.board is None else self.board.corners
         return obs, corners
 
 
-def _grab():
+def _grab() -> np.ndarray:
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline:
         frame = capture()
@@ -137,7 +138,7 @@ def _grab():
 
 
 def _wait_held_gone(
-    read,
+    read: Callable[[], Observation],
     previous_x: float | None,
     timeout_sec: float = 2.0,
     abort: Callable[[], bool] | None = None,

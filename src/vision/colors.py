@@ -19,6 +19,9 @@ FRUIT_NAMES = [
     "watermelon",
 ]
 
+# The final stage (watermelon). No merging beyond this.
+MAX_FRUIT_TYPE = len(FRUIT_NAMES) - 1
+
 # Radius ratio per stage (watermelon = 1.0). The Suika Game hitbox radii
 # (16.5 - 129.5) divided as is; this ratio is common even when the skin changes.
 # It is not geometric: some adjacent stages such as grape/dekopon and apple/pear differ by only 1.13x.

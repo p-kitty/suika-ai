@@ -11,6 +11,7 @@ from .colors import (
     WATERMELON_RADIUS_RATIO,
     color_family,
 )
+from .normalized import NORMALIZED_WIDTH
 
 # Adjacent stages differ by about 1.2x in radius ratio. Beyond this in log distance, a candidate is excluded.
 RADIUS_LOG_TOLERANCE = math.log(1.6)
@@ -34,6 +35,11 @@ class ClassifyResult:
 
 def fruit_radius_ratios() -> list[float]:
     return [relative * WATERMELON_RADIUS_RATIO for relative in FRUIT_RELATIVE_RADIUS]
+
+
+def fruit_radius(fruit_type: int) -> float:
+    """Radius on the normalized board."""
+    return fruit_radius_ratios()[fruit_type] * NORMALIZED_WIDTH
 
 
 def classify(
