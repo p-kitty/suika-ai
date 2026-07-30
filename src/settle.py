@@ -11,16 +11,19 @@ from .observe import Observation
 from .vision.state import Fruit
 
 # The settle check looks at raw_fruits (before Tracker smoothing).
-# Not so strict that detection noise keeps settle from ever finishing.
-DEFAULT_STILL_PX = 1.5
-# If quiet for this long throughout, consider it stopped.
-DEFAULT_STILL_SEC = 1.15
+# Do not wait for complete stillness; slow movement is fine to move on.
+# On the normalized board, roughly 60px/s or less is 'nearly stopped'.
+DEFAULT_STILL_SPEED = 60.0
+# If slow for this long throughout, consider it stopped.
+DEFAULT_STILL_SEC = 0.4
 # Give up if it has not moved by this long after the drop.
 DEFAULT_TIMEOUT_SEC = 12.0
 # Cap on the wait from the waiting fruit disappearing until the next one appears.
 DEFAULT_HELD_TIMEOUT_SEC = 4.0
 # Cap until 'the next move can be made', including waiting for ready.
 DEFAULT_PLAYABLE_TIMEOUT_SEC = 20.0
+# Old API / for tests. Inter-frame px. When given, this threshold is used without converting to speed.
+DEFAULT_STILL_PX = 1.5
 
 
 def motion(previous: list[Fruit] | tuple[Fruit, ...], current: list[Fruit] | tuple[Fruit, ...]) -> float:
@@ -37,13 +40,13 @@ def motion(previous: list[Fruit] | tuple[Fruit, ...], current: list[Fruit] | tup
     matched_curr = {b for _, b in pairs}
 
     distances = [float(np.hypot(previous[a].x - current[b].x, previous[a].y - current[b].y)) for a, b in pairs]
-    # Appearing / disappearing is movement too, but the whole radius makes detection blinking keep settle from ever finishing.
+    # Appearing / disappearing is movement too, but adding a lot makes detection blinking keep settle from ever finishing.
     for i in range(len(previous)):
         if i not in matched_prev:
-            distances.append(min(previous[i].radius, 10.0))
+            distances.append(min(previous[i].radius, 5.0))
     for i in range(len(current)):
         if i not in matched_curr:
-            distances.append(min(current[i].radius, 10.0))
+            distances.append(min(current[i].radius, 5.0))
 
     return max(distances) if distances else 0.0
 
@@ -51,35 +54,46 @@ def motion(previous: list[Fruit] | tuple[Fruit, ...], current: list[Fruit] | tup
 def wait_settled(
     read: Callable[[], Observation],
     *,
-    still_px: float = DEFAULT_STILL_PX,
+    still_speed: float = DEFAULT_STILL_SPEED,
     still_sec: float = DEFAULT_STILL_SEC,
     timeout_sec: float = DEFAULT_TIMEOUT_SEC,
     abort: Callable[[], bool] | None = None,
+    still_px: float | None = None,
 ) -> tuple[Observation, bool]:
-    """Return an observation where the board's fruits have stopped.
+    """Return an observation where the board's fruits are slow enough.
 
-    Returns (observation, stopped). On timeout or interruption, the last observation and False.
+    By default judged by speed (px/s). Only when still_px is passed does it use inter-frame displacement
+    (for tests). Returns (observation, stopped). False on timeout or interruption.
     """
     deadline = time.monotonic() + timeout_sec
     quiet_since: float | None = None
     previous = read()
+    previous_t = time.monotonic()
 
     while time.monotonic() < deadline:
         if abort is not None and abort():
             return previous, False
         time.sleep(1 / 30)
+        now = time.monotonic()
         current = read()
 
         if current.blocked:
             return current, True
 
         moved = motion(previous.motion_fruits, current.motion_fruits)
+        dt = max(now - previous_t, 1e-3)
         previous = current
+        previous_t = now
 
-        if moved <= still_px:
+        if still_px is not None:
+            quiet = moved <= still_px
+        else:
+            quiet = (moved / dt) <= still_speed
+
+        if quiet:
             if quiet_since is None:
-                quiet_since = time.monotonic()
-            elif time.monotonic() - quiet_since >= still_sec:
+                quiet_since = now
+            elif now - quiet_since >= still_sec:
                 return current, True
         else:
             quiet_since = None
