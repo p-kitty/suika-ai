@@ -1,13 +1,16 @@
 """Train a policy in the sim.
 
-The default is BC only, with bootstrap (`choose_x`) as the teacher.
-Imitate the teacher's continuous x with a soft distribution, and keep the weights with the best greedy student reward.
-Add REINFORCE by hand once match / student_r have risen enough.
+The default is offline BC with bootstrap (`choose_x`) as the teacher:
+  1) collect the teacher's trajectories (weights untouched)
+  2) review the stored data for several epochs
+  3) save the weights with the best student_r
+
+Add REINFORCE by hand once match has risen enough.
 
 Usage:
   python scripts/train_sim.py
-  python scripts/train_sim.py --bc-episodes 200 --replay 12
-  python scripts/train_sim.py --bc-episodes 200 --episodes 50 --lr 0.002
+  python scripts/train_sim.py --bc-episodes 80 --bc-epochs 60
+  python scripts/train_sim.py --bc-episodes 80 --bc-epochs 60 --episodes 50 --lr 0.002
 """
 
 from __future__ import annotations
@@ -23,73 +26,81 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.agent import LinearPolicy, teacher_action_target, x_to_action
+from src.agent import LinearPolicy, x_to_action
 from src.encode import encode
 from src.policy import choose_x
 from src.sim_env import SimEnv
 
 DEFAULT_CKPT = ROOT / "artifacts" / "policy_sim.npz"
-# Cap for discarding teacher data that is too old.
-MAX_BUFFER = 6000
 
 
 def collect_teacher_episode(
     env: SimEnv,
-    policy: LinearPolicy,
     *,
     max_steps: int,
-) -> tuple[list[np.ndarray], list[np.ndarray], float, int]:
-    """Collect teacher trajectories. match is the greedy agreement before the update."""
+) -> tuple[list[np.ndarray], list[int]]:
+    """Collect only teacher trajectories (no learning)."""
     obs = env.reset()
     obs_list: list[np.ndarray] = []
-    targets: list[np.ndarray] = []
-    matches = 0
-    steps = 0
+    actions: list[int] = []
 
     for _ in range(max_steps):
         teacher_x = choose_x(obs)
-        teacher_a = x_to_action(teacher_x)
-        vec = encode(obs)
-        if int(policy.probs(vec).argmax()) == teacher_a:
-            matches += 1
-        obs_list.append(vec)
-        targets.append(teacher_action_target(teacher_x))
+        obs_list.append(encode(obs))
+        actions.append(x_to_action(teacher_x))
         result = env.step(teacher_x)
         obs = result.observation
-        steps += 1
         if result.done:
             break
-
-    match = matches / steps if steps else 0.0
-    return obs_list, targets, match, steps
+    return obs_list, actions
 
 
-def bc_replay(
+def match_rate(
     policy: LinearPolicy,
     obs_buf: list[np.ndarray],
-    tgt_buf: list[np.ndarray],
+    act_buf: list[int],
     *,
-    fresh_obs: list[np.ndarray],
-    fresh_tgt: list[np.ndarray],
+    rng: np.random.Generator,
+    sample: int = 512,
+) -> float:
+    """Greedy agreement rate over the buffer."""
+    n = len(obs_buf)
+    if n == 0:
+        return 0.0
+    take = min(sample, n)
+    idx = rng.choice(n, size=take, replace=False)
+    hits = 0
+    for i in idx:
+        if int(policy.probs(obs_buf[i]).argmax()) == act_buf[i]:
+            hits += 1
+    return hits / take
+
+
+def train_bc_epoch(
+    policy: LinearPolicy,
+    obs_buf: list[np.ndarray],
+    act_buf: list[int],
+    *,
     lr: float,
-    replay: int,
     batch_size: int,
     rng: np.random.Generator,
-) -> None:
-    """Learn from this episode, and review mini-batches from the buffer several times."""
-    if fresh_obs:
-        policy.bc_update_dist(fresh_obs, fresh_tgt, lr=lr)
+) -> float:
+    """One epoch of BC. Mean NLL."""
     n = len(obs_buf)
-    if n == 0 or replay <= 0:
-        return
-    take = min(batch_size, n)
-    for _ in range(replay):
-        batch = rng.choice(n, size=take, replace=False)
-        policy.bc_update_dist(
+    if n == 0:
+        return 0.0
+    order = np.arange(n)
+    rng.shuffle(order)
+    losses: list[float] = []
+    for start in range(0, n, batch_size):
+        batch = order[start : start + batch_size]
+        loss = policy.bc_update(
             [obs_buf[i] for i in batch],
-            [tgt_buf[i] for i in batch],
+            [act_buf[i] for i in batch],
             lr=lr,
         )
+        losses.append(loss)
+    return statistics.fmean(losses)
 
 
 def eval_student(
@@ -157,87 +168,100 @@ def run_rl_episode(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bc-episodes", type=int, default=200)
+    parser.add_argument("--bc-episodes", type=int, default=80)
+    parser.add_argument("--bc-epochs", type=int, default=60)
     # RL only after BC is enough. Off by default.
     parser.add_argument("--episodes", type=int, default=0)
     parser.add_argument("--max-steps", type=int, default=40)
-    parser.add_argument("--bc-lr", type=float, default=0.01)
-    parser.add_argument("--replay", type=int, default=12)
+    parser.add_argument("--bc-lr", type=float, default=0.05)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=0.002)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--log-every", type=int, default=20)
+    parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument("--eval-episodes", type=int, default=5)
     parser.add_argument(
         "--save",
         type=Path,
         default=DEFAULT_CKPT,
-        help="where to save weights (npz to disable)",
+        help="where to save weights (nullptr to disable)",
     )
     args = parser.parse_args()
 
     rng = np.random.default_rng(args.seed)
     policy = LinearPolicy(rng)
     obs_buf: list[np.ndarray] = []
-    tgt_buf: list[np.ndarray] = []
-    best_r = -float("inf")
-    best_snap: dict[str, np.ndarray] | None = None
+    act_buf: list[int] = []
 
     if args.bc_episodes > 0:
         print(
-            f"=== BC from bootstrap ({args.bc_episodes} ep, "
-            f"replay={args.replay}) ===",
+            f"=== collect teacher ({args.bc_episodes} ep) ===",
             flush=True,
         )
-        window_m: list[float] = []
         for ep in range(1, args.bc_episodes + 1):
             env = SimEnv(seed=args.seed + 1000 + ep)
-            obs_list, targets, match, _ = collect_teacher_episode(
-                env, policy, max_steps=args.max_steps
+            obs_list, actions = collect_teacher_episode(
+                env, max_steps=args.max_steps
             )
             obs_buf.extend(obs_list)
-            tgt_buf.extend(targets)
-            if len(obs_buf) > MAX_BUFFER:
-                drop = len(obs_buf) - MAX_BUFFER
-                del obs_buf[:drop]
-                del tgt_buf[:drop]
-            bc_replay(
+            act_buf.extend(actions)
+            if ep % args.log_every == 0 or ep == 1 or ep == args.bc_episodes:
+                print(
+                    f"collect={ep:4d}  buf={len(obs_buf)}",
+                    flush=True,
+                )
+
+    best_match = -1.0
+    best_r = -float("inf")
+    best_snap: dict[str, np.ndarray] | None = None
+
+    if args.bc_epochs > 0 and obs_buf:
+        print(
+            f"=== BC train ({args.bc_epochs} epochs, n={len(obs_buf)}) ===",
+            flush=True,
+        )
+        for epoch in range(1, args.bc_epochs + 1):
+            loss = train_bc_epoch(
                 policy,
                 obs_buf,
-                tgt_buf,
-                fresh_obs=obs_list,
-                fresh_tgt=targets,
+                act_buf,
                 lr=args.bc_lr,
-                replay=args.replay,
                 batch_size=args.batch_size,
                 rng=rng,
             )
-            window_m.append(match)
-            if ep % args.log_every == 0 or ep == 1:
+            if epoch % args.log_every == 0 or epoch == 1 or epoch == args.bc_epochs:
+                match = match_rate(policy, obs_buf, act_buf, rng=rng)
                 student_r, student_s = eval_student(
                     policy,
                     seed=args.seed + 9000,
                     episodes=args.eval_episodes,
                     max_steps=args.max_steps,
                 )
-                if student_r > best_r:
+                # Strength (student_r) first. On ties, match.
+                better = student_r > best_r + 1e-9 or (
+                    abs(student_r - best_r) <= 1e-9 and match > best_match
+                )
+                if better:
+                    best_match = match
                     best_r = student_r
                     best_snap = policy.snapshot()
                 print(
-                    f"bc={ep:4d}  "
-                    f"match={statistics.fmean(window_m):5.1%}  "
+                    f"epoch={epoch:4d}  "
+                    f"loss={loss:6.3f}  "
+                    f"match={match:5.1%}  "
                     f"student_r={student_r:7.2f}  "
                     f"student_s={student_s:5.1f}  "
                     f"best_r={best_r:7.2f}  "
-                    f"buf={len(obs_buf)}",
+                    f"best_match={best_match:5.1%}",
                     flush=True,
                 )
-                window_m.clear()
 
         if best_snap is not None:
             policy.restore(best_snap)
-            print(f"restored best student_r={best_r:.2f}", flush=True)
+            print(
+                f"restored best_r={best_r:.2f} best_match={best_match:.1%}",
+                flush=True,
+            )
 
     if args.episodes > 0:
         print(f"=== REINFORCE ({args.episodes} ep, lr={args.lr}) ===", flush=True)
