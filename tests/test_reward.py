@@ -1,7 +1,7 @@
 """報酬の単体テスト。"""
 
 from src.observe import Observation
-from src.policy import _radius
+from src.vision.classify import fruit_radius
 from src.reward import (
     DEATH_PENALTY,
     DOUBLE_WATERMELON_BONUS,
@@ -33,8 +33,8 @@ def test_death_penalty_on_done() -> None:
 
 
 def test_merge_and_progress_reward() -> None:
-    cherry_r = _radius(0)
-    straw_r = _radius(1)
+    cherry_r = fruit_radius(0)
+    straw_r = fruit_radius(1)
     before = _obs(
         (
             Fruit(type=0, x=100, y=NORMALIZED_HEIGHT - cherry_r, radius=cherry_r, confidence=90),
@@ -50,7 +50,7 @@ def test_merge_and_progress_reward() -> None:
 
 
 def test_watermelon_and_double_bonus() -> None:
-    w_r = _radius(WATERMELON)
+    w_r = fruit_radius(WATERMELON)
     one = _obs(
         (Fruit(type=WATERMELON, x=120, y=NORMALIZED_HEIGHT - w_r, radius=w_r, confidence=90),)
     )
@@ -66,7 +66,7 @@ def test_watermelon_and_double_bonus() -> None:
 
 
 def test_game_over_by_crown() -> None:
-    big_r = _radius(5)
+    big_r = fruit_radius(5)
     safe = _obs((Fruit(type=5, x=100, y=200, radius=big_r, confidence=90),))
     dead = _obs((Fruit(type=5, x=100, y=30, radius=big_r, confidence=90),))
     assert not is_game_over(safe)

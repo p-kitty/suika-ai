@@ -19,7 +19,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.agent import LinearPolicy
-from src.encode import encode
 from src.sim_env import SimEnv
 
 
@@ -36,8 +35,8 @@ def run_episode(
     rewards: list[float] = []
 
     for _ in range(max_steps):
-        action, x, _probs = policy.act(obs)
-        obs_list.append(encode(obs))
+        action, x, vec = policy.act(obs)
+        obs_list.append(vec)
         actions.append(action)
         result = env.step(x)
         rewards.append(result.reward)
@@ -68,7 +67,6 @@ def main() -> None:
 
     rng = np.random.default_rng(args.seed)
     policy = LinearPolicy(rng)
-    env = SimEnv(seed=args.seed + 1)
 
     window: list[float] = []
     window_steps: list[int] = []

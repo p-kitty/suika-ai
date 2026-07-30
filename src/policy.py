@@ -10,8 +10,8 @@ import math
 import statistics
 
 from .observe import Observation, clamp_drop_x
-from .vision.classify import fruit_radius_ratios
-from .vision.colors import FRUIT_NAMES
+from .vision.classify import fruit_radius
+from .vision.colors import MAX_FRUIT_TYPE, SPAWN_MAX_TYPE
 from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from .vision.state import Fruit
 
@@ -25,8 +25,6 @@ CONTACT_SLACK = 2.0
 DANGER_Y = 90.0
 # 平坦さ評価用の列幅。
 FLAT_BIN = 40.0
-# スイカ。これ以上は合成しない。
-MAX_FRUIT_TYPE = len(FRUIT_NAMES) - 1
 # next 手の割引。
 NEXT_DISCOUNT = 0.55
 # 着地後の転がり。側面に乗ったら谷まで横へずらす。
@@ -42,6 +40,19 @@ SIZE_ORDER_IDEAL_WEIGHT = 0.2
 GAP_JUNK_PENALTY = 200.0
 # ideal 列への弱い引力。
 IDEAL_PULL = 0.25
+# 合成・連鎖・着地の盤面スコア係数。
+MERGE_SCORE = 140.0
+CHAIN_SCORE = 80.0
+LAND_Y_WEIGHT = 0.22
+CROWN_WEIGHT = 0.8
+DANGER_CROWN_WEIGHT = 4.0
+BURY_WEIGHT = 90.0
+VARIANCE_WEIGHT = 1.2
+VARIANCE_DANGER_SCALE = 0.15
+WRONG_SIDE_BASE = 180.0
+WRONG_SIDE_TYPE_WEIGHT = 40.0
+COAST_DRIFT_WEIGHT = 1.4
+COAST_FLOOR_BONUS = 120.0
 
 
 def choose_x(obs: Observation) -> float:
@@ -49,7 +60,7 @@ def choose_x(obs: Observation) -> float:
     if obs.held_type is None:
         raise ValueError("held_type が無い")
 
-    held_r = _radius(obs.held_type)
+    held_r = fruit_radius(obs.held_type)
     best_x = NORMALIZED_WIDTH / 2
     best_score = -math.inf
 
@@ -101,47 +112,46 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
     """held を落とした盤＋ next の仮想最善手を採点する。"""
     assert obs.held_type is not None
     before = list(obs.fruits)
-    sign = _order_sign(before)
-    land_x, land_y = _preview_land(before, obs.held_type, x, held_r)
-    after, merges = simulate_drop(before, obs.held_type, x)
-
-    score = _board_score(after, merges, land_y=land_y, sign=sign)
-    score -= _foreign_center_penalty(before, x, land_x, land_y, obs.held_type, held_r)
-    if merges == 0:
-        score -= _wrong_side_roll_penalty(
-            before, land_x, land_y, obs.held_type, held_r, sign
-        )
-        score -= _gap_junk_penalty(before, land_x, land_y, obs.held_type, held_r)
-        score -= abs(x - _ideal_x(obs.held_type, sign)) * IDEAL_PULL
-    score -= _coast_away_penalty(before, x, land_x, land_y, held_r)
-
+    after, score = _evaluate_drop(before, obs.held_type, x, held_r)
     if obs.next_type is not None:
         score += NEXT_DISCOUNT * _best_next_score(after, obs.next_type)
-
     return score
 
 
 def _best_next_score(fruits: list[Fruit], next_type: int) -> float:
     """next を最善列に落としたときの盤面スコア。"""
-    next_r = _radius(next_type)
-    sign = _order_sign(fruits)
+    next_r = fruit_radius(next_type)
     best = -math.inf
     for nx in _candidates(fruits, next_type, next_r):
         nx = clamp_drop_x(nx, next_type)
-        land_x, land_y = _preview_land(fruits, next_type, nx, next_r)
-        after, merges = simulate_drop(fruits, next_type, nx)
-        value = _board_score(after, merges, land_y=land_y, sign=sign)
-        value -= _foreign_center_penalty(fruits, nx, land_x, land_y, next_type, next_r)
-        if merges == 0:
-            value -= _wrong_side_roll_penalty(
-                fruits, land_x, land_y, next_type, next_r, sign
-            )
-            value -= _gap_junk_penalty(fruits, land_x, land_y, next_type, next_r)
-            value -= abs(nx - _ideal_x(next_type, sign)) * IDEAL_PULL
-        value -= _coast_away_penalty(fruits, nx, land_x, land_y, next_r)
+        _, value = _evaluate_drop(fruits, next_type, nx, next_r)
         if value > best:
             best = value
     return 0.0 if best == -math.inf else best
+
+
+def _evaluate_drop(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_type: int,
+    x: float,
+    held_r: float,
+) -> tuple[list[Fruit], float]:
+    """1 手落としたあとの盤面とスコア。"""
+    before = list(fruits)
+    sign = _order_sign(before)
+    land_x, land_y = _preview_land(before, drop_type, x, held_r)
+    after, merges = simulate_drop(before, drop_type, x)
+
+    score = _board_score(after, merges, land_y=land_y, sign=sign)
+    score -= _foreign_center_penalty(before, x, land_x, land_y, drop_type, held_r)
+    if merges == 0:
+        score -= _wrong_side_roll_penalty(
+            before, land_x, land_y, drop_type, held_r, sign
+        )
+        score -= _gap_junk_penalty(before, land_x, drop_type, held_r)
+        score -= abs(x - _ideal_x(drop_type, sign)) * IDEAL_PULL
+    score -= _coast_away_penalty(before, x, land_x, land_y, held_r)
+    return after, score
 
 
 def _board_score(
@@ -153,23 +163,23 @@ def _board_score(
 ) -> float:
     """1 手分の盤面評価（合成・高さ・埋め込み・サイズ順）。"""
     score = 0.0
-    score += 140.0 * merges
+    score += MERGE_SCORE * merges
     if merges >= 2:
-        score += 80.0 * (merges - 1)
+        score += CHAIN_SCORE * (merges - 1)
 
-    score += land_y * 0.22
+    score += land_y * LAND_Y_WEIGHT
 
     crown = _top_crown(fruits)
-    score += crown * 0.8
+    score += crown * CROWN_WEIGHT
     if crown < DANGER_Y:
-        score -= (DANGER_Y - crown) * 4.0
+        score -= (DANGER_Y - crown) * DANGER_CROWN_WEIGHT
 
-    score -= 90.0 * _bury_penalty(fruits)
+    score -= BURY_WEIGHT * _bury_penalty(fruits)
     score -= _size_order_penalty(fruits, sign)
     variance = _height_variance(fruits)
     if crown < DANGER_Y:
-        variance *= 0.15
-    score -= 1.2 * variance
+        variance *= VARIANCE_DANGER_SCALE
+    score -= VARIANCE_WEIGHT * variance
     return score
 
 
@@ -221,7 +231,7 @@ def _wrong_side_roll_penalty(
             continue
         if abs(land_x - other.x) > other.radius + held_r + MERGE_SLACK * 2:
             continue
-        penalty += 180.0 + 40.0 * (other.type - drop_type)
+        penalty += WRONG_SIDE_BASE + WRONG_SIDE_TYPE_WEIGHT * (other.type - drop_type)
     return penalty
 
 
@@ -237,21 +247,19 @@ def _coast_away_penalty(
     drifted = abs(land_x - drop_x)
     if drifted < held_r * 2:
         return 0.0
-    penalty = drifted * 1.4
+    penalty = drifted * COAST_DRIFT_WEIGHT
     if land_y >= floor - 4.0 and drifted > NORMALIZED_WIDTH * 0.25:
-        penalty += 120.0
+        penalty += COAST_FLOOR_BONUS
     return penalty
 
 
 def _gap_junk_penalty(
     fruits: list[Fruit] | tuple[Fruit, ...],
     land_x: float,
-    land_y: float,
     drop_type: int,
     held_r: float,
 ) -> float:
     """自分より2段階以上大きい実どうしの間に小さい実を詰める減点。"""
-    _ = land_y
     left_big: Fruit | None = None
     right_big: Fruit | None = None
     for fruit in fruits:
@@ -290,7 +298,7 @@ def _order_sign(fruits: list[Fruit] | tuple[Fruit, ...]) -> int:
         return 1
     if len(fruits) == 1:
         fruit = fruits[0]
-        if fruit.type >= 4 and fruit.x > NORMALIZED_WIDTH * 0.55:
+        if fruit.type >= SPAWN_MAX_TYPE and fruit.x > NORMALIZED_WIDTH * 0.55:
             return -1
         return 1
 
@@ -347,12 +355,6 @@ def simulate_drop(
     return _resolve_merges(placed, active={dropped})
 
 
-def _after_drop(obs: Observation, x: float) -> tuple[list[Fruit], int]:
-    """テスト用。held を列 x に落としたあとの盤面と合成回数。"""
-    assert obs.held_type is not None
-    return simulate_drop(obs.fruits, obs.held_type, x)
-
-
 def _preview_land(
     fruits: list[Fruit] | tuple[Fruit, ...],
     fruit_type: int,
@@ -372,7 +374,7 @@ def _place(
     allow_coast: bool = True,
 ) -> tuple[list[Fruit], int]:
     """列 x にフルーツを着地させて追加する。追加した index も返す。"""
-    r = _radius(fruit_type)
+    r = fruit_radius(fruit_type)
     x = _settle_x(fruits, x, r, allow_coast=allow_coast)
     y = _land_y(fruits, x, r)
     fruits.append(Fruit(type=fruit_type, x=x, y=y, radius=r, confidence=100.0))
@@ -554,10 +556,6 @@ def _land_y(fruits: tuple[Fruit, ...] | list[Fruit], x: float, held_r: float) ->
         dy = math.sqrt(gap * gap - dx * dx)
         best = min(best, fruit.y - dy)
     return best
-
-
-def _radius(fruit_type: int) -> float:
-    return fruit_radius_ratios()[fruit_type] * NORMALIZED_WIDTH
 
 
 def _frange(start: float, stop: float, step: float):

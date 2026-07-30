@@ -84,7 +84,7 @@ def _fill_holes(mask: np.ndarray) -> np.ndarray:
 
     enclosed = np.ones(count, dtype=bool)
     enclosed[0] = False
-    enclosed[_border_labels(labels)] = False
+    enclosed[border_labels(labels)] = False
 
     filled = mask.copy()
     filled[enclosed[labels]] = 255
@@ -92,7 +92,8 @@ def _fill_holes(mask: np.ndarray) -> np.ndarray:
     return filled
 
 
-def _border_labels(labels: np.ndarray) -> np.ndarray:
+def border_labels(labels: np.ndarray) -> np.ndarray:
+    """画像縁に接する連結成分ラベル。"""
     return np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
 
 

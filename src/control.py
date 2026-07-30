@@ -14,6 +14,7 @@ from ctypes import wintypes
 
 import numpy as np
 
+from .observe import Observation
 from .vision.normalized import NORMALIZED_WIDTH
 
 # Win32 のマウス入力。
@@ -66,7 +67,7 @@ class INPUT(ctypes.Structure):
 def drop_column(
     target_x: float,
     *,
-    read: Callable[[], tuple[object, np.ndarray | None]],
+    read: Callable[[], tuple[Observation, np.ndarray | None]],
     abort: Callable[[], bool] | None = None,
 ) -> bool:
     """落下待ちの列を target_x に重ねてからクリックする。"""
@@ -79,7 +80,7 @@ def drop_column(
 
 
 def recenter(
-    read: Callable[[], tuple[object, np.ndarray | None]],
+    read: Callable[[], tuple[Observation, np.ndarray | None]],
     abort: Callable[[], bool] | None = None,
 ) -> bool:
     """次の手の前に、極端な端にいるときだけ内側へ戻す。クリックはしない。
@@ -90,13 +91,12 @@ def recenter(
     if abort is not None and abort():
         return False
     obs, _corners = read()
-    if getattr(obs, "blocked", False):
+    if obs.blocked:
         return False
-    held_x = getattr(obs, "held_x", None)
-    if held_x is None:
+    if obs.held_x is None:
         return False
 
-    held = float(held_x)
+    held = float(obs.held_x)
     lo = RECENTER_INSET
     hi = NORMALIZED_WIDTH - RECENTER_INSET
     if lo <= held <= hi:
@@ -108,7 +108,7 @@ def recenter(
 
 def aim(
     target_x: float,
-    read: Callable[[], tuple[object, np.ndarray | None]],
+    read: Callable[[], tuple[Observation, np.ndarray | None]],
     *,
     tolerance: float | None = None,
     abort: Callable[[], bool] | None = None,
@@ -131,14 +131,13 @@ def aim(
         if abort is not None and abort():
             return False
         obs, _corners = read()
-        if getattr(obs, "blocked", False):
+        if obs.blocked:
             return False
-        held_x = getattr(obs, "held_x", None)
-        if held_x is None:
+        if obs.held_x is None:
             time.sleep(LOOK_PAUSE_SEC)
             continue
 
-        held = float(held_x)
+        held = float(obs.held_x)
         error = target_x - held
         abs_error = abs(error)
         if abs_error <= tolerance:

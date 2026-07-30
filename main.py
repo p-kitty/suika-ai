@@ -174,13 +174,14 @@ def main() -> None:
                     frame, obs, board = _refresh(env, frame, obs)
                 else:
                     target = result.target_x
-                    aim_x = target
+                    # 狙い線は落とした列。held は次の実の位置なので上書きしない。
+                    if target is not None:
+                        aim_x = target
                     message = (
                         f"auto x={target:.0f} -> {result.info}"
                         if target is not None
                         else f"auto -> {result.info}"
                     )
-                    aim_x = result.observation.held_x
                     obs = result.observation
                     frame, obs, board = _refresh(env, frame, obs)
                     print(message)

@@ -11,6 +11,7 @@ from .colors import (
     WATERMELON_RADIUS_RATIO,
     color_family,
 )
+from .normalized import NORMALIZED_WIDTH
 
 # 隣接段階は半径比で約 1.2 倍差。log 距離でこれを超えたら候補外にする。
 RADIUS_LOG_TOLERANCE = math.log(1.6)
@@ -34,6 +35,11 @@ class ClassifyResult:
 
 def fruit_radius_ratios() -> list[float]:
     return [relative * WATERMELON_RADIUS_RATIO for relative in FRUIT_RELATIVE_RADIUS]
+
+
+def fruit_radius(fruit_type: int) -> float:
+    """正規化盤面での半径。"""
+    return fruit_radius_ratios()[fruit_type] * NORMALIZED_WIDTH
 
 
 def classify(

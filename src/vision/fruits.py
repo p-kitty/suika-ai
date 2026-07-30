@@ -3,7 +3,7 @@ from functools import cache
 import cv2
 import numpy as np
 
-from .blobs import circle_peaks
+from .blobs import border_labels, circle_peaks
 from .classify import classify, fruit_radius_ratios, sample_hsv
 from .colors import BOARD_BG_HSV, saturated_mask
 from .state import Fruit
@@ -127,7 +127,7 @@ def _fill_highlights(mask: np.ndarray, distance: np.ndarray) -> np.ndarray:
     # ラベル 0 はフルーツ自身。盤面の外まで続く領域は下地なので触らない。
     enclosed = np.ones(count, dtype=bool)
     enclosed[0] = False
-    enclosed[_border_labels(labels)] = False
+    enclosed[border_labels(labels)] = False
 
     highlight = np.zeros(count, dtype=bool)
     for label in np.nonzero(enclosed)[0]:
@@ -141,10 +141,6 @@ def _fill_highlights(mask: np.ndarray, distance: np.ndarray) -> np.ndarray:
     filled[highlight[labels]] = 255
 
     return filled
-
-
-def _border_labels(labels: np.ndarray) -> np.ndarray:
-    return np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
 
 
 def _background_distance(board: np.ndarray) -> np.ndarray | None:

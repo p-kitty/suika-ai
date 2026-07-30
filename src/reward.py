@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from .observe import Observation
-from .vision.colors import FRUIT_NAMES
+from .vision.colors import MAX_FRUIT_TYPE
 from .vision.normalized import NORMALIZED_HEIGHT
 
-WATERMELON = len(FRUIT_NAMES) - 1
+WATERMELON = MAX_FRUIT_TYPE
 # この y より上に頭頂が出たら負け (y は下向き)。
 GAME_OVER_Y = 40.0
 
@@ -32,14 +32,14 @@ def is_game_over(obs: Observation) -> bool:
     return crown < GAME_OVER_Y
 
 
-def max_fruit_type(obs: Observation) -> int:
+def watermelon_count(obs: Observation) -> int:
+    return sum(1 for f in obs.fruits if f.type == WATERMELON)
+
+
+def _max_fruit_type(obs: Observation) -> int:
     if not obs.fruits:
         return -1
     return max(f.type for f in obs.fruits)
-
-
-def watermelon_count(obs: Observation) -> int:
-    return sum(1 for f in obs.fruits if f.type == WATERMELON)
 
 
 def step_reward(
@@ -61,12 +61,12 @@ def step_reward(
     reward = STEP_REWARD
     if merges > 0:
         # 合成後の最大 type を粗く重みにする (無ければ held 想定で merges のみ)。
-        grown = max_fruit_type(after)
+        grown = _max_fruit_type(after)
         weight = MERGE_WEIGHT * (1.0 + max(grown, 0) * 0.15)
         reward += merges * weight
 
-    before_max = max_fruit_type(before)
-    after_max = max_fruit_type(after)
+    before_max = _max_fruit_type(before)
+    after_max = _max_fruit_type(after)
     if after_max > before_max:
         reward += (after_max - before_max) * PROGRESS_WEIGHT
 

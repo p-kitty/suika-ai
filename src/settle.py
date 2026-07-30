@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
-
-import numpy as np
+from dataclasses import replace
 
 from .observe import Observation
 from .vision.state import Fruit
@@ -212,15 +212,7 @@ def wait_playable(
     # 「着手できない」と扱えるよう ready=False にする。
     if last.blocked or not last.ready:
         return last
-    return Observation(
-        ready=False,
-        blocked=False,
-        fruits=last.fruits,
-        held_type=last.held_type,
-        held_x=last.held_x,
-        next_type=last.next_type,
-        raw_fruits=last.raw_fruits,
-    )
+    return replace(last, ready=False, blocked=False)
 
 
 def _pair(
@@ -230,7 +222,7 @@ def _pair(
     candidates = []
     for a, left in enumerate(previous):
         for b, right in enumerate(current):
-            distance = float(np.hypot(left.x - right.x, left.y - right.y))
+            distance = math.hypot(left.x - right.x, left.y - right.y)
             # 同じフルーツなら中心は半径ぶんより大きくは動かない、という仮定。
             limit = max(left.radius, right.radius) * 2.5
             if distance <= limit:

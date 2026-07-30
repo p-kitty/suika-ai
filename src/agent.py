@@ -44,14 +44,14 @@ class LinearPolicy:
     def act(
         self, obs: Observation, *, greedy: bool = False
     ) -> tuple[int, float, np.ndarray]:
-        """(action, x, probs) を返す。"""
+        """(action, x, obs_vec) を返す。"""
         vec = encode(obs)
         probs = self.probs(vec)
         if greedy:
             action = int(probs.argmax())
         else:
             action = int(self.rng.choice(N_ACTIONS, p=probs))
-        return action, action_to_x(action, obs.held_type), probs
+        return action, action_to_x(action, obs.held_type), vec
 
     def update(
         self,

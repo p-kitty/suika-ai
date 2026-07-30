@@ -60,10 +60,12 @@ def main() -> None:
     rows = [run_episode(args.seed + i, args.max_steps) for i in range(args.episodes)]
     steps = [r["steps"] for r in rows]
     rewards = [r["reward"] for r in rows]
+    merges = [r["merges"] for r in rows]
     max_types = [r["max_type"] for r in rows]
     print(f"episodes={args.episodes}")
     print(f"steps  mean={statistics.mean(steps):.1f}  median={statistics.median(steps):.1f}")
     print(f"reward mean={statistics.mean(rewards):.2f}")
+    print(f"merges mean={statistics.mean(merges):.1f}")
     print(f"max_type mean={statistics.mean(max_types):.2f}  best={max(max_types):.0f}")
     print(f"double_wm episodes={sum(1 for r in rows if r['max_wm'] >= 2)}")
 

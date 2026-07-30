@@ -14,9 +14,10 @@ from pathlib import Path
 import pytest
 
 from src.imagefile import read
-from src.vision.board import NORMALIZED_WIDTH, localize
+from src.vision.board import localize
 from src.vision.classify import fruit_radius_ratios
 from src.vision.colors import FRUIT_NAMES
+from src.vision.normalized import NORMALIZED_WIDTH
 from src.vision.state import Fruit
 from tests.expected_fruits import (
     BLOCKED,

@@ -18,10 +18,11 @@ sys.path.insert(0, str(ROOT))
 
 from src.draw import put_text
 from src.imagefile import read, write
-from src.vision.board import NORMALIZED_WIDTH, localize
+from src.vision.board import localize
 from src.vision.classify import fruit_radius_ratios
 from src.vision.fruits import detect, fruit_mask
 from src.vision.held import HeldResult
+from src.vision.normalized import NORMALIZED_WIDTH
 from src.vision.state import Fruit
 
 DEFAULT_SOURCES = ("screenshots", "debug")

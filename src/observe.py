@@ -86,10 +86,7 @@ def from_board(
 
 def clamp_drop_x(x: float, fruit_type: int | None = None) -> float:
     """フルーツが壁にめり込まない範囲に落とす列を収める。"""
-    from .vision.classify import fruit_radius_ratios
+    from .vision.classify import fruit_radius
 
-    radius = 0.0
-    if fruit_type is not None:
-        radius = fruit_radius_ratios()[fruit_type] * NORMALIZED_WIDTH
-
+    radius = 0.0 if fruit_type is None else fruit_radius(fruit_type)
     return float(min(max(x, radius), NORMALIZED_WIDTH - radius))

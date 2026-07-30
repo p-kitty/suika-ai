@@ -19,6 +19,9 @@ FRUIT_NAMES = [
     "watermelon",
 ]
 
+# 最終段階 (watermelon)。これ以上は合成しない。
+MAX_FRUIT_TYPE = len(FRUIT_NAMES) - 1
+
 # 段階ごとの半径比 (watermelon = 1.0)。スイカゲームの当たり判定の半径
 # (16.5 〜 129.5) をそのまま割ったもので、この比は skin が変わっても共通。
 # 等比ではなく、grape/dekopon や apple/pear のように 1.13 倍しか違わない
