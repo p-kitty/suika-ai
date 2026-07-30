@@ -44,28 +44,38 @@ class Env:
         result = localize(frame, self.previous_corners)
         self.previous_corners = result.corners
 
+        raw: list | None
         if result.fruits is None:
             self.tracker.reset()
+            raw = None
         else:
-            result.fruits = self.tracker.update(result.fruits)
+            # Tracker is for display. The settle check keeps the raw coordinates before smoothing.
+            raw = list(result.fruits)
+            result.fruits = self.tracker.update(raw)
 
         self._last_board = result
-        return from_board(result)
+        return from_board(result, raw_fruits=raw)
 
     @property
     def board(self) -> BoardResult | None:
         return self._last_board
 
-    def step(self, x: float, abort: Callable[[], bool] | None = None) -> StepResult:
-        """Line up the view with column x (normalized coordinates), drop, and return the next observation.
+    def step(
+        self,
+        x: float | None = None,
+        abort: Callable[[], bool] | None = None,
+        *,
+        choose: Callable[[Observation], float] | None = None,
+    ) -> StepResult:
+        """Decide the column after the board stops, line up the view, and drop.
 
+        If x is omitted and choose is passed, the column is decided on the same observation after the settle check.
+        Prevents the offset of aiming from a board that is still moving.
         If abort returns true, the operation is aborted (for stopping auto mode).
         """
         before = self.observe()
         if before.blocked:
             return StepResult(before, None, done=True, info="dialog")
-        if not before.ready:
-            return StepResult(before, None, done=False, info="not ready")
 
         # Dropping right after ready in auto play can still be mid-cascade.
         before = settle.wait_playable(self.observe, abort=abort)
@@ -76,9 +86,14 @@ class Env:
         if not before.ready:
             return StepResult(before, None, done=False, info="not settled")
 
+        if x is None:
+            if choose is None:
+                raise ValueError("x or choose is required")
+            x = choose(before)
         target = clamp_drop_x(x, before.held_type)
         read = self._aim_read
 
+        # Aim right away at the column decided on the observation that just stopped (do not wait again to reread the board).
         aimed = control.drop_column(target, read=read, abort=abort)
         if abort is not None and abort():
             # Whether it stopped before the click or right after dropping is already branched in drop_column.

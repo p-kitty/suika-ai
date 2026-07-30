@@ -11,7 +11,6 @@ from src.draw import mode_badge, put_text
 from src.env import Env
 from src.observe import Observation
 from src.policy import choose_x
-from src.settle import wait_playable
 from src.vision.board import draw_frame_debug
 from src.vision.held import DROP_HEIGHT
 from src.vision.normalized import inverse_warp_matrix, transform_point
@@ -114,20 +113,22 @@ def main() -> None:
             if not obs.ready:
                 message = "policy: not ready"
             else:
-                # Wait until cascades stop before deciding the column.
-                obs = wait_playable(env.observe, abort=abort)
+                # Confirm settle → decide the column on the same observation → aim. Do not read a moving board.
+                result = env.step(abort=abort, choose=choose_x)
                 if from_auto and not auto_play:
                     message = "auto=off"
                     frame, obs, board = _refresh(env, frame, obs)
-                elif obs.blocked or not obs.ready:
+                elif result.info == "not settled":
                     message = "policy: not settled"
-                    auto_play = False if obs.blocked else auto_play
                     frame, obs, board = _refresh(env, frame, obs)
                 else:
-                    target = choose_x(obs)
+                    target = result.target_x
                     aim_x = target
-                    result = env.step(target, abort=abort)
-                    message = f"auto x={target:.0f} -> {result.info}"
+                    message = (
+                        f"auto x={target:.0f} -> {result.info}"
+                        if target is not None
+                        else f"auto -> {result.info}"
+                    )
                     aim_x = result.observation.held_x
                     obs = result.observation
                     frame, obs, board = _refresh(env, frame, obs)

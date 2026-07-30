@@ -26,11 +26,11 @@
 
 ## Moves were made while the board was still moving
 
-- **Symptom**: even mid-roll / mid-cascade, when held is visible it captures → makes a policy decision
-- **Suspected cause**: `wait_playable` returned when `ready` even after a settle timeout. On top of that, Tracker smoothing tends to treat slow rolling as still
-- **Where to look**: `src/settle.py` (`wait_settled`, `wait_playable`)
+- **Symptom**: even mid-roll / mid-cascade, when held is visible it captures → makes a policy decision. Aims at moving coordinates and misses
+- **Suspected cause**: `wait_playable` returned when `ready` even after a settle timeout. Tracker smoothing tends to treat slow rolling as still. `choose_x` ran on observations before settling
+- **Where to look**: `src/settle.py`, `src/env.py` (`step`), `src/observe.py` (`raw_fruits`)
 - **Noted on**: 2026-07-31
-- **Status**: fixed — playable only when stillness is confirmed. Thresholds tightened too. A timeout does not stop auto. Pinned in `tests/test_env.py`
+- **Status**: fixed — stillness judged on raw coordinates. Inside `step`, the column is decided on the same observation after settling → aim. Pinned in `tests/test_env.py`
 
 ## The view swings too far on edge placements
 

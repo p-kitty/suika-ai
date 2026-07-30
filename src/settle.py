@@ -10,11 +10,11 @@ import numpy as np
 from .observe import Observation
 from .vision.state import Fruit
 
-# Tracker smooths positions, so they look smaller than raw detections.
+# The settle check looks at raw_fruits (before Tracker smoothing).
 # Not so strict that detection noise keeps settle from ever finishing.
 DEFAULT_STILL_PX = 1.5
 # If quiet for this long throughout, consider it stopped.
-DEFAULT_STILL_SEC = 1.0
+DEFAULT_STILL_SEC = 1.15
 # Give up if it has not moved by this long after the drop.
 DEFAULT_TIMEOUT_SEC = 12.0
 # Cap on the wait from the waiting fruit disappearing until the next one appears.
@@ -73,7 +73,7 @@ def wait_settled(
         if current.blocked:
             return current, True
 
-        moved = motion(previous.fruits, current.fruits)
+        moved = motion(previous.motion_fruits, current.motion_fruits)
         previous = current
 
         if moved <= still_px:
@@ -168,6 +168,7 @@ def wait_playable(
         held_type=last.held_type,
         held_x=last.held_x,
         next_type=last.next_type,
+        raw_fruits=last.raw_fruits,
     )
 
 
