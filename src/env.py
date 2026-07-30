@@ -44,28 +44,38 @@ class Env:
         result = localize(frame, self.previous_corners)
         self.previous_corners = result.corners
 
+        raw: list | None
         if result.fruits is None:
             self.tracker.reset()
+            raw = None
         else:
-            result.fruits = self.tracker.update(result.fruits)
+            # Tracker は表示用。静止判定は平滑化前の生座標を残す。
+            raw = list(result.fruits)
+            result.fruits = self.tracker.update(raw)
 
         self._last_board = result
-        return from_board(result)
+        return from_board(result, raw_fruits=raw)
 
     @property
     def board(self) -> BoardResult | None:
         return self._last_board
 
-    def step(self, x: float, abort: Callable[[], bool] | None = None) -> StepResult:
-        """列 x (正規化座標) に視線を合わせて落とし、次の観測を返す。
+    def step(
+        self,
+        x: float | None = None,
+        abort: Callable[[], bool] | None = None,
+        *,
+        choose: Callable[[Observation], float] | None = None,
+    ) -> StepResult:
+        """盤面が止まってから列を決め、視線を合わせて落とす。
 
+        x を省略し choose を渡すと、静止確認後の同じ観測で列を決める。
+        動いている盤面を読んで狙うずれを防ぐ。
         abort が真を返したら操作を打ち切る (自動モードの停止用)。
         """
         before = self.observe()
         if before.blocked:
             return StepResult(before, None, done=True, info="dialog")
-        if not before.ready:
-            return StepResult(before, None, done=False, info="not ready")
 
         # 自動プレイで ready 直後に落とすと、まだ連鎖中のことがある。
         before = settle.wait_playable(self.observe, abort=abort)
@@ -76,9 +86,14 @@ class Env:
         if not before.ready:
             return StepResult(before, None, done=False, info="not settled")
 
+        if x is None:
+            if choose is None:
+                raise ValueError("x か choose が必要")
+            x = choose(before)
         target = clamp_drop_x(x, before.held_type)
         read = self._aim_read
 
+        # いま止まった観測で決めた列へすぐ狙う (再度 wait して盤面を取り直さない)。
         aimed = control.drop_column(target, read=read, abort=abort)
         if abort is not None and abort():
             # クリック前に止まったか、落とした直後かは drop_column 側で分岐済み。

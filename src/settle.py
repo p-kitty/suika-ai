@@ -10,11 +10,11 @@ import numpy as np
 from .observe import Observation
 from .vision.state import Fruit
 
-# Tracker が位置を平滑化するので、生検出より小さく見える。
+# 静止判定は raw_fruits (Tracker 平滑化前) を見る。
 # 検出ノイズで永遠に settle しないほどは厳しくしない。
 DEFAULT_STILL_PX = 1.5
 # この長さずっと静かなら止まったとみなす。
-DEFAULT_STILL_SEC = 1.0
+DEFAULT_STILL_SEC = 1.15
 # 落としてからここまで動かなければ諦める。
 DEFAULT_TIMEOUT_SEC = 12.0
 # 落下待ちが消えてから、次のが出るまでの待ち上限。
@@ -73,7 +73,7 @@ def wait_settled(
         if current.blocked:
             return current, True
 
-        moved = motion(previous.fruits, current.fruits)
+        moved = motion(previous.motion_fruits, current.motion_fruits)
         previous = current
 
         if moved <= still_px:
@@ -168,6 +168,7 @@ def wait_playable(
         held_type=last.held_type,
         held_x=last.held_x,
         next_type=last.next_type,
+        raw_fruits=last.raw_fruits,
     )
 
 

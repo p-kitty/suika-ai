@@ -26,11 +26,11 @@
 
 ## 動いている盤面で着手していた
 
-- **症状**: 転がり／連鎖の途中でも held が見えると capture → 方策判断してしまう
-- **想定原因**: `wait_playable` が settle タイムアウト後でも `ready` なら返していた。加えて Tracker 平滑化で遅い転がりが静止扱いになりやすい
-- **見そうな場所**: `src/settle.py` (`wait_settled`, `wait_playable`)
+- **症状**: 転がり／連鎖の途中でも held が見えると capture → 方策判断してしまう。動いてる座標で AIM して外す
+- **想定原因**: `wait_playable` が settle タイムアウト後でも `ready` なら返していた。Tracker 平滑化で遅い転がりが静止扱いになりやすい。静止前の観測で `choose_x` していた
+- **見そうな場所**: `src/settle.py`, `src/env.py` (`step`), `src/observe.py` (`raw_fruits`)
 - **メモ日**: 2026-07-31
-- **状態**: 対応済み — 静止確認できたときだけ playable。閾値も厳しく。timeout では auto を止めない。`tests/test_env.py` で固定
+- **状態**: 対応済み — 静止は raw 座標で判定。`step` 内で静止後の同じ観測から列決め→aim。`tests/test_env.py` で固定
 
 ## 端置きで視点が振り過ぎる
 

@@ -155,6 +155,60 @@ def test_wait_playable_returns_when_still_and_ready(monkeypatch) -> None:
     assert obs.fruits[0].x == 10.0
 
 
+def test_wait_settled_uses_raw_fruits_not_smoothed(monkeypatch) -> None:
+    # Tracker 相当で fruits は止まって見えても、raw が動いていれば未静止。
+    monkeypatch.setattr("src.settle.time.sleep", lambda _sec: None)
+    now = {"t": 0.0}
+    monkeypatch.setattr("src.settle.time.monotonic", lambda: now["t"])
+
+    def read() -> Observation:
+        now["t"] += 0.05
+        raw_x = 10.0 + now["t"] * 40.0
+        return Observation(
+            ready=True,
+            blocked=False,
+            fruits=(Fruit(type=0, x=10.0, y=20, radius=5, confidence=90),),
+            held_type=0,
+            held_x=100.0,
+            next_type=None,
+            raw_fruits=(Fruit(type=0, x=raw_x, y=20, radius=5, confidence=90),),
+        )
+
+    obs, settled = wait_settled(read, still_px=1.0, still_sec=0.2, timeout_sec=0.35)
+    assert not settled
+    assert obs.ready
+
+
+def test_step_chooses_after_settle(monkeypatch) -> None:
+    # 静止後の観測で choose し、その列で落とす。動いている盤を読まない。
+    from src import control
+    from src.env import Env
+
+    ready = _obs(x=10.0)
+    chosen: list[float] = []
+
+    def choose(obs: Observation) -> float:
+        chosen.append(obs.fruits[0].x)
+        return 250.0
+
+    env = Env()
+    monkeypatch.setattr(env, "observe", lambda frame=None: ready)
+    monkeypatch.setattr("src.env.settle.wait_playable", lambda *_a, **_k: ready)
+    monkeypatch.setattr(
+        control,
+        "drop_column",
+        lambda target, read, abort=None: chosen.append(target) or True,
+    )
+    monkeypatch.setattr("src.env._wait_held_gone", lambda *_a, **_k: None)
+    monkeypatch.setattr(control, "recenter", lambda *_a, **_k: True)
+
+    result = env.step(abort=None, choose=choose)
+    assert result.info == "ok"
+    assert result.target_x == 250.0
+    assert chosen[0] == 10.0
+    assert chosen[1] == 250.0
+
+
 def test_step_timeout_does_not_end_episode(monkeypatch) -> None:
     from src.env import Env
 
