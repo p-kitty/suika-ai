@@ -36,6 +36,8 @@ SIDE_CLEARANCE = 4.0
 PUSH_MERGE_BONUS = 160.0
 # Closeness to the ideal push-in column (bonus within this distance).
 PUSH_ALIGN_RANGE = 36.0
+# Aim error going inside misses, so aim slightly outside contact.
+PUSH_OUTSET = 14.0
 # Directly above the center of a different type collapses easily, so look at a column pushed this much toward the big side.
 LARGE_SIDE_BIAS = 0.4
 # Penalty for directly above nearly the center of a different type.
@@ -120,17 +122,8 @@ def _candidates(
         xs.add(beside)
 
     # Columns pushing a same-type pair from the outside with a held of a different type.
-    for i, a in enumerate(fruits):
-        for b in fruits[i + 1 :]:
-            if a.type == drop_type or a.type != b.type or _touching(a, b):
-                continue
-            sep = abs(a.x - b.x)
-            need = a.radius + b.radius
-            if sep <= need or sep > need + held_r * 2.2:
-                continue
-            left, right = (a, b) if a.x <= b.x else (b, a)
-            xs.add(max(lo, left.x - (left.radius + held_r)))
-            xs.add(min(hi, right.x + (right.radius + held_r)))
+    for _outer, push_x in _push_pair_outers(fruits, drop_type, held_r):
+        xs.add(push_x)
 
     # The small-side outside of fruits with inverted size order (columns pushing back to the big-side edge).
     for _victim, push_x in _restore_push_targets(fruits, drop_type, held_r, sign):
@@ -690,8 +683,12 @@ def _push_pair_outers(
             if sep <= need or sep > need + held_r * 2.2:
                 continue
             left, right = (a, b) if a.x <= b.x else (b, a)
-            outers.append((left, max(lo, left.x - (left.radius + held_r))))
-            outers.append((right, min(hi, right.x + (right.radius + held_r))))
+            outers.append(
+                (left, max(lo, left.x - (left.radius + held_r) - PUSH_OUTSET))
+            )
+            outers.append(
+                (right, min(hi, right.x + (right.radius + held_r) + PUSH_OUTSET))
+            )
     return outers
 
 
@@ -787,7 +784,7 @@ def _restore_push_targets(
             if key in seen:
                 continue
             seen.add(key)
-            push_x = victim.x + sign * (victim.radius + held_r)
+            push_x = victim.x + sign * (victim.radius + held_r + PUSH_OUTSET)
             targets.append((victim, max(lo, min(hi, push_x))))
     return targets
 

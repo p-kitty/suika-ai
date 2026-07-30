@@ -206,6 +206,7 @@ def _edge_close_enough(target_x: float, held_x: float, tolerance: float) -> bool
         return True
     return False
 
+
 def move_by(dx: int, dy: int = 0) -> None:
     """Move the mouse relatively (FPS view control)."""
     if dx == 0 and dy == 0:

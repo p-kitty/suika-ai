@@ -39,6 +39,14 @@
 - **Noted on**: 2026-07-31
 - **Status**: fixed — early stop in the edge band + stall when held does not move. `recenter` only pulls back lightly from the edge. Pinned in `tests/test_control.py`
 
+## Push-in aims miss
+
+- **Symptom**: it looks like aiming to join same types / push to the edge, but it falls inside and misses
+- **Suspected cause**: aiming at a column right at contact tends to go inside due to aim error
+- **Where to look**: `src/policy.py` (`PUSH_OUTSET`)
+- **Noted on**: 2026-07-31
+- **Status**: fixed — the aim column for push-in / restoring is offset outward. The no-shoot gate was withdrawn since frequent `aim_miss` made it weak
+
 ## Deferred
 
 - **Training (RL)**: while holes in observation and policy remain it becomes noise. Only after position UTs reduce misplacements and play runs for minutes without stopping
