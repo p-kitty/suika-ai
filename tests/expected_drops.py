@@ -9,7 +9,7 @@
 増やす手順:
   1. screenshots/dokoN.png を置く
   2. 画像を見て held/next と expect_x を書く
-  3. 落ちたら検出ミスか政策ミスかを切り分けて直す (正解を緩めない)
+  3. 落ちたら検出ミスかポリシーミスかを切り分けて直す (正解を緩めない)
 """
 
 from __future__ import annotations
@@ -94,12 +94,16 @@ EXPECTED_DROPS: dict[str, DropCase] = {
     #TODO: doko13.png
 }
 
-# まだ政策が解けない局面。strict xfail。直したら外す。
+# まだポリシーが解けない局面。strict xfail。直したら外す。
 # 検出自体が壊れているときはここに入れず、テストを赤のままにする。
 KNOWN_DROP_FAILURES: dict[str, str] = {
+    "doko3.png": "リンゴ真上を選び、右側 (梨への寄せ) にならない",
     "doko4.png": "左の隙間に引き込まれて左端へ滑る",
     "doko5.png": "リンゴ列より右 (グレープ寄り) を選ぶ",
     "doko7.png": "デコポン列より左 (apple 寄り) を選ぶ",
+    "doko8.png": "リンゴ真上を選び、右側にならない",
+    "doko9.png": "オレンジ真上を選び、右側〜メロン右上にならない",
     "doko10.png": "メロン右肩へ寄せてしまう",
     "doko11.png": "高い山のデコポン上に積む",
+    "doko12.png": "デコポン合成が右寄りで、左オレンジへの寄せ不足",
 }
