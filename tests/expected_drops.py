@@ -22,8 +22,8 @@ EXPECTED_DROPS: dict[str, DropCase] = {
     "doko1.png": {
         "held": "strawberry",
         "next": "strawberry",
-        "expect_x": (85, 120),
-        "note": "グレープ(x≈101)の上。隣の床が空いても上へ",
+        "expect_x": (85, 145),
+        "note": "グレープ(x≈101)の大側寄り。異種の中央真上は避ける",
     },
     "doko2.png": {
         "held": "dekopon",
@@ -97,12 +97,9 @@ EXPECTED_DROPS: dict[str, DropCase] = {
 # まだポリシーが解けない局面。strict xfail。直したら外す。
 # 検出自体が壊れているときはここに入れず、テストを赤のままにする。
 KNOWN_DROP_FAILURES: dict[str, str] = {
-    "doko3.png": "リンゴ真上を選び、右側 (梨への寄せ) にならない",
     "doko4.png": "左の隙間に引き込まれて左端へ滑る",
     "doko5.png": "リンゴ列より右 (グレープ寄り) を選ぶ",
     "doko7.png": "デコポン列より左 (apple 寄り) を選ぶ",
-    "doko8.png": "リンゴ真上を選び、右側にならない",
-    "doko9.png": "オレンジ真上を選び、右側〜メロン右上にならない",
     "doko10.png": "メロン右肩へ寄せてしまう",
     "doko11.png": "高い山のデコポン上に積む",
     "doko12.png": "デコポン合成が右寄りで、左オレンジへの寄せ不足",

@@ -36,6 +36,20 @@ SIDE_CLEARANCE = 4.0
 PUSH_MERGE_BONUS = 160.0
 # 押し込み理想列への近さ (この距離以内で加点)。
 PUSH_ALIGN_RANGE = 36.0
+# 異種の中央真上は崩壊しやすいので、大側へこの分だけ寄せた列を見る。
+LARGE_SIDE_BIAS = 0.4
+# 異種のほぼ中央真上への減点。
+FOREIGN_CENTER_PENALTY = 140.0
+# 大小逆転ペアの type 差あたり減点。
+SIZE_ORDER_PAIR_WEIGHT = 28.0
+# 各実の ideal 列からの平均距離あたり減点。
+SIZE_ORDER_IDEAL_WEIGHT = 0.35
+# 崩れた大小順を、中〜大 held で大側端へ押し戻す加点 (push merge 未満)。
+RESTORE_ORDER_BONUS = 110.0
+# これ未満の held では掃かない (cherry/strawberry/grape)。
+RESTORE_MIN_TYPE = 3
+# 自分より2段階以上大きい実どうしの隙間に詰める減点。
+GAP_JUNK_PENALTY = 200.0
 
 
 def choose_x(obs: Observation) -> float:
@@ -75,6 +89,9 @@ def _candidates(
         if fruit.type < drop_type or fruit.type > drop_type + 2:
             continue
         xs.add(fruit.x)
+        # 異種は中央真上より大側寄せの列を候補に入れる。
+        if fruit.type != drop_type:
+            xs.add(_large_side_x(fruit, sign, held_r))
         gap = held_r + fruit.radius
         xs.add(fruit.x - gap)
         xs.add(fruit.x + gap)
@@ -115,6 +132,10 @@ def _candidates(
             xs.add(max(lo, left.x - (left.radius + held_r)))
             xs.add(min(hi, right.x + (right.radius + held_r)))
 
+    # 大小逆転している実の小側外側 (大側端へ押し戻す列)。
+    for _victim, push_x in _restore_push_targets(fruits, drop_type, held_r, sign):
+        xs.add(push_x)
+
     return [x for x in xs if lo <= x <= hi]
 
 
@@ -130,20 +151,27 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
 
     score = _board_score(after, merges, land_y=land_y, sign=sign)
     score += _wedged_priority(before, obs.held_type, cleared_wedge)
-    score += _larger_neighbor_bonus(
-        before,
-        land_x,
-        obs.held_type,
-        held_r,
-        land_y,
-        grow_target=grow_target,
-        sign=sign,
-    )
-    # 挟まった同種を合成する手では、大きい実への寄りを強制しない。
-    if not cleared_wedge:
-        score -= _ignored_larger_penalty(
-            before, land_x, obs.held_type, held_r, land_y, sign=sign
+    if merges == 0:
+        score += _larger_neighbor_bonus(
+            before,
+            land_x,
+            obs.held_type,
+            held_r,
+            land_y,
+            drop_x=x,
+            grow_target=grow_target,
+            sign=sign,
         )
+        # 挟まった同種を合成する手では、大きい実への寄りを強制しない。
+        if not cleared_wedge:
+            score -= _ignored_larger_penalty(
+                before, land_x, obs.held_type, held_r, land_y, drop_x=x, sign=sign
+            )
+    else:
+        # 合成は同種側。異種の大側寄せで列を盗ませない。大側着地だけ見る。
+        score += _merge_large_side_bonus(before, land_x, obs.held_type, sign)
+    # 同種以外の中央真上は崩壊しやすいので減点する。
+    score -= _foreign_center_penalty(before, x, land_x, land_y, obs.held_type, held_r)
 
     # 肩に当てて転がした結果、小さい実が大側へ落ちる手を強く落とす。
     # (例: ブドウ左上 → 左へ転がり → 大小順が崩れる)
@@ -152,24 +180,32 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
         before, land_x, land_y, obs.held_type, held_r, sign
     ) if merges == 0 else 0.0
     score -= _coast_away_penalty(before, x, land_x, land_y, held_r)
+    # 大きい実の間に小さいゴミを詰める手。合成では見ない。
+    if merges == 0:
+        score -= _gap_junk_penalty(before, land_x, land_y, obs.held_type, held_r)
 
     # 合成が無いときは、一段大きい実の「並ぶ側」寄り。
     # 床に並べるときだけ、中間段階の列潰しを減点する (積み重ねの x は対象外)。
-    # 育成で対象の上に載せる手は、並ぶ側への引力をかけない。
+    # 育成で対象の大側に寄せる手は、並ぶ側への引力をかけない。
     # 押し込み合成も、同種の真上 (anchor) に引っ張られない。
     if merges == 0:
         on_grow = grow_target is not None and any(
-            f.type == grow_target and _is_on_top(f, land_x, held_r, land_y) for f in before
+            f.type == grow_target and _near_support(f, x, land_x, held_r, land_y)
+            for f in before
         )
         push = _push_merge_bonus(before, land_x, land_y, obs.held_type, held_r)
-        if not on_grow and push <= 0:
+        restore = _restore_order_bonus(
+            before, land_x, land_y, obs.held_type, held_r, sign
+        )
+        if not on_grow and push <= 0 and restore <= 0:
             score -= abs(x - _anchor_x(obs.held_type, before, held_r, sign)) * 0.45
         floor = NORMALIZED_HEIGHT - held_r
-        if land_y >= floor - 4.0 and not on_grow and push <= 0:
+        if land_y >= floor - 4.0 and not on_grow and push <= 0 and restore <= 0:
             score -= _chain_spacing_penalty(before, land_x, obs.held_type, sign)
         if not _column_fruits(before, x, held_r):
             score += 3.0
         score += push
+        score += restore
         if push > 0:
             # 外側の接触列に近い落としを優先 (着地が同じでも狙いを外側へ)。
             score += _push_outer_align(before, x, obs.held_type, held_r)
@@ -202,29 +238,39 @@ def _best_next_score(fruits: list[Fruit], next_type: int) -> float:
         cleared_wedge = _clears_wedged(fruits, land_x, next_type, next_r, merges)
         value = _board_score(after, merges, land_y=land_y, sign=sign)
         value += _wedged_priority(fruits, next_type, cleared_wedge)
-        value += _larger_neighbor_bonus(
-            fruits, land_x, next_type, next_r, land_y, sign=sign
-        )
-        if not cleared_wedge:
-            value -= _ignored_larger_penalty(
-                fruits, land_x, next_type, next_r, land_y, sign=sign
+        if merges == 0:
+            value += _larger_neighbor_bonus(
+                fruits, land_x, next_type, next_r, land_y, drop_x=nx, sign=sign
             )
+            if not cleared_wedge:
+                value -= _ignored_larger_penalty(
+                    fruits, land_x, next_type, next_r, land_y, drop_x=nx, sign=sign
+                )
+        else:
+            value += _merge_large_side_bonus(fruits, land_x, next_type, sign)
+        value -= _foreign_center_penalty(fruits, nx, land_x, land_y, next_type, next_r)
         if merges == 0:
             value -= _wrong_side_roll_penalty(
                 fruits, land_x, land_y, next_type, next_r, sign
             )
+            value -= _gap_junk_penalty(fruits, land_x, land_y, next_type, next_r)
             on_grow = any(
-                f.type == next_type + 1 and _is_on_top(f, land_x, next_r, land_y)
+                f.type == next_type + 1
+                and _near_support(f, nx, land_x, next_r, land_y)
                 for f in fruits
             ) and next_type + 1 <= MAX_FRUIT_TYPE
-            # next 単体では held/next 同種の育成フラグが無いので、一段大きい実の上だけ免除。
-            if not on_grow:
+            restore = _restore_order_bonus(
+                fruits, land_x, land_y, next_type, next_r, sign
+            )
+            # next 単体では held/next 同種の育成フラグが無いので、一段大きい実のそばだけ免除。
+            if not on_grow and restore <= 0:
                 value -= abs(nx - _anchor_x(next_type, fruits, next_r, sign)) * 0.45
                 floor = NORMALIZED_HEIGHT - next_r
                 if land_y >= floor - 4.0:
                     value -= _chain_spacing_penalty(fruits, land_x, next_type, sign)
             if not _column_fruits(fruits, nx, next_r):
                 value += 3.0
+            value += restore
         value -= _coast_away_penalty(fruits, nx, land_x, land_y, next_r)
         if value > best:
             best = value
@@ -377,31 +423,39 @@ def _larger_neighbor_bonus(
     held_r: float,
     land_y: float,
     *,
+    drop_x: float | None = None,
     grow_target: int | None = None,
     sign: int = 1,
 ) -> float:
-    """一段大きい実との関係。空いた「並ぶ側」＞上＞逆側。
+    """一段大きい実との関係。空いた「並ぶ側」＞大側寄せ＞中央真上。
 
     大きい順の向き (sign) に合わせて隣を選ぶ。sign=+1 なら小は大の右。
 
-    ただし held と next が同種で一段大きい実を育てる局面では、その実の
-    「上」を並ぶ側より優先する (二個目を載せて合成→育成)。
+    異種の中央真上は加点しない (同種合成以外にメリットが無く崩壊しやすい)。
+    held/next 同種の育成では、対象の大側寄せを並ぶ側より優先する。
     """
     supports = [f for f in fruits if 1 <= f.type - drop_type <= 2]
     if not supports:
         return 0.0
 
+    aim_x = x if drop_x is None else drop_x
     best = 0.0
     for support in supports:
         gap = support.type - drop_type
         side_x = _ordered_side_x(support, drop_type, held_r, sign)
+        other_x = _ordered_side_x(support, drop_type, held_r, -sign)
         side_free = _side_slot_free(fruits, support, side_x, held_r)
+        other_free = _side_slot_free(fruits, support, other_x, held_r)
         on_top = _is_on_top(support, x, held_r, land_y)
-        beside = abs(x - side_x) <= max(held_r, MERGE_SLACK)
+        beside = abs(aim_x - side_x) <= max(held_r, MERGE_SLACK)
+        beside_other = abs(aim_x - other_x) <= max(held_r, MERGE_SLACK)
+        toward_large = _toward_large(support, aim_x, sign)
+        near = _near_support(support, aim_x, x, held_r, land_y)
         growing = grow_target is not None and support.type == grow_target
+        centered = abs(aim_x - support.x) <= support.radius * 0.2
 
-        if growing and on_top:
-            # 同種 next で育成する対象の上。並ぶ側＋低所着地より強くする。
+        if growing and beside and side_free:
+            # 育成は空きの並ぶ側が最優先 (大小順を崩さない)。
             best = max(best, 330.0 if gap == 1 else 150.0)
             continue
 
@@ -409,15 +463,24 @@ def _larger_neighbor_bonus(
             best = max(best, 200.0 if gap == 1 else 90.0)
             continue
 
-        if on_top:
-            if side_free:
-                # 隣が空いているのに上は弱い。
-                best = max(best, 35.0 if gap == 1 else 15.0)
-            else:
-                best = max(best, 150.0 if gap == 1 else 70.0)
+        if beside_other and other_free:
+            # 並ぶ側が塞がっているときの大側床。
+            best = max(best, 180.0 if gap == 1 else 80.0)
             continue
 
-        if abs(x - support.x) <= support.radius + held_r + MERGE_SLACK:
+        if near and toward_large and not centered:
+            # 大側肩／大側寄り。中央真上より良い。並ぶ側が空なら上の枝で勝つ。
+            if growing:
+                best = max(best, 300.0 if gap == 1 else 140.0)
+            else:
+                best = max(best, 170.0 if gap == 1 else 75.0)
+            continue
+
+        if on_top and centered:
+            # 異種の中央真上は加点しない。
+            continue
+
+        if near:
             best = max(best, 25.0 if gap == 1 else 10.0)
 
     return best
@@ -430,20 +493,89 @@ def _ignored_larger_penalty(
     held_r: float,
     land_y: float,
     *,
+    drop_x: float | None = None,
     sign: int = 1,
 ) -> float:
-    """一段大きい実があるのに、並ぶ側にも上にも置かないときの減点。"""
+    """一段大きい実があるのに、並ぶ側にも大側にも置かないときの減点。
+
+    異種の中央真上は「対処した」とみなさない。
+    """
     supports = [f for f in fruits if f.type - drop_type == 1]
     if not supports:
         return 0.0
 
+    aim_x = x if drop_x is None else drop_x
     for support in supports:
         side_x = _ordered_side_x(support, drop_type, held_r, sign)
-        if abs(x - side_x) <= max(held_r, MERGE_SLACK):
+        other_x = _ordered_side_x(support, drop_type, held_r, -sign)
+        if abs(aim_x - side_x) <= max(held_r, MERGE_SLACK):
             return 0.0
-        if _is_on_top(support, x, held_r, land_y):
+        if abs(aim_x - other_x) <= max(held_r, MERGE_SLACK):
+            return 0.0
+        if (
+            _near_support(support, aim_x, x, held_r, land_y)
+            and _toward_large(support, aim_x, sign)
+            and abs(aim_x - support.x) > support.radius * 0.2
+        ):
             return 0.0
     return 110.0
+
+
+def _foreign_center_penalty(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_x: float,
+    land_x: float,
+    land_y: float,
+    drop_type: int,
+    held_r: float,
+) -> float:
+    """同種以外のほぼ中央真上に落とす減点。"""
+    for fruit in fruits:
+        if fruit.type == drop_type:
+            continue
+        if not _is_on_top(fruit, land_x, held_r, land_y):
+            continue
+        if abs(drop_x - fruit.x) <= fruit.radius * 0.25:
+            return FOREIGN_CENTER_PENALTY
+    return 0.0
+
+
+def _merge_large_side_bonus(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    drop_type: int,
+    sign: int,
+) -> float:
+    """同種合成の着地が、相手より大側なら加点・小側なら減点。"""
+    mates = [f for f in fruits if f.type == drop_type]
+    if not mates:
+        return 0.0
+    mate = min(mates, key=lambda f: abs(f.x - land_x))
+    return (land_x - mate.x) * (-sign) * 3.0
+
+
+def _large_side_x(support: Fruit, sign: int, held_r: float) -> float:
+    """支えの大側へ寄せた列。sign=+1 なら大は左なので負方向。"""
+    return support.x - sign * min(held_r, support.radius * LARGE_SIDE_BIAS)
+
+
+def _toward_large(support: Fruit, x: float, sign: int) -> bool:
+    """x が support より大側か。"""
+    return (x - support.x) * (-sign) > 0
+
+
+def _near_support(
+    support: Fruit,
+    drop_x: float,
+    land_x: float,
+    held_r: float,
+    land_y: float,
+) -> bool:
+    """落下列または着地が支えの近くか。"""
+    reach = support.radius + held_r + MERGE_SLACK
+    if abs(drop_x - support.x) <= reach or abs(land_x - support.x) <= reach:
+        return True
+    return _is_on_top(support, land_x, held_r, land_y)
 
 
 def _wrong_side_roll_penalty(
@@ -496,6 +628,48 @@ def _coast_away_penalty(
     if land_y >= floor - 4.0 and drifted > NORMALIZED_WIDTH * 0.25:
         penalty += 120.0
     return penalty
+
+
+def _gap_junk_penalty(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    land_y: float,
+    drop_type: int,
+    held_r: float,
+) -> float:
+    """自分より2段階以上大きい実どうしの隙間に小さい実を詰める減点。
+
+    床のくぼみを平坦化したくてチェリーをナシとリンゴの間へ入れる、のような手。
+    一段差の並ぶ側 (オレンジ↔リンゴ) は対象外。
+    """
+    floor = NORMALIZED_HEIGHT - held_r
+    if land_y < floor - 4.0:
+        return 0.0
+
+    left_big: Fruit | None = None
+    right_big: Fruit | None = None
+    for fruit in fruits:
+        if fruit.type <= drop_type:
+            continue
+        if fruit.x < land_x:
+            if left_big is None or fruit.x > left_big.x:
+                left_big = fruit
+        elif fruit.x > land_x:
+            if right_big is None or fruit.x < right_big.x:
+                right_big = fruit
+    if left_big is None or right_big is None:
+        return 0.0
+
+    # 隣がどちらも held より2段階以上大きいときだけ「ゴミ詰め」。
+    if min(left_big.type, right_big.type) - drop_type < 2:
+        return 0.0
+
+    sep = right_big.x - left_big.x
+    touch = left_big.radius + right_big.radius
+    # すでに密着、または広すぎて「間」ではない床は除外。
+    if sep <= touch or sep > touch + held_r * 2.8 + MERGE_SLACK:
+        return 0.0
+    return GAP_JUNK_PENALTY
 
 
 def _push_pair_outers(
@@ -564,6 +738,90 @@ def _push_outer_align(
     best = 0.0
     for _outer, ideal_x in _push_pair_outers(fruits, drop_type, held_r):
         best = max(best, max(0.0, PUSH_ALIGN_RANGE - abs(drop_x - ideal_x)))
+    return best
+
+
+def _has_size_inversion(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    sign: int,
+) -> bool:
+    """左右の大小が逆転しているペアがあるか。"""
+    for i, a in enumerate(fruits):
+        for b in fruits[i + 1 :]:
+            if abs(a.x - b.x) < min(a.radius, b.radius) * 0.5:
+                continue
+            left, right = (a, b) if a.x <= b.x else (b, a)
+            if sign > 0 and left.type < right.type:
+                return True
+            if sign < 0 and left.type > right.type:
+                return True
+    return False
+
+
+def _restore_push_targets(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_type: int,
+    held_r: float,
+    sign: int,
+) -> list[tuple[Fruit, float]]:
+    """大小逆転ペアの小側側を、さらに小側外側から押す列。"""
+    if drop_type < RESTORE_MIN_TYPE or not _has_size_inversion(fruits, sign):
+        return []
+    lo = held_r
+    hi = NORMALIZED_WIDTH - held_r
+    targets: list[tuple[Fruit, float]] = []
+    seen: set[int] = set()
+    for i, a in enumerate(fruits):
+        for b in fruits[i + 1 :]:
+            if abs(a.x - b.x) < min(a.radius, b.radius) * 0.5:
+                continue
+            left, right = (a, b) if a.x <= b.x else (b, a)
+            inverted = (sign > 0 and left.type < right.type) or (
+                sign < 0 and left.type > right.type
+            )
+            if not inverted:
+                continue
+            # 小側にいる実を大側へ押す。sign=+1 なら右の実を右外側から左へ。
+            victim = right if sign > 0 else left
+            key = id(victim)
+            if key in seen:
+                continue
+            seen.add(key)
+            push_x = victim.x + sign * (victim.radius + held_r)
+            targets.append((victim, max(lo, min(hi, push_x))))
+    return targets
+
+
+def _restore_order_bonus(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    land_y: float,
+    drop_type: int,
+    held_r: float,
+    sign: int,
+) -> float:
+    """崩れた大小順を、小側外側から大側端へ押し戻す着地を加点する。
+
+    他実は動かさないシミュレーションなので、接触方向だけで見る。
+    異種の中央真上は対象外。push merge より弱く保つ。
+    """
+    best = 0.0
+    for victim, _push_x in _restore_push_targets(fruits, drop_type, held_r, sign):
+        if _is_on_top(victim, land_x, held_r, land_y):
+            continue
+        if sign > 0:
+            # 右外側から左へ押す。
+            if land_x < victim.x + victim.radius * 0.45:
+                continue
+        else:
+            # 左外側から右へ押す。
+            if land_x > victim.x - victim.radius * 0.45:
+                continue
+        if abs(land_x - victim.x) > victim.radius + held_r + MERGE_SLACK:
+            continue
+        if land_y + held_r < victim.y - victim.radius - MERGE_SLACK:
+            continue
+        best = max(best, RESTORE_ORDER_BONUS)
     return best
 
 
@@ -678,10 +936,10 @@ def _anchor_x(
     held_r: float,
     sign: int = 1,
 ) -> float:
-    """置きたい列。一段大きい実の並ぶ側が空ならそこ、塞がりなら真上。
+    """置きたい列。一段大きい実の並ぶ側が空ならそこ、塞がりなら大側寄せ。
 
-    大きい支えが無いときは、小側の小さい実のすぐ隣を優先する
-    (ideal まで空けて弾かれ／離れすぎるのを避ける)。
+    異種の中央真上には錨を置かない。大きい支えが無いときは、小側の
+    小さい実のすぐ隣を優先する (ideal まで空けて弾かれを避ける)。
     """
     supports = [f for f in fruits if 1 <= f.type - drop_type <= 2]
     if supports:
@@ -690,7 +948,10 @@ def _anchor_x(
         side_x = _ordered_side_x(support, drop_type, held_r, sign)
         if _side_slot_free(fruits, support, side_x, held_r):
             return side_x
-        return support.x
+        other_x = _ordered_side_x(support, drop_type, held_r, -sign)
+        if _side_slot_free(fruits, support, other_x, held_r):
+            return other_x
+        return _large_side_x(support, sign, held_r)
 
     beside = _smaller_neighbor_x(fruits, drop_type, held_r, sign)
     if beside is not None:
@@ -711,10 +972,14 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
             left, right = (a, b) if a.x <= b.x else (b, a)
             # sign=+1: 左が大きいべき。sign=-1: 左が小さいべき。
             if sign > 0 and left.type < right.type:
-                penalty += (right.type - left.type) * 12.0
+                penalty += (right.type - left.type) * SIZE_ORDER_PAIR_WEIGHT
             elif sign < 0 and left.type > right.type:
-                penalty += (left.type - right.type) * 12.0
-    penalty += sum(abs(f.x - _ideal_x(f.type, sign)) for f in fruits) / len(fruits) * 0.12
+                penalty += (left.type - right.type) * SIZE_ORDER_PAIR_WEIGHT
+    penalty += (
+        sum(abs(f.x - _ideal_x(f.type, sign)) for f in fruits)
+        / len(fruits)
+        * SIZE_ORDER_IDEAL_WEIGHT
+    )
     return penalty
 
 
