@@ -12,10 +12,10 @@
 
 ## Training
 
-- `src/reward.py`: survival, merges, max stage, more watermelons / reaching a double / watermelon clear, death (no maintenance bonus)
+- `src/reward.py`: survival, merges, stage, more watermelons / reaching a double / clear. win (+WIN_BONUS) on a double clear. Death penalty. No maintenance bonus
 - `src/encode.py`: fixed-length observation vector
 - `src/sim_env.py`: headless drop sim (`policy.simulate_drop`)
-- Evaluation: `python scripts/eval_bootstrap.py`
-- Training: `python scripts/train_sim.py` (teacher data collection → offline BC. Saves the best student_r. RL off by default)
-- `src/agent.py`: MLP policy over 20 discrete column bins
+- Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`)
+- Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=100 is a cap, not the losing line)
+- `src/agent.py`: MLP with 32 discrete column bins / hidden 128 (old 20/64 npz files need retraining)
 - Live play: `python main.py` (defaults to learned if an npz exists. `L` toggles bootstrap, `--policy bootstrap`)

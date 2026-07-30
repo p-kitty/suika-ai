@@ -8,7 +8,7 @@ import numpy as np
 
 from .observe import Observation, clamp_drop_x
 from .policy import simulate_drop
-from .reward import is_game_over, step_reward
+from .reward import cleared_double_watermelon, is_game_over, step_reward
 from .vision.colors import SPAWN_MAX_TYPE
 from .vision.normalized import NORMALIZED_WIDTH
 from .vision.state import Fruit
@@ -50,9 +50,17 @@ class SimEnv:
         self.next_type = self._spawn()
         after = self._obs()
 
-        done = is_game_over(after)
-        reward = step_reward(before, after, merges=merges, done=done)
-        return SimStep(after, reward, done, merges, "ok" if not done else "dead")
+        dead = is_game_over(after)
+        win = cleared_double_watermelon(before, after, merges=merges)
+        done = dead or win
+        reward = step_reward(before, after, merges=merges, done=done, win=win)
+        if win:
+            info = "win"
+        elif dead:
+            info = "dead"
+        else:
+            info = "ok"
+        return SimStep(after, reward, done, merges, info)
 
     def _spawn(self) -> int:
         return int(self.rng.integers(0, SPAWN_MAX_TYPE + 1))

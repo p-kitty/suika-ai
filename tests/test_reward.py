@@ -9,6 +9,8 @@ from src.reward import (
     WATERMELON,
     WATERMELON_BONUS,
     WATERMELON_CLEAR_BONUS,
+    WIN_BONUS,
+    cleared_double_watermelon,
     is_game_over,
     step_reward,
     watermelon_count,
@@ -90,6 +92,30 @@ def test_watermelon_clear_bonus() -> None:
     empty = _obs()
     got = step_reward(two, empty, merges=1, done=False)
     assert got >= WATERMELON_CLEAR_BONUS * 2
+
+
+def test_win_on_double_clear() -> None:
+    w_r = fruit_radius(WATERMELON)
+    two = _obs(
+        (
+            Fruit(type=WATERMELON, x=120, y=NORMALIZED_HEIGHT - w_r, radius=w_r, confidence=90),
+            Fruit(type=WATERMELON, x=280, y=NORMALIZED_HEIGHT - w_r, radius=w_r, confidence=90),
+        )
+    )
+    empty = _obs()
+    assert cleared_double_watermelon(two, empty, merges=1)
+    got = step_reward(two, empty, merges=1, done=True, win=True)
+    assert got >= WIN_BONUS + WATERMELON_CLEAR_BONUS * 2
+    assert got > 100
+
+
+def test_single_watermelon_clear_is_not_win() -> None:
+    w_r = fruit_radius(WATERMELON)
+    one = _obs(
+        (Fruit(type=WATERMELON, x=120, y=NORMALIZED_HEIGHT - w_r, radius=w_r, confidence=90),)
+    )
+    empty = _obs()
+    assert not cleared_double_watermelon(one, empty, merges=1)
 
 
 def test_game_over_by_crown() -> None:
