@@ -32,6 +32,10 @@ SETTLE_STEP = 3.0
 SETTLE_MAX_ITERS = 48
 # 隣に並べるとき、ぴったり接触だと肩に乗って弾かれるので少し隙間を空ける。
 SIDE_CLEARANCE = 4.0
+# 同種ペアの外側に当てて押し込み合成できそうな着地の加点。
+PUSH_MERGE_BONUS = 160.0
+# 押し込み理想列への近さ (この距離以内で加点)。
+PUSH_ALIGN_RANGE = 36.0
 
 
 def choose_x(obs: Observation) -> float:
@@ -98,6 +102,19 @@ def _candidates(
     if beside is not None:
         xs.add(beside)
 
+    # 同種ペアを、held と別種で外側から押す列。
+    for i, a in enumerate(fruits):
+        for b in fruits[i + 1 :]:
+            if a.type == drop_type or a.type != b.type or _touching(a, b):
+                continue
+            sep = abs(a.x - b.x)
+            need = a.radius + b.radius
+            if sep <= need or sep > need + held_r * 2.2:
+                continue
+            left, right = (a, b) if a.x <= b.x else (b, a)
+            xs.add(max(lo, left.x - (left.radius + held_r)))
+            xs.add(min(hi, right.x + (right.radius + held_r)))
+
     return [x for x in xs if lo <= x <= hi]
 
 
@@ -139,17 +156,23 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
     # 合成が無いときは、一段大きい実の「並ぶ側」寄り。
     # 床に並べるときだけ、中間段階の列潰しを減点する (積み重ねの x は対象外)。
     # 育成で対象の上に載せる手は、並ぶ側への引力をかけない。
+    # 押し込み合成も、同種の真上 (anchor) に引っ張られない。
     if merges == 0:
         on_grow = grow_target is not None and any(
             f.type == grow_target and _is_on_top(f, land_x, held_r, land_y) for f in before
         )
-        if not on_grow:
+        push = _push_merge_bonus(before, land_x, land_y, obs.held_type, held_r)
+        if not on_grow and push <= 0:
             score -= abs(x - _anchor_x(obs.held_type, before, held_r, sign)) * 0.45
         floor = NORMALIZED_HEIGHT - held_r
-        if land_y >= floor - 4.0 and not on_grow:
+        if land_y >= floor - 4.0 and not on_grow and push <= 0:
             score -= _chain_spacing_penalty(before, land_x, obs.held_type, sign)
         if not _column_fruits(before, x, held_r):
             score += 3.0
+        score += push
+        if push > 0:
+            # 外側の接触列に近い落としを優先 (着地が同じでも狙いを外側へ)。
+            score += _push_outer_align(before, x, obs.held_type, held_r)
 
     if obs.next_type is not None:
         score += NEXT_DISCOUNT * _best_next_score(after, obs.next_type)
@@ -473,6 +496,75 @@ def _coast_away_penalty(
     if land_y >= floor - 4.0 and drifted > NORMALIZED_WIDTH * 0.25:
         penalty += 120.0
     return penalty
+
+
+def _push_pair_outers(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_type: int,
+    held_r: float,
+) -> list[tuple[Fruit, float]]:
+    """押し込み対象の (外側の実, 落としたい列)。held と同種ペアは除外。"""
+    outers: list[tuple[Fruit, float]] = []
+    lo = held_r
+    hi = NORMALIZED_WIDTH - held_r
+    for i, a in enumerate(fruits):
+        for b in fruits[i + 1 :]:
+            if a.type == drop_type or a.type != b.type or _touching(a, b):
+                continue
+            sep = abs(a.x - b.x)
+            need = a.radius + b.radius
+            if sep <= need or sep > need + held_r * 2.2:
+                continue
+            left, right = (a, b) if a.x <= b.x else (b, a)
+            outers.append((left, max(lo, left.x - (left.radius + held_r))))
+            outers.append((right, min(hi, right.x + (right.radius + held_r))))
+    return outers
+
+
+def _push_merge_bonus(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    land_y: float,
+    drop_type: int,
+    held_r: float,
+) -> float:
+    """別種 held で同種ペアの外側に当て、押し込み合成できそうなら加点する。
+
+    シミュレーションは他実を動かさないので、接触方向と間隔だけで見る。
+    """
+    best = 0.0
+    for outer, ideal_x in _push_pair_outers(fruits, drop_type, held_r):
+        # 真上は押し込みではない。
+        if _is_on_top(outer, land_x, held_r, land_y):
+            continue
+        # 着地が外側実の、ペアと反対側に接している。
+        if ideal_x < outer.x:
+            # 左外側から押す。
+            if land_x > outer.x - outer.radius * 0.45:
+                continue
+        else:
+            # 右外側から押す。
+            if land_x < outer.x + outer.radius * 0.45:
+                continue
+        if abs(land_x - outer.x) > outer.radius + held_r + MERGE_SLACK:
+            continue
+        if land_y + held_r < outer.y - outer.radius - MERGE_SLACK:
+            continue
+        best = max(best, PUSH_MERGE_BONUS)
+    return best
+
+
+def _push_outer_align(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_x: float,
+    drop_type: int,
+    held_r: float,
+) -> float:
+    """押し込みの理想列 (外側接触) への近さ。外れは 0 (減点しない)。"""
+    best = 0.0
+    for _outer, ideal_x in _push_pair_outers(fruits, drop_type, held_r):
+        best = max(best, max(0.0, PUSH_ALIGN_RANGE - abs(drop_x - ideal_x)))
+    return best
 
 
 def _ordered_side_x(

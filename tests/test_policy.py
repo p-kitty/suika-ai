@@ -323,3 +323,32 @@ def test_grape_stays_beside_right_edge_strawberry() -> None:
     # 肩に当てて左端へ滑る落としより、隙間付きの隣の方が良い。
     shoulder = straw.x - straw_r * 0.4
     assert _score(obs, x, grape_r) > _score(obs, shoulder, grape_r)
+
+
+def test_pushes_near_orange_pair_from_outside() -> None:
+    # 近いオレンジ2つ: 上に積むより、左外側から押してくっつける。
+    # 右に大きい実があると右外側押しは不利 (doko2 と同型)。
+    orange_r = _radius(4)
+    apple_r = _radius(5)
+    pear_r = _radius(6)
+    floor_o = NORMALIZED_HEIGHT - orange_r
+    left = Fruit(type=4, x=70, y=floor_o, radius=orange_r, confidence=90)
+    right = Fruit(type=4, x=70 + 2 * orange_r + 20, y=floor_o, radius=orange_r, confidence=90)
+    apple = Fruit(
+        type=5,
+        x=right.x + orange_r + apple_r + 10,
+        y=NORMALIZED_HEIGHT - apple_r,
+        radius=apple_r,
+        confidence=90,
+    )
+    pear = Fruit(
+        type=6,
+        x=apple.x + apple_r + pear_r + 10,
+        y=NORMALIZED_HEIGHT - pear_r,
+        radius=pear_r,
+        confidence=90,
+    )
+    obs = _obs(held_type=3, fruits=(left, right, apple, pear), next_type=4)
+    x = choose_x(obs)
+    assert x < left.x
+    assert x <= left.x - left.radius * 0.45
