@@ -103,7 +103,7 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
     before = list(obs.fruits)
     sign = _order_sign(before)
     land_x, land_y = _preview_land(before, obs.held_type, x, held_r)
-    after, merges = _simulate_drop(before, obs.held_type, x)
+    after, merges = simulate_drop(before, obs.held_type, x)
 
     score = _board_score(after, merges, land_y=land_y, sign=sign)
     score -= _foreign_center_penalty(before, x, land_x, land_y, obs.held_type, held_r)
@@ -129,7 +129,7 @@ def _best_next_score(fruits: list[Fruit], next_type: int) -> float:
     for nx in _candidates(fruits, next_type, next_r):
         nx = clamp_drop_x(nx, next_type)
         land_x, land_y = _preview_land(fruits, next_type, nx, next_r)
-        after, merges = _simulate_drop(fruits, next_type, nx)
+        after, merges = simulate_drop(fruits, next_type, nx)
         value = _board_score(after, merges, land_y=land_y, sign=sign)
         value -= _foreign_center_penalty(fruits, nx, land_x, land_y, next_type, next_r)
         if merges == 0:
@@ -336,20 +336,21 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
     return penalty
 
 
-def _after_drop(obs: Observation, x: float) -> tuple[list[Fruit], int]:
-    """テスト用。held を列 x に落としたあとの盤面と合成回数。"""
-    assert obs.held_type is not None
-    return _simulate_drop(obs.fruits, obs.held_type, x)
-
-
-def _simulate_drop(
+def simulate_drop(
     fruits: list[Fruit] | tuple[Fruit, ...],
     fruit_type: int,
     x: float,
 ) -> tuple[list[Fruit], int]:
+    """列 x に落としたあとの盤面と合成回数。sim / 学習用。"""
     placed = list(fruits)
     placed, dropped = _place(placed, fruit_type, x)
     return _resolve_merges(placed, active={dropped})
+
+
+def _after_drop(obs: Observation, x: float) -> tuple[list[Fruit], int]:
+    """テスト用。held を列 x に落としたあとの盤面と合成回数。"""
+    assert obs.held_type is not None
+    return simulate_drop(obs.fruits, obs.held_type, x)
 
 
 def _preview_land(
