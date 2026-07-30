@@ -29,6 +29,14 @@ LOOK_PAUSE_SEC = 0.09
 
 # After crossing the target, stop without correcting back if within this width.
 CROSS_STOP = 14.0
+# Near the edges held stops at the wall and detection also wobbles. Avoid the view
+# swinging forever while trying to line up exactly.
+EDGE_BAND = 48.0
+EDGE_TOLERANCE = 18.0
+# After how many moves to give up when only the view advances while held barely moves.
+STALL_MOVES = 2
+# Return after a drop: only pull back inward from the extreme edges. Returning to center every time makes the round trip too large.
+RECENTER_INSET = 80.0
 
 
 class MOUSEINPUT(ctypes.Structure):
@@ -69,11 +77,30 @@ def recenter(
     read: Callable[[], tuple[object, np.ndarray | None]],
     abort: Callable[[], bool] | None = None,
 ) -> bool:
-    """Before the next move, return the waiting fruit to the board center. Does not click."""
+    """Before the next move, pull back inward only when at an extreme edge. Does not click.
+
+    It used to return to center every time, but every edge placement became an edge↔center round trip
+    and the view swung wastefully. Pulling in just enough not to start the next move from the edge is enough.
+    """
+    if abort is not None and abort():
+        return False
+    obs, _corners = read()
+    if getattr(obs, "blocked", False):
+        return False
+    held_x = getattr(obs, "held_x", None)
+    if held_x is None:
+        return False
+
+    held = float(held_x)
+    lo = RECENTER_INSET
+    hi = NORMALIZED_WIDTH - RECENTER_INSET
+    if lo <= held <= hi:
+        return True
+
     cfg = load()
-    # The center need not be exact. Prefer not wobbling left and right without reaching it.
     tolerance = float(cfg.get("recenter_tolerance", 14))
-    return aim(NORMALIZED_WIDTH / 2, read, tolerance=tolerance, abort=abort)
+    target = lo if held < lo else hi
+    return aim(target, read, tolerance=tolerance, abort=abort)
 
 
 def aim(
@@ -97,6 +124,7 @@ def aim(
 
     deadline = time.monotonic() + timeout_sec
     previous_error: float | None = None
+    previous_held: float | None = None
     best_error: float | None = None
     stall_moves = 0
 
@@ -111,18 +139,30 @@ def aim(
             time.sleep(LOOK_PAUSE_SEC)
             continue
 
-        error = target_x - float(held_x)
+        held = float(held_x)
+        error = target_x - held
         abs_error = abs(error)
         if abs_error <= tolerance:
             return True
+        # Right edge / left edge: once at the wall, do not swing the view for the remaining error.
+        if _edge_close_enough(target_x, held, tolerance):
+            return True
 
-        # When held will not move any further, at an edge and so on, do not keep moving; drop at the current position.
-        if best_error is None or abs_error < best_error - 1.0:
-            best_error = abs_error
-            stall_moves = 0
-        else:
+        # held does not move = stopped by a wall or similar. Advancing only the view is useless.
+        if previous_held is not None and abs(held - previous_held) < 0.5:
             stall_moves += 1
-            if stall_moves >= 3:
+            if stall_moves >= STALL_MOVES:
+                return True
+        else:
+            stall_moves = 0
+
+        # Also stop when the error does not improve (against detection wobble improving it slightly forever).
+        if best_error is None or abs_error < best_error - 2.0:
+            best_error = abs_error
+            no_improve = 0
+        else:
+            no_improve += 1
+            if no_improve >= 3:
                 return True
 
         # Crossed the target. If close, accept without correcting back. Only when far, go back gently.
@@ -130,18 +170,40 @@ def aim(
         if crossed and abs_error <= max(tolerance, CROSS_STOP):
             return True
 
-        # Pull short at 0.8. The closer, the smaller the step.
+        # Pull short at 0.8. The closer, the smaller the step. At the edges the step is reduced further.
         scale = 0.3 if crossed else 0.8
         if abs_error < 24:
             scale *= 0.55
+        if _near_edge(target_x) or _near_edge(held):
+            scale *= 0.5
         raw = error * gain * scale
         magnitude = min(max_step, max(1, int(round(abs(raw)))))
         step = magnitude if raw > 0 else -magnitude
 
         move_by(step, 0)
         previous_error = error
+        previous_held = held
         time.sleep(LOOK_PAUSE_SEC)
 
+    return False
+
+
+def _near_edge(x: float) -> bool:
+    return x <= EDGE_BAND or x >= NORMALIZED_WIDTH - EDGE_BAND
+
+
+def _edge_close_enough(target_x: float, held_x: float, tolerance: float) -> bool:
+    """When aiming at a wall column, consider it enough if held has reached the edge on the same side."""
+    if not _near_edge(target_x):
+        return False
+    limit = max(tolerance, EDGE_TOLERANCE)
+    if abs(target_x - held_x) <= limit:
+        return True
+    # Right-edge aim: held has come further right than the target / the left edge is symmetric.
+    if target_x >= NORMALIZED_WIDTH - EDGE_BAND and held_x >= target_x - limit:
+        return True
+    if target_x <= EDGE_BAND and held_x <= target_x + limit:
+        return True
     return False
 
 def move_by(dx: int, dy: int = 0) -> None:

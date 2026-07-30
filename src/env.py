@@ -99,7 +99,7 @@ class Env:
             return StepResult(after, target, done=False, info="timeout")
         info = info_aim if not aimed else "ok"
 
-        # Return the new waiting fruit to center so the next move does not start from the edge.
+        # Pull back inward just enough not to stay at the extreme edge (not all the way to center every time).
         control.recenter(read, abort=abort)
         after = self.observe()
 

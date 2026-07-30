@@ -34,6 +34,7 @@
 
 ## Deferred
 
+- **The view swings too far on edge placements**: when placing at the right edge, (1) only the view advancing during fine adjustment at the wall and (2) a round trip back to center every time were large. Changed to an early edge stop in `aim` + `recenter` only pulling back lightly from the edge (2026-07-31). If it still swings too far, look at `EDGE_TOLERANCE` / `RECENTER_INSET`
 - **Training (RL)**: while holes in observation and policy remain it becomes noise. Only after position UTs reduce misplacements and play runs for minutes without stopping
 - **`10.png` vision**: similar-color mask fusion + a strawberry outside the frame. Needs a redesign of the cropping; worse value for effort than the policy / held
 
