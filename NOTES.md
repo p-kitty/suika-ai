@@ -12,9 +12,9 @@
 
 ## Training
 
-- `src/reward.py`: survival, merges, max stage, watermelon / double watermelon, death
+- `src/reward.py`: survival, merges, max stage, more watermelons / reaching a double / watermelon clear, death (no maintenance bonus)
 - `src/encode.py`: fixed-length observation vector
 - `src/sim_env.py`: headless drop sim (`policy.simulate_drop`)
 - Evaluation: `python scripts/eval_bootstrap.py`
-- Training: `python scripts/train_sim.py` (BC+replay with bootstrap as the teacher. MLP. RL off by default)
+- Training: `python scripts/train_sim.py` (soft-BC+replay with bootstrap as the teacher. Saves the best student_r. RL off by default)
 - `src/agent.py`: MLP policy over 20 discrete column bins

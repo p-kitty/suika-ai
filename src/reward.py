@@ -18,8 +18,12 @@ MERGE_WEIGHT = 1.0
 PROGRESS_WEIGHT = 2.0
 # When a watermelon is newly added.
 WATERMELON_BONUS = 20.0
-# Keeping the state with 2 or more watermelons.
-DOUBLE_WATERMELON_BONUS = 5.0
+# The moment there are 2 or more watermelons (not a keeping bonus).
+DOUBLE_REACH_BONUS = 15.0
+# When watermelons decrease / disappear through a merge (cycling).
+WATERMELON_CLEAR_BONUS = 25.0
+# Backward-compatible aliases (old names, reaching bonus).
+DOUBLE_WATERMELON_BONUS = DOUBLE_REACH_BONUS
 # Game over.
 DEATH_PENALTY = -20.0
 
@@ -52,7 +56,8 @@ def step_reward(
     """The reward for one move.
 
     - survival and merges are the base reward
-    - bonuses for updating the board's max stage, more watermelons, keeping a double watermelon
+    - bonuses for updating the board's max stage and more watermelons
+    - bonuses for reaching a double and clearing watermelons (cycling). No bonus for keeping
     - a big penalty on game over
     """
     if done:
@@ -74,8 +79,10 @@ def step_reward(
     after_w = watermelon_count(after)
     if after_w > before_w:
         reward += (after_w - before_w) * WATERMELON_BONUS
-    if after_w >= 2:
-        reward += DOUBLE_WATERMELON_BONUS
+    if before_w < 2 <= after_w:
+        reward += DOUBLE_REACH_BONUS
+    if merges > 0 and after_w < before_w:
+        reward += (before_w - after_w) * WATERMELON_CLEAR_BONUS
 
     # A tall pile approaches future death, so a small penalty (just before instant death).
     if after.fruits:
