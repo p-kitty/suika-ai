@@ -400,7 +400,7 @@ def test_strawberry_stays_beside_right_edge_cherry() -> None:
 
 def test_pushes_near_orange_pair_from_outside() -> None:
     # 近いオレンジ2つ: 上に積むより、左外側から押してくっつける。
-    # 右に大きい実があると右外側押しは不利 (doko2 と同型)。
+    # 右に大きい実があると右外側押しは不利。
     orange_r = _radius(4)
     apple_r = _radius(5)
     pear_r = _radius(6)
