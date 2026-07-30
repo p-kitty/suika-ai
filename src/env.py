@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -55,8 +56,11 @@ class Env:
     def board(self) -> BoardResult | None:
         return self._last_board
 
-    def step(self, x: float) -> StepResult:
-        """列 x (正規化座標) に視線を合わせて落とし、次の観測を返す。"""
+    def step(self, x: float, abort: Callable[[], bool] | None = None) -> StepResult:
+        """列 x (正規化座標) に視線を合わせて落とし、次の観測を返す。
+
+        abort が真を返したら操作を打ち切る (自動モードの停止用)。
+        """
         before = self.observe()
         if before.blocked:
             return StepResult(before, None, done=True, info="dialog")
@@ -64,7 +68,9 @@ class Env:
             return StepResult(before, None, done=False, info="not ready")
 
         # 自動プレイで ready 直後に落とすと、まだ連鎖中のことがある。
-        before = settle.wait_playable(self.observe)
+        before = settle.wait_playable(self.observe, abort=abort)
+        if abort is not None and abort():
+            return StepResult(before, None, done=False, info="aborted")
         if before.blocked:
             return StepResult(before, None, done=True, info="dialog")
         if not before.ready:
@@ -73,14 +79,19 @@ class Env:
         target = clamp_drop_x(x, before.held_type)
         read = self._aim_read
 
-        aimed = control.drop_column(target, read=read)
+        aimed = control.drop_column(target, read=read, abort=abort)
+        if abort is not None and abort():
+            # クリック前に止まったか、落とした直後かは drop_column 側で分岐済み。
+            return StepResult(self.observe(), target, done=False, info="aborted")
         info_aim = "ok" if aimed else "aim_timeout"
 
         # 落としたあと、いったん held が消えるのを待つ。消えないまま静止判定に
         # 入ると、雲が動いただけの揺れで止まってしまう。
-        _wait_held_gone(self.observe, before.held_x)
+        _wait_held_gone(self.observe, before.held_x, abort=abort)
 
-        after = settle.wait_playable(self.observe)
+        after = settle.wait_playable(self.observe, abort=abort)
+        if abort is not None and abort():
+            return StepResult(after, target, done=False, info="aborted")
         done = after.blocked or not after.ready
         if after.blocked:
             info = "dialog"
@@ -93,7 +104,7 @@ class Env:
 
         # 次の手が端から始まらないよう、新しい落下待ちを中央へ戻す。
         if not done and after.ready:
-            control.recenter(read)
+            control.recenter(read, abort=abort)
             after = self.observe()
 
         return StepResult(after, target, done=done, info=info)
@@ -114,13 +125,20 @@ def _grab():
     raise RuntimeError("画面が取れない")
 
 
-def _wait_held_gone(read, previous_x: float | None, timeout_sec: float = 2.0) -> None:
+def _wait_held_gone(
+    read,
+    previous_x: float | None,
+    timeout_sec: float = 2.0,
+    abort: Callable[[], bool] | None = None,
+) -> None:
     """落下待ちが消えるか、列が大きく動くまで待つ。
 
     クリックが効いているサイン。効いていなければそのまま静止待ちに進む。
     """
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
+        if abort is not None and abort():
+            return
         obs = read()
         if obs.blocked:
             return

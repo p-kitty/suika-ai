@@ -102,6 +102,24 @@ def test_aim_fails_when_blocked(world: FakeWorld) -> None:
     assert world.moves == []
 
 
+def test_aim_aborts_without_finishing(world: FakeWorld) -> None:
+    calls = {"n": 0}
+
+    def abort() -> bool:
+        calls["n"] += 1
+        return calls["n"] >= 2
+
+    world.held_x = 40.0
+    assert control.aim(300.0, world.read, abort=abort) is False
+    assert abs(world.held_x - 300.0) > LOOK_CFG["look_tolerance"]
+
+
+def test_drop_skips_click_when_aborted(world: FakeWorld) -> None:
+    assert control.drop_column(300.0, read=world.read, abort=lambda: True) is False
+    assert world.clicks == 0
+    assert world.moves == []
+
+
 def test_step_drops_settles_and_recenters(monkeypatch: pytest.MonkeyPatch) -> None:
     """Env.step が 落とす → 静止待ち → 中央復帰 の順。"""
     from src.env import Env
@@ -131,7 +149,7 @@ def test_step_drops_settles_and_recenters(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(
         control,
         "drop_column",
-        lambda target, read: events.append(f"drop:{target:.0f}") or True,
+        lambda target, read, abort=None: events.append(f"drop:{target:.0f}") or True,
     )
     monkeypatch.setattr(
         "src.env._wait_held_gone",
@@ -144,7 +162,7 @@ def test_step_drops_settles_and_recenters(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(
         control,
         "recenter",
-        lambda read: events.append("recenter") or True,
+        lambda read, abort=None: events.append("recenter") or True,
     )
 
     result = env.step(250.0)

@@ -48,6 +48,7 @@ def wait_settled(
     still_px: float = DEFAULT_STILL_PX,
     still_sec: float = DEFAULT_STILL_SEC,
     timeout_sec: float = DEFAULT_TIMEOUT_SEC,
+    abort: Callable[[], bool] | None = None,
 ) -> Observation:
     """盤面のフルーツが止まった観測を返す。"""
     deadline = time.monotonic() + timeout_sec
@@ -55,6 +56,8 @@ def wait_settled(
     previous = read()
 
     while time.monotonic() < deadline:
+        if abort is not None and abort():
+            return previous
         time.sleep(1 / 30)
         current = read()
 
@@ -79,12 +82,15 @@ def wait_ready(
     read: Callable[[], Observation],
     *,
     timeout_sec: float = DEFAULT_HELD_TIMEOUT_SEC,
+    abort: Callable[[], bool] | None = None,
 ) -> Observation:
     """落下待ちフルーツが再び読めるまで待つ。"""
     deadline = time.monotonic() + timeout_sec
     last = read()
 
     while time.monotonic() < deadline:
+        if abort is not None and abort():
+            return last
         if last.ready:
             return last
         if last.blocked:
@@ -99,6 +105,7 @@ def wait_playable(
     read: Callable[[], Observation],
     *,
     timeout_sec: float = DEFAULT_PLAYABLE_TIMEOUT_SEC,
+    abort: Callable[[], bool] | None = None,
 ) -> Observation:
     """盤面が止まり、かつ落下待ちが読める観測を返す。
 
@@ -109,18 +116,29 @@ def wait_playable(
     last = read()
 
     while time.monotonic() < deadline:
+        if abort is not None and abort():
+            return last
+
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
 
-        last = wait_settled(read, timeout_sec=remaining)
+        last = wait_settled(read, timeout_sec=remaining, abort=abort)
+        if abort is not None and abort():
+            return last
         if last.blocked or last.ready:
             return last
 
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        last = wait_ready(read, timeout_sec=min(remaining, DEFAULT_HELD_TIMEOUT_SEC))
+        last = wait_ready(
+            read,
+            timeout_sec=min(remaining, DEFAULT_HELD_TIMEOUT_SEC),
+            abort=abort,
+        )
+        if abort is not None and abort():
+            return last
         if last.blocked:
             return last
         # ready になった直後なので、ループ先頭で再度 settle する。

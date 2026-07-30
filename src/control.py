@@ -54,21 +54,26 @@ def drop_column(
     target_x: float,
     *,
     read: Callable[[], tuple[object, np.ndarray | None]],
+    abort: Callable[[], bool] | None = None,
 ) -> bool:
     """落下待ちの列を target_x に重ねてからクリックする。"""
-    aimed = aim(target_x, read)
+    aimed = aim(target_x, read, abort=abort)
+    # 狙い中／直後に中断されたら落とさない。
+    if abort is not None and abort():
+        return False
     click()
     return aimed
 
 
 def recenter(
     read: Callable[[], tuple[object, np.ndarray | None]],
+    abort: Callable[[], bool] | None = None,
 ) -> bool:
     """次の手の前に、落下待ちを盤面中央へ戻す。クリックはしない。"""
     cfg = load()
     # 中央は厳密でなくてよい。寄せ切れず左右しないことを優先。
     tolerance = float(cfg.get("recenter_tolerance", 14))
-    return aim(NORMALIZED_WIDTH / 2, read, tolerance=tolerance)
+    return aim(NORMALIZED_WIDTH / 2, read, tolerance=tolerance, abort=abort)
 
 
 def aim(
@@ -76,6 +81,7 @@ def aim(
     read: Callable[[], tuple[object, np.ndarray | None]],
     *,
     tolerance: float | None = None,
+    abort: Callable[[], bool] | None = None,
 ) -> bool:
     """held_x を target_x 付近まで寄せる。行き過ぎたら打ち返さず止める。
 
@@ -95,6 +101,8 @@ def aim(
     stall_moves = 0
 
     while time.monotonic() < deadline:
+        if abort is not None and abort():
+            return False
         obs, _corners = read()
         if getattr(obs, "blocked", False):
             return False
