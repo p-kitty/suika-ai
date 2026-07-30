@@ -20,10 +20,10 @@ WINDOW_TITLE = "Suika"
 MESSAGE_SECONDS = 3.0
 
 DUMP_KEY = ord("s")
-STEP_KEY = ord(" ")
 QUIT_KEY = 27
-# フォーカスに関係なく auto トグルする (VK_G)。
+# フォーカスに関係なく効かせる (VRC 前面でも)。Space はジャンプと被るので使わない。
 VK_G = 0x47
+VK_P = 0x50
 
 # 待ち中プレビュー。映像だけ回し、古い検出円は載せない。
 PUMP_HZ = float(CAPTURE_FPS)
@@ -48,14 +48,18 @@ def main() -> None:
 
     maximize_window(WINDOW_TITLE)
     g_was_down = False
+    p_was_down = False
     frame: np.ndarray | None = None
+
+    def _edge(vk: int, was_down: bool) -> tuple[bool, bool]:
+        """グローバルキーの立ち上がり。 (pressed, down)。"""
+        down = bool(ctypes.windll.user32.GetAsyncKeyState(vk) & 0x8000)
+        return down and not was_down, down
 
     def poll_g_toggle() -> bool:
         """G の立ち上がりで auto をトグル。押されたら True。"""
         nonlocal auto_play, g_was_down, message, message_until
-        down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_G) & 0x8000)
-        pressed = down and not g_was_down
-        g_was_down = down
+        pressed, g_was_down = _edge(VK_G, g_was_down)
         if not pressed:
             return False
         auto_play = not auto_play
@@ -64,9 +68,17 @@ def main() -> None:
         print(message)
         return True
 
+    def poll_step_key() -> bool:
+        """P の立ち上がりで 1 手。待ち中は状態だけ更新する。"""
+        nonlocal p_was_down
+        pressed, p_was_down = _edge(VK_P, p_was_down)
+        return pressed
+
     def pump_ui() -> None:
         """settle / aim 待ち中も映像だけ回す。古い検出円は載せない。"""
         nonlocal frame, next_pump
+        # 待ち中の押しっぱなし／再押しを、戻ったあとに誤発火させない。
+        poll_step_key()
         now = time.monotonic()
         if now < next_pump:
             cv2.waitKey(1)
@@ -109,12 +121,13 @@ def main() -> None:
         key = cv2.waitKey(1) & 0xFF
         now = time.monotonic()
 
-        # G は VRChat 前面でも効くようグローバル検出。押しっぱなしで連打しない。
-        # step / settle の待ち中も should_abort 経由で同じ検出を回す。
+        # G / P は VRChat 前面でも効くようグローバル検出。押しっぱなしで連打しない。
+        # step / settle の待ち中も should_abort / pump_ui 経由で同じ検出を回す。
         poll_g_toggle()
+        step_pressed = poll_step_key()
 
         # 新しいキャプチャが来たときだけ検出。映像とオーバーレイを同じ周期にする。
-        if fresh is not None or key in (STEP_KEY, DUMP_KEY):
+        if fresh is not None or step_pressed or key == DUMP_KEY:
             obs = env.observe(frame)
         board = env.board
 
@@ -131,10 +144,10 @@ def main() -> None:
                 message_until = now + MESSAGE_SECONDS
                 print(message)
 
-        # Space = 1 手。g で連続自動中なら ready のたびに落とす。
+        # P = 1 手 (global)。g で連続自動中なら ready のたびに落とす。
         # 待ちに入る前に AUTO/LIVE を描画して見せる。
-        from_auto = auto_play and key != STEP_KEY
-        if key == STEP_KEY or (auto_play and obs.ready and not obs.blocked):
+        from_auto = auto_play and not step_pressed
+        if step_pressed or (auto_play and obs.ready and not obs.blocked):
             message = "settling..."
             message_until = now + MESSAGE_SECONDS
             _show(frame, board, obs, aim_x, auto_play, message, message_until, now)
@@ -203,7 +216,7 @@ def _show(
             _draw_aim(output, board.corners, aim_x)
 
     mode_badge(output, auto_play)
-    hint = "Space: step  g: auto on/off  s: save"
+    hint = "p: step  g: auto on/off  s: save"
     put_text(output, f"aim x={aim_x:.0f}" if aim_x is not None else "aim —", (8, 128), (0, 255, 255))
     put_text(
         output,
