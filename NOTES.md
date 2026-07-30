@@ -80,3 +80,5 @@
 - `src/encode.py`: fixed-length observation vector
 - `src/sim_env.py`: headless drop sim (`policy.simulate_drop`)
 - Evaluation: `python scripts/eval_bootstrap.py`
+- Training: `python scripts/train_sim.py` (linear softmax + REINFORCE, numpy only)
+- `src/agent.py`: linear policy over 20 discrete column bins
