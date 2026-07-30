@@ -51,10 +51,6 @@ python scripts/eval_bootstrap.py --episodes 50
 python scripts/train_sim.py
 python scripts/train_sim.py --episodes 200 --lr 0.02
 
-# Drop one fruit on the real game (smoke test)
-python scripts/play_step.py
-python scripts/play_step.py 200
-
 # Run detection on saved images → debug/check/
 python scripts/check_detection.py
 ```
@@ -83,7 +79,6 @@ src/
 scripts/
   eval_bootstrap.py
   train_sim.py
-  play_step.py
   check_detection.py
 tests/
 ```
