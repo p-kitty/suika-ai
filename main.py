@@ -4,7 +4,7 @@ import time
 import cv2
 import numpy as np
 
-from src.capture import capture
+from src.capture import CAPTURE_FPS, capture
 from src.config import load
 from src.debug_dump import dump
 from src.draw import mode_badge, put_text
@@ -25,8 +25,8 @@ QUIT_KEY = 27
 # フォーカスに関係なく auto トグルする (VK_G)。
 VK_G = 0x47
 
-# デバッグ表示用の検出周期。毎フレームフル検出すると重いので間引く。
-VISION_HZ = 10.0
+# 待ち中プレビュー。映像だけ回し、古い検出円は載せない。
+PUMP_HZ = float(CAPTURE_FPS)
 
 
 def main() -> None:
@@ -34,7 +34,7 @@ def main() -> None:
     message = ""
     message_until = 0.0
     next_auto_dump = 0.0
-    next_vision = 0.0
+    next_pump = 0.0
     aim_x: float | None = None
     auto_play = False
     obs = Observation(
@@ -48,6 +48,7 @@ def main() -> None:
 
     maximize_window(WINDOW_TITLE)
     g_was_down = False
+    frame: np.ndarray | None = None
 
     def poll_g_toggle() -> bool:
         """G の立ち上がりで auto をトグル。押されたら True。"""
@@ -63,14 +64,46 @@ def main() -> None:
         print(message)
         return True
 
+    def pump_ui() -> None:
+        """settle / aim 待ち中も映像だけ回す。古い検出円は載せない。"""
+        nonlocal frame, next_pump
+        now = time.monotonic()
+        if now < next_pump:
+            cv2.waitKey(1)
+            return
+        next_pump = now + 1.0 / PUMP_HZ
+        fresh = capture()
+        if fresh is not None:
+            frame = fresh
+        if frame is None:
+            return
+        # 検出オーバーレイ無し。直前の board を新フレームに載せるとカクつく。
+        output = frame.copy()
+        mode_badge(output, auto_play)
+        put_text(
+            output,
+            message if now < message_until else "settling...",
+            (8, output.shape[0] - 12),
+            (255, 255, 255),
+            scale=0.5,
+        )
+        cv2.imshow(WINDOW_TITLE, output)
+        cv2.waitKey(1)
+
     def should_abort() -> bool:
         """自動中の待ちループ用。G で off にしたら打ち切る。"""
         poll_g_toggle()
+        pump_ui()
         return not auto_play
 
     while True:
-        frame = capture()
+        fresh = capture()
+        if fresh is not None:
+            frame = fresh
         if frame is None:
+            # 最初のフレームが来るまでキーだけ見る。
+            if cv2.waitKey(1) & 0xFF == QUIT_KEY:
+                break
             continue
 
         key = cv2.waitKey(1) & 0xFF
@@ -80,15 +113,9 @@ def main() -> None:
         # step / settle の待ち中も should_abort 経由で同じ検出を回す。
         poll_g_toggle()
 
-        # キー操作やダンプの直前は最新が欲しい。それ以外は間引く。
-        need_vision = (
-            now >= next_vision
-            or key in (POLICY_KEY, DUMP_KEY)
-            or auto_play
-        )
-        if need_vision:
+        # 新しいキャプチャが来たときだけ検出。映像とオーバーレイを同じ周期にする。
+        if fresh is not None or key in (POLICY_KEY, DUMP_KEY):
             obs = env.observe(frame)
-            next_vision = now + 1.0 / VISION_HZ
         board = env.board
 
         if obs.ready and obs.held_x is not None and aim_x is None:
@@ -108,10 +135,20 @@ def main() -> None:
         # 待ちに入る前に AUTO/LIVE を描画して見せる。
         from_auto = auto_play and key != POLICY_KEY
         if key == POLICY_KEY or (auto_play and obs.ready and not obs.blocked):
+            message = "settling..."
+            message_until = now + MESSAGE_SECONDS
             _show(frame, board, obs, aim_x, auto_play, message, message_until, now)
-            abort = should_abort if from_auto else None
+
+            def abort() -> bool:
+                # 待ち中もプレビューを回す。auto なら G で打ち切れる。
+                if from_auto:
+                    return should_abort()
+                pump_ui()
+                return False
+
             if not obs.ready:
                 message = "policy: not ready"
+                print(message)
             else:
                 # 静止確認→同じ観測で列決め→狙い。動いている盤を読まない。
                 result = env.step(abort=abort, choose=choose_x)
@@ -120,6 +157,7 @@ def main() -> None:
                     frame, obs, board = _refresh(env, frame, obs)
                 elif result.info == "not settled":
                     message = "policy: not settled"
+                    print(message)
                     frame, obs, board = _refresh(env, frame, obs)
                 else:
                     target = result.target_x
@@ -138,7 +176,7 @@ def main() -> None:
                     elif result.done:
                         auto_play = False
                         message = f"{message} (stop)"
-            message_until = now + MESSAGE_SECONDS
+            message_until = time.monotonic() + MESSAGE_SECONDS
 
         _show(frame, board, obs, aim_x, auto_play, message, message_until, now)
 

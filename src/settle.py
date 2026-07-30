@@ -24,31 +24,38 @@ DEFAULT_HELD_TIMEOUT_SEC = 4.0
 DEFAULT_PLAYABLE_TIMEOUT_SEC = 20.0
 # 旧 API / テスト用。フレーム間 px。指定時は速度換算せずこの閾値を使う。
 DEFAULT_STILL_PX = 1.5
+# 出現・消失 1 個あたりの速度ペナルティ。フレーム間 px を dt で割ると
+# 5px/frame ≈ 150px/s になり閾値を壊すので、点滅は低速扱いする。
+UNMATCHED_SPEED = 12.0
+# このフレーム数連続で速いときだけ静止タイマーを捨てる (1発の点滅は許す)。
+NOISE_STREAK_RESET = 2
 
 
 def motion(previous: list[Fruit] | tuple[Fruit, ...], current: list[Fruit] | tuple[Fruit, ...]) -> float:
-    """前後フレームのフルーツの最大移動量。
+    """前後フレームのフルーツの最大 |Δx|。
 
-    近い組から一対一で対応づける。片方にしかいないフルーツは、その半径を
-    移動量として足す (出現・消失も「動き」とみなす)。
+    落とす列が動いているかだけ見る。Y のバウンドや半径の検出ゆらぎは無視する。
+    片方にしかいないフルーツは出現・消失として数える。
     """
-    if not previous and not current:
-        return 0.0
-
-    pairs = _pair(previous, current)
-    matched_prev = {a for a, _ in pairs}
-    matched_curr = {b for _, b in pairs}
-
-    distances = [float(np.hypot(previous[a].x - current[b].x, previous[a].y - current[b].y)) for a, b in pairs]
-    # 出現・消失も動きだが、大きく足すと検出点滅で永遠に settle しない。
-    for i in range(len(previous)):
-        if i not in matched_prev:
-            distances.append(min(previous[i].radius, 5.0))
-    for i in range(len(current)):
-        if i not in matched_curr:
-            distances.append(min(current[i].radius, 5.0))
-
+    matched, unmatched = _motion_parts(previous, current)
+    distances = matched + unmatched
     return max(distances) if distances else 0.0
+
+
+def motion_speed(
+    previous: list[Fruit] | tuple[Fruit, ...],
+    current: list[Fruit] | tuple[Fruit, ...],
+    dt: float,
+) -> float:
+    """静止判定用の横速度 (px/s)。
+
+    マッチした組は |Δx|/dt。出現・消失はフレーム時間に依存させず定額にし、
+    検出点滅で settle が永久に終わらないのを防ぐ。
+    """
+    matched, unmatched = _motion_parts(previous, current)
+    matched_speed = (max(matched) / max(dt, 1e-3)) if matched else 0.0
+    unmatched_speed = len(unmatched) * UNMATCHED_SPEED
+    return max(matched_speed, unmatched_speed)
 
 
 def wait_settled(
@@ -67,6 +74,7 @@ def wait_settled(
     """
     deadline = time.monotonic() + timeout_sec
     quiet_since: float | None = None
+    noise_streak = 0
     previous = read()
     previous_t = time.monotonic()
 
@@ -80,25 +88,54 @@ def wait_settled(
         if current.blocked:
             return current, True
 
-        moved = motion(previous.motion_fruits, current.motion_fruits)
         dt = max(now - previous_t, 1e-3)
+        prev_fruits = previous.motion_fruits
+        curr_fruits = current.motion_fruits
         previous = current
         previous_t = now
 
         if still_px is not None:
-            quiet = moved <= still_px
+            quiet = motion(prev_fruits, curr_fruits) <= still_px
         else:
-            quiet = (moved / dt) <= still_speed
+            quiet = motion_speed(prev_fruits, curr_fruits, dt) <= still_speed
 
         if quiet:
+            noise_streak = 0
             if quiet_since is None:
                 quiet_since = now
             elif now - quiet_since >= still_sec:
                 return current, True
         else:
-            quiet_since = None
+            # 1フレームの検出点滅では quiet を捨てない。連続して速いときだけリセット。
+            noise_streak += 1
+            if noise_streak >= NOISE_STREAK_RESET:
+                quiet_since = None
 
     return previous, False
+
+
+def _motion_parts(
+    previous: list[Fruit] | tuple[Fruit, ...],
+    current: list[Fruit] | tuple[Fruit, ...],
+) -> tuple[list[float], list[float]]:
+    """(マッチ組の |Δx|, 出現・消失の擬似変位) を返す。"""
+    if not previous and not current:
+        return [], []
+
+    pairs = _pair(previous, current)
+    matched_prev = {a for a, _ in pairs}
+    matched_curr = {b for _, b in pairs}
+
+    # 列 (x) だけ。Y・半径の検出ゆらぎで settle を止めない。
+    matched = [abs(float(previous[a].x - current[b].x)) for a, b in pairs]
+    unmatched: list[float] = []
+    for i in range(len(previous)):
+        if i not in matched_prev:
+            unmatched.append(min(previous[i].radius, 5.0))
+    for i in range(len(current)):
+        if i not in matched_curr:
+            unmatched.append(min(current[i].radius, 5.0))
+    return matched, unmatched
 
 
 def wait_ready(
