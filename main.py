@@ -4,7 +4,7 @@ import time
 import cv2
 import numpy as np
 
-from src.capture import capture
+from src.capture import CAPTURE_FPS, capture
 from src.config import load
 from src.debug_dump import dump
 from src.draw import mode_badge, put_text
@@ -25,8 +25,8 @@ QUIT_KEY = 27
 # Toggle auto regardless of focus (VK_G).
 VK_G = 0x47
 
-# Detection interval for the debug display. Full detection every frame is heavy, so it is thinned.
-VISION_HZ = 10.0
+# Preview while waiting. Only the video runs; stale detection circles are not drawn.
+PUMP_HZ = float(CAPTURE_FPS)
 
 
 def main() -> None:
@@ -34,7 +34,7 @@ def main() -> None:
     message = ""
     message_until = 0.0
     next_auto_dump = 0.0
-    next_vision = 0.0
+    next_pump = 0.0
     aim_x: float | None = None
     auto_play = False
     obs = Observation(
@@ -48,6 +48,7 @@ def main() -> None:
 
     maximize_window(WINDOW_TITLE)
     g_was_down = False
+    frame: np.ndarray | None = None
 
     def poll_g_toggle() -> bool:
         """Toggle auto on the rising edge of G. True when pressed."""
@@ -63,14 +64,46 @@ def main() -> None:
         print(message)
         return True
 
+    def pump_ui() -> None:
+        """Keep only the video running while waiting for settle / aim. Stale detection circles are not drawn."""
+        nonlocal frame, next_pump
+        now = time.monotonic()
+        if now < next_pump:
+            cv2.waitKey(1)
+            return
+        next_pump = now + 1.0 / PUMP_HZ
+        fresh = capture()
+        if fresh is not None:
+            frame = fresh
+        if frame is None:
+            return
+        # No detection overlay. Drawing the previous board on a new frame stutters.
+        output = frame.copy()
+        mode_badge(output, auto_play)
+        put_text(
+            output,
+            message if now < message_until else "settling...",
+            (8, output.shape[0] - 12),
+            (255, 255, 255),
+            scale=0.5,
+        )
+        cv2.imshow(WINDOW_TITLE, output)
+        cv2.waitKey(1)
+
     def should_abort() -> bool:
         """For wait loops during auto. Abort when switched off with G."""
         poll_g_toggle()
+        pump_ui()
         return not auto_play
 
     while True:
-        frame = capture()
+        fresh = capture()
+        if fresh is not None:
+            frame = fresh
         if frame is None:
+            # Only watch keys until the first frame arrives.
+            if cv2.waitKey(1) & 0xFF == QUIT_KEY:
+                break
             continue
 
         key = cv2.waitKey(1) & 0xFF
@@ -80,15 +113,9 @@ def main() -> None:
         # While waiting in step / settle, the same detection runs via should_abort.
         poll_g_toggle()
 
-        # Right before key actions or dumps the latest is wanted. Otherwise thinned.
-        need_vision = (
-            now >= next_vision
-            or key in (POLICY_KEY, DUMP_KEY)
-            or auto_play
-        )
-        if need_vision:
+        # Detect only when a new capture arrives. Keeps video and overlay on the same cycle.
+        if fresh is not None or key in (POLICY_KEY, DUMP_KEY):
             obs = env.observe(frame)
-            next_vision = now + 1.0 / VISION_HZ
         board = env.board
 
         if obs.ready and obs.held_x is not None and aim_x is None:
@@ -108,10 +135,20 @@ def main() -> None:
         # Draw AUTO/LIVE before entering the wait so it shows.
         from_auto = auto_play and key != POLICY_KEY
         if key == POLICY_KEY or (auto_play and obs.ready and not obs.blocked):
+            message = "settling..."
+            message_until = now + MESSAGE_SECONDS
             _show(frame, board, obs, aim_x, auto_play, message, message_until, now)
-            abort = should_abort if from_auto else None
+
+            def abort() -> bool:
+                # Keep the preview running while waiting. On auto, G can abort it.
+                if from_auto:
+                    return should_abort()
+                pump_ui()
+                return False
+
             if not obs.ready:
                 message = "policy: not ready"
+                print(message)
             else:
                 # Confirm settle → decide the column on the same observation → aim. Do not read a moving board.
                 result = env.step(abort=abort, choose=choose_x)
@@ -120,6 +157,7 @@ def main() -> None:
                     frame, obs, board = _refresh(env, frame, obs)
                 elif result.info == "not settled":
                     message = "policy: not settled"
+                    print(message)
                     frame, obs, board = _refresh(env, frame, obs)
                 else:
                     target = result.target_x
@@ -138,7 +176,7 @@ def main() -> None:
                     elif result.done:
                         auto_play = False
                         message = f"{message} (stop)"
-            message_until = now + MESSAGE_SECONDS
+            message_until = time.monotonic() + MESSAGE_SECONDS
 
         _show(frame, board, obs, aim_x, auto_play, message, message_until, now)
 

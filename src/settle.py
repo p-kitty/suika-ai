@@ -24,31 +24,38 @@ DEFAULT_HELD_TIMEOUT_SEC = 4.0
 DEFAULT_PLAYABLE_TIMEOUT_SEC = 20.0
 # Old API / for tests. Inter-frame px. When given, this threshold is used without converting to speed.
 DEFAULT_STILL_PX = 1.5
+# Speed penalty per appearance or disappearance. Dividing inter-frame px by dt
+# gives 5px/frame ≈ 150px/s and breaks the threshold, so blinking is treated as slow.
+UNMATCHED_SPEED = 12.0
+# Only discard the settle timer when fast for this many consecutive frames (a single blink is allowed).
+NOISE_STREAK_RESET = 2
 
 
 def motion(previous: list[Fruit] | tuple[Fruit, ...], current: list[Fruit] | tuple[Fruit, ...]) -> float:
-    """The max movement of fruits between consecutive frames.
+    """The max |Δx| of fruits between consecutive frames.
 
-    Pairs are matched one to one from the closest. Fruits present in only one frame add their radius
-    as movement (appearing / disappearing also counts as 'movement').
+    Only looks at whether the drop column moves. Y bounces and radius detection wobble are ignored.
+    Fruits present in only one frame count as appearing or disappearing.
     """
-    if not previous and not current:
-        return 0.0
-
-    pairs = _pair(previous, current)
-    matched_prev = {a for a, _ in pairs}
-    matched_curr = {b for _, b in pairs}
-
-    distances = [float(np.hypot(previous[a].x - current[b].x, previous[a].y - current[b].y)) for a, b in pairs]
-    # Appearing / disappearing is movement too, but adding a lot makes detection blinking keep settle from ever finishing.
-    for i in range(len(previous)):
-        if i not in matched_prev:
-            distances.append(min(previous[i].radius, 5.0))
-    for i in range(len(current)):
-        if i not in matched_curr:
-            distances.append(min(current[i].radius, 5.0))
-
+    matched, unmatched = _motion_parts(previous, current)
+    distances = matched + unmatched
     return max(distances) if distances else 0.0
+
+
+def motion_speed(
+    previous: list[Fruit] | tuple[Fruit, ...],
+    current: list[Fruit] | tuple[Fruit, ...],
+    dt: float,
+) -> float:
+    """Sideways speed (px/s) for the settle check.
+
+    Matched pairs are |Δx|/dt. Appearances and disappearances are a flat amount independent of frame time,
+    so that detection blinking does not keep settle from ever finishing.
+    """
+    matched, unmatched = _motion_parts(previous, current)
+    matched_speed = (max(matched) / max(dt, 1e-3)) if matched else 0.0
+    unmatched_speed = len(unmatched) * UNMATCHED_SPEED
+    return max(matched_speed, unmatched_speed)
 
 
 def wait_settled(
@@ -67,6 +74,7 @@ def wait_settled(
     """
     deadline = time.monotonic() + timeout_sec
     quiet_since: float | None = None
+    noise_streak = 0
     previous = read()
     previous_t = time.monotonic()
 
@@ -80,25 +88,54 @@ def wait_settled(
         if current.blocked:
             return current, True
 
-        moved = motion(previous.motion_fruits, current.motion_fruits)
         dt = max(now - previous_t, 1e-3)
+        prev_fruits = previous.motion_fruits
+        curr_fruits = current.motion_fruits
         previous = current
         previous_t = now
 
         if still_px is not None:
-            quiet = moved <= still_px
+            quiet = motion(prev_fruits, curr_fruits) <= still_px
         else:
-            quiet = (moved / dt) <= still_speed
+            quiet = motion_speed(prev_fruits, curr_fruits, dt) <= still_speed
 
         if quiet:
+            noise_streak = 0
             if quiet_since is None:
                 quiet_since = now
             elif now - quiet_since >= still_sec:
                 return current, True
         else:
-            quiet_since = None
+            # Do not discard quiet on a one-frame detection blink. Reset only when fast consecutively.
+            noise_streak += 1
+            if noise_streak >= NOISE_STREAK_RESET:
+                quiet_since = None
 
     return previous, False
+
+
+def _motion_parts(
+    previous: list[Fruit] | tuple[Fruit, ...],
+    current: list[Fruit] | tuple[Fruit, ...],
+) -> tuple[list[float], list[float]]:
+    """Return (|Δx| of matched pairs, pseudo displacement of appearances and disappearances)."""
+    if not previous and not current:
+        return [], []
+
+    pairs = _pair(previous, current)
+    matched_prev = {a for a, _ in pairs}
+    matched_curr = {b for _, b in pairs}
+
+    # Column (x) only. Do not stop settle on Y or radius detection wobble.
+    matched = [abs(float(previous[a].x - current[b].x)) for a, b in pairs]
+    unmatched: list[float] = []
+    for i in range(len(previous)):
+        if i not in matched_prev:
+            unmatched.append(min(previous[i].radius, 5.0))
+    for i in range(len(current)):
+        if i not in matched_curr:
+            unmatched.append(min(current[i].radius, 5.0))
+    return matched, unmatched
 
 
 def wait_ready(

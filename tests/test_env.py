@@ -1,7 +1,7 @@
 """Unit tests around controls. Uses neither the screen nor clicks."""
 
 from src.observe import Observation, clamp_drop_x, from_board
-from src.settle import motion, wait_playable, wait_settled
+from src.settle import motion, motion_speed, wait_playable, wait_settled
 from src.vision.board import BoardResult
 from src.vision.classify import ClassifyResult
 from src.vision.held import HeldResult
@@ -77,6 +77,55 @@ def test_motion_treats_new_fruit_as_movement() -> None:
         Fruit(type=1, x=50, y=80, radius=8, confidence=90),
     ]
     assert motion(before, after) >= 5.0
+
+
+def test_motion_speed_does_not_treat_blink_as_roll() -> None:
+    # A 5px blink divided by dt=1/30 gives 150px/s and breaks the 25px/s threshold.
+    # The speed check makes appearances and disappearances a flat amount, so blinking alone does not make settle impossible.
+    still = [Fruit(type=0, x=10, y=20, radius=5, confidence=90)]
+    blink = [
+        Fruit(type=0, x=10, y=20, radius=5, confidence=90),
+        Fruit(type=1, x=50, y=80, radius=8, confidence=90),
+    ]
+    assert motion_speed(still, blink, dt=1 / 30) <= 25.0
+    rolling = [Fruit(type=0, x=14, y=20, radius=5, confidence=90)]
+    assert motion_speed(still, rolling, dt=1 / 30) > 25.0
+
+
+def test_motion_ignores_y_and_radius_jitter() -> None:
+    # If the column is the same, Y bounces and radius wobble do not count as movement.
+    before = [Fruit(type=0, x=10, y=20, radius=5, confidence=90)]
+    after = [Fruit(type=0, x=10, y=40, radius=9, confidence=90)]
+    assert motion(before, after) == 0.0
+    assert motion_speed(before, after, dt=1 / 30) == 0.0
+
+
+def test_wait_settled_tolerates_detection_blink(monkeypatch) -> None:
+    # Can settle even when nearly still with occasional detection blinks.
+    monkeypatch.setattr("src.settle.time.sleep", lambda _sec: None)
+    now = {"t": 0.0}
+    monkeypatch.setattr("src.settle.time.monotonic", lambda: now["t"])
+    n = {"i": 0}
+
+    def read() -> Observation:
+        now["t"] += 1 / 30
+        n["i"] += 1
+        fruits = [Fruit(type=0, x=10.0, y=20, radius=5, confidence=90)]
+        if n["i"] % 3 == 0:
+            fruits.append(Fruit(type=1, x=50, y=80, radius=8, confidence=90))
+        return Observation(
+            ready=True,
+            blocked=False,
+            fruits=tuple(fruits),
+            held_type=0,
+            held_x=100.0,
+            next_type=None,
+            raw_fruits=tuple(fruits),
+        )
+
+    obs, settled = wait_settled(read, still_speed=25.0, still_sec=0.2, timeout_sec=2.0)
+    assert settled
+    assert obs.ready
 
 
 def test_wait_settled_returns_early_on_abort(monkeypatch) -> None:
