@@ -25,6 +25,8 @@ FLAT_BIN = 40.0
 MAX_FRUIT_TYPE = len(FRUIT_NAMES) - 1
 # next 手の割引。
 NEXT_DISCOUNT = 0.55
+# 大小の間に中間段階の列を潰したときの、不足 px あたり減点。
+CHAIN_SPACING_WEIGHT = 2.0
 
 
 def choose_x(obs: Observation) -> float:
@@ -77,6 +79,13 @@ def _candidates(
             xs.add(fruit.x - gap)
             xs.add(fruit.x + gap)
 
+    # 右の小さい実／左の大きい実との間に、中間段階の列を残す位置。
+    for fruit in fruits:
+        if fruit.type < drop_type:
+            xs.add(fruit.x - _chain_center_gap(drop_type, fruit.type))
+        elif fruit.type > drop_type:
+            xs.add(fruit.x + _chain_center_gap(fruit.type, drop_type))
+
     return [x for x in xs if lo <= x <= hi]
 
 
@@ -87,17 +96,24 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
     after, merges = _simulate_drop(before, obs.held_type, x)
     land_y = _land_y(before, x, held_r)
     cleared_wedge = _clears_wedged(before, x, obs.held_type, held_r, merges)
+    grow_target = _growth_target_type(obs.held_type, obs.next_type)
 
     score = _board_score(after, merges, land_y=land_y)
     score += _wedged_priority(before, obs.held_type, cleared_wedge)
-    score += _larger_neighbor_bonus(before, x, obs.held_type, held_r, land_y)
+    score += _larger_neighbor_bonus(
+        before, x, obs.held_type, held_r, land_y, grow_target=grow_target
+    )
     # 挟まった同種を合成する手では、大きい実への寄りを強制しない。
     if not cleared_wedge:
         score -= _ignored_larger_penalty(before, x, obs.held_type, held_r, land_y)
 
     # 合成が無いときは、一段大きい実の「並ぶ側」寄り。
+    # 床に並べるときだけ、中間段階の列潰しを減点する (積み重ねの x は対象外)。
     if merges == 0:
         score -= abs(x - _anchor_x(obs.held_type, before, held_r)) * 0.45
+        floor = NORMALIZED_HEIGHT - held_r
+        if land_y >= floor - 4.0:
+            score -= _chain_spacing_penalty(before, x, obs.held_type)
         if not _column_fruits(before, x, held_r):
             score += 3.0
 
@@ -105,6 +121,16 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
         score += NEXT_DISCOUNT * _best_next_score(after, obs.next_type)
 
     return score
+
+
+def _growth_target_type(held_type: int, next_type: int | None) -> int | None:
+    """held と next が同種なら、二個で一段大きい実を育てられる。その育成対象。"""
+    if next_type is None or next_type != held_type:
+        return None
+    target = held_type + 1
+    if target > MAX_FRUIT_TYPE:
+        return None
+    return target
 
 
 def _best_next_score(fruits: list[Fruit], next_type: int) -> float:
@@ -123,9 +149,51 @@ def _best_next_score(fruits: list[Fruit], next_type: int) -> float:
             value -= _ignored_larger_penalty(fruits, nx, next_type, next_r, land_y)
         if merges == 0:
             value -= abs(nx - _anchor_x(next_type, fruits, next_r)) * 0.45
+            floor = NORMALIZED_HEIGHT - next_r
+            if land_y >= floor - 4.0:
+                value -= _chain_spacing_penalty(fruits, nx, next_type)
         if value > best:
             best = value
     return 0.0 if best == -math.inf else best
+
+
+def _chain_center_gap(left_type: int, right_type: int) -> float:
+    """左(大)と右(小)の間に、中間段階を全部並べるときの中心距離。"""
+    gap = _radius(left_type) + _radius(right_type)
+    for mid in range(right_type + 1, left_type):
+        gap += 2.0 * _radius(mid)
+    return gap
+
+
+def _chain_spacing_penalty(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    x: float,
+    drop_type: int,
+) -> float:
+    """大きい順の列で、中間段階の隙間を潰す置きを減点する。
+
+    例: 右端にイチゴがあるのにオレンジをすぐ左へ置くと、デコポン・グレープの
+    並ぶ場所が無くなる。
+    """
+    penalty = 0.0
+    for other in fruits:
+        if other.type < drop_type and other.x > x:
+            need = _chain_center_gap(drop_type, other.type)
+            for mid in range(other.type + 1, drop_type):
+                if any(x < f.x < other.x and f.type == mid for f in fruits):
+                    need -= 2.0 * _radius(mid)
+            have = other.x - x
+            if have < need:
+                penalty += (need - have) * CHAIN_SPACING_WEIGHT
+        elif other.type > drop_type and other.x < x:
+            need = _chain_center_gap(other.type, drop_type)
+            for mid in range(drop_type + 1, other.type):
+                if any(other.x < f.x < x and f.type == mid for f in fruits):
+                    need -= 2.0 * _radius(mid)
+            have = x - other.x
+            if have < need:
+                penalty += (need - have) * CHAIN_SPACING_WEIGHT
+    return penalty
 
 
 def _is_wedged(fruit: Fruit, fruits: list[Fruit] | tuple[Fruit, ...]) -> bool:
@@ -210,11 +278,16 @@ def _larger_neighbor_bonus(
     drop_type: int,
     held_r: float,
     land_y: float,
+    *,
+    grow_target: int | None = None,
 ) -> float:
     """一段大きい実との関係。空いた「並ぶ側」＞上＞逆側。
 
     大きい順は左＝大・右＝小。オレンジはリンゴの右側の床を最優先し、
     右が塞がっているときだけ上に積む。
+
+    ただし held と next が同種で一段大きい実を育てる局面では、その実の
+    「上」を並ぶ側より優先する (二個目を載せて合成→育成)。
     """
     supports = [f for f in fruits if 1 <= f.type - drop_type <= 2]
     if not supports:
@@ -227,6 +300,12 @@ def _larger_neighbor_bonus(
         side_free = _side_slot_free(fruits, support, side_x, held_r)
         on_top = _is_on_top(support, x, held_r, land_y)
         beside = abs(x - side_x) <= max(held_r, MERGE_SLACK)
+        growing = grow_target is not None and support.type == grow_target
+
+        if growing and on_top:
+            # 同種 next で育成する対象の上。並ぶ側＋低所着地より強くする。
+            best = max(best, 330.0 if gap == 1 else 150.0)
+            continue
 
         if beside and side_free:
             best = max(best, 200.0 if gap == 1 else 90.0)
@@ -312,15 +391,25 @@ def _ideal_x(fruit_type: int) -> float:
 
 
 def _anchor_x(drop_type: int, fruits: list[Fruit] | tuple[Fruit, ...], held_r: float) -> float:
-    """置きたい列。一段大きい実の並ぶ側が空ならそこ、塞がりなら真上。"""
+    """置きたい列。一段大きい実の並ぶ側が空ならそこ、塞がりなら真上。
+
+    大きい支えが無いときは ideal を、右の小さい実との中間列を残す位置へ寄せる。
+    """
     supports = [f for f in fruits if 1 <= f.type - drop_type <= 2]
-    if not supports:
-        return _ideal_x(drop_type)
-    support = min(supports, key=lambda f: f.x)
-    side_x = _ordered_side_x(support, drop_type, held_r)
-    if _side_slot_free(fruits, support, side_x, held_r):
-        return side_x
-    return support.x
+    if supports:
+        support = min(supports, key=lambda f: f.x)
+        side_x = _ordered_side_x(support, drop_type, held_r)
+        if _side_slot_free(fruits, support, side_x, held_r):
+            return side_x
+        return support.x
+
+    x = _ideal_x(drop_type)
+    for other in fruits:
+        if other.type >= drop_type:
+            continue
+        need = _chain_center_gap(drop_type, other.type)
+        x = min(x, other.x - need)
+    return max(held_r, min(x, NORMALIZED_WIDTH - held_r))
 
 
 def _size_order_penalty(fruits: list[Fruit]) -> float:

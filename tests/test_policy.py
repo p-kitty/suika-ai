@@ -1,7 +1,7 @@
 """方策の単体テスト。画面は使わない。"""
 
 from src.observe import Observation
-from src.policy import _after_drop, _ideal_x, _land_y, _radius, choose_x
+from src.policy import _after_drop, _chain_center_gap, _ideal_x, _land_y, _radius, choose_x
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
 
@@ -177,3 +177,74 @@ def test_prefers_merging_wedged_small_over_stacking_on_larger() -> None:
     assert abs(x - wedged.x) < grape_r * 2
     after, merges = _after_drop(_obs(held_type=2, fruits=(left, wedged, right, orange)), x)
     assert merges >= 1
+
+
+def test_stacks_strawberry_on_grape_when_next_is_strawberry() -> None:
+    # NOTES: グレープを育てたいとき、held/next がイチゴならグレープの上へ。
+    # 隣の床が空いていても、同種 next で育成する対象の上を選ぶ。
+    grape_r = _radius(2)
+    straw_r = _radius(1)
+    grape = Fruit(type=2, x=120, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90)
+    x = choose_x(_obs(held_type=1, fruits=(grape,), next_type=1))
+    assert abs(x - grape.x) < grape_r * 0.85
+
+
+def test_grows_grape_even_with_distant_strawberry_merge() -> None:
+    # 右に即合成できるイチゴがあっても、左のグレープ育成を優先する。
+    grape_r = _radius(2)
+    straw_r = _radius(1)
+    grape = Fruit(type=2, x=100, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90)
+    lone = Fruit(type=1, x=320, y=NORMALIZED_HEIGHT - straw_r, radius=straw_r, confidence=90)
+    x = choose_x(_obs(held_type=1, fruits=(grape, lone), next_type=1))
+    assert abs(x - grape.x) < grape_r * 0.85
+    assert abs(x - lone.x) > straw_r * 3
+
+
+def test_doko1_stacks_strawberry_on_grape() -> None:
+    # screenshots/doko1.png 相当。左寄りにグレープ、held/next ともイチゴ。
+    grape_r = _radius(2)
+    pear_r = _radius(6)
+    apple_r = _radius(5)
+    orange_r = _radius(4)
+    cherry_r = _radius(0)
+    fruits = (
+        Fruit(type=6, x=318, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90),
+        Fruit(type=5, x=224, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90),
+        Fruit(type=4, x=152, y=NORMALIZED_HEIGHT - orange_r, radius=orange_r, confidence=90),
+        Fruit(type=2, x=101, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90),
+        Fruit(type=0, x=64, y=NORMALIZED_HEIGHT - cherry_r, radius=cherry_r, confidence=90),
+    )
+    grape = fruits[3]
+    x = choose_x(_obs(held_type=1, fruits=fruits, next_type=1))
+    assert abs(x - grape.x) < grape_r * 0.9
+
+
+def test_stacks_grape_on_dekopon_when_next_is_grape() -> None:
+    # 同じパターンの一段上: held/next がグレープならデコポンの上。
+    dek_r = _radius(3)
+    grape_r = _radius(2)
+    dek = Fruit(type=3, x=110, y=NORMALIZED_HEIGHT - dek_r, radius=dek_r, confidence=90)
+    x = choose_x(_obs(held_type=2, fruits=(dek,), next_type=2))
+    assert abs(x - dek.x) < dek_r * 0.85
+
+
+def test_orange_leaves_room_for_dekopon_beside_strawberry() -> None:
+    # 右にチェリー・イチゴ。オレンジをイチゴのすぐ左へ置くと、
+    # デコポン・グレープの並ぶ列が無くなるので、中間段階分だけ離す。
+    cherry_r = _radius(0)
+    straw_r = _radius(1)
+    orange_r = _radius(4)
+    cherry = Fruit(
+        type=0,
+        x=NORMALIZED_WIDTH - cherry_r - 2,
+        y=NORMALIZED_HEIGHT - cherry_r,
+        radius=cherry_r,
+        confidence=90,
+    )
+    # ideal オレンジより左に寄ったイチゴ: 旧方策だとすぐ隣に置きがち。
+    straw = Fruit(type=1, x=280, y=NORMALIZED_HEIGHT - straw_r, radius=straw_r, confidence=90)
+    x = choose_x(_obs(held_type=4, fruits=(cherry, straw)))
+    need = _chain_center_gap(4, 1)
+    assert straw.x - x >= need - 4
+    # 接触ぎりぎりよりは明らかに離す。
+    assert straw.x - x - straw_r - orange_r > _radius(2) + _radius(3)
