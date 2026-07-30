@@ -12,9 +12,9 @@
 
 ## 学習まわり
 
-- `src/reward.py`: 生存・合成・最大段階・スイカ／ダブルスイカ・死亡
+- `src/reward.py`: 生存・合成・最大段階・スイカ増／ダブル到達／スイカ消去・死亡 (維持加点なし)
 - `src/encode.py`: 固定長観測ベクトル
 - `src/sim_env.py`: 画面なし落下 sim (`policy.simulate_drop`)
 - 評価: `python scripts/eval_bootstrap.py`
-- 学習: `python scripts/train_sim.py` (bootstrap を先生に BC+replay。MLP。RL は既定オフ)
+- 学習: `python scripts/train_sim.py` (bootstrap を先生に soft-BC+replay。最良 student_r を保存。RL 既定オフ)
 - `src/agent.py`: 離散列 20 ビンの MLP 方策

@@ -4,9 +4,11 @@ from src.observe import Observation
 from src.vision.classify import fruit_radius
 from src.reward import (
     DEATH_PENALTY,
-    DOUBLE_WATERMELON_BONUS,
+    DOUBLE_REACH_BONUS,
+    STEP_REWARD,
     WATERMELON,
     WATERMELON_BONUS,
+    WATERMELON_CLEAR_BONUS,
     is_game_over,
     step_reward,
     watermelon_count,
@@ -49,7 +51,7 @@ def test_merge_and_progress_reward() -> None:
     assert reward > 0.05
 
 
-def test_watermelon_and_double_bonus() -> None:
+def test_watermelon_create_and_double_reach() -> None:
     w_r = fruit_radius(WATERMELON)
     one = _obs(
         (Fruit(type=WATERMELON, x=120, y=NORMALIZED_HEIGHT - w_r, radius=w_r, confidence=90),)
@@ -62,7 +64,32 @@ def test_watermelon_and_double_bonus() -> None:
     )
     assert watermelon_count(two) == 2
     got = step_reward(one, two, merges=0, done=False)
-    assert got >= WATERMELON_BONUS + DOUBLE_WATERMELON_BONUS
+    assert got >= WATERMELON_BONUS + DOUBLE_REACH_BONUS
+
+
+def test_no_bonus_for_keeping_double() -> None:
+    w_r = fruit_radius(WATERMELON)
+    two = _obs(
+        (
+            Fruit(type=WATERMELON, x=120, y=NORMALIZED_HEIGHT - w_r, radius=w_r, confidence=90),
+            Fruit(type=WATERMELON, x=280, y=NORMALIZED_HEIGHT - w_r, radius=w_r, confidence=90),
+        )
+    )
+    got = step_reward(two, two, merges=0, done=False)
+    assert abs(got - STEP_REWARD) < 1e-9
+
+
+def test_watermelon_clear_bonus() -> None:
+    w_r = fruit_radius(WATERMELON)
+    two = _obs(
+        (
+            Fruit(type=WATERMELON, x=120, y=NORMALIZED_HEIGHT - w_r, radius=w_r, confidence=90),
+            Fruit(type=WATERMELON, x=280, y=NORMALIZED_HEIGHT - w_r, radius=w_r, confidence=90),
+        )
+    )
+    empty = _obs()
+    got = step_reward(two, empty, merges=1, done=False)
+    assert got >= WATERMELON_CLEAR_BONUS * 2
 
 
 def test_game_over_by_crown() -> None:

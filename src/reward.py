@@ -18,8 +18,12 @@ MERGE_WEIGHT = 1.0
 PROGRESS_WEIGHT = 2.0
 # スイカが新たに増えたとき。
 WATERMELON_BONUS = 20.0
-# スイカが 2 個以上ある状態を維持。
-DOUBLE_WATERMELON_BONUS = 5.0
+# スイカが 2 個以上になった瞬間 (キープ加点ではない)。
+DOUBLE_REACH_BONUS = 15.0
+# スイカが合成で減った / 消えたとき (回す)。
+WATERMELON_CLEAR_BONUS = 25.0
+# 後方互換エイリアス (旧名・到達ボーナス)。
+DOUBLE_WATERMELON_BONUS = DOUBLE_REACH_BONUS
 # ゲームオーバー。
 DEATH_PENALTY = -20.0
 
@@ -52,7 +56,8 @@ def step_reward(
     """1 手分の報酬。
 
     - 生存と合成を基本報酬にする
-    - 盤の最大段階の更新・スイカ増・ダブルスイカ維持を加点
+    - 盤の最大段階の更新・スイカ増を加点
+    - ダブル到達とスイカ消去 (回す) を加点。維持は加点しない
     - ゲームオーバーで大きく減点
     """
     if done:
@@ -74,8 +79,10 @@ def step_reward(
     after_w = watermelon_count(after)
     if after_w > before_w:
         reward += (after_w - before_w) * WATERMELON_BONUS
-    if after_w >= 2:
-        reward += DOUBLE_WATERMELON_BONUS
+    if before_w < 2 <= after_w:
+        reward += DOUBLE_REACH_BONUS
+    if merges > 0 and after_w < before_w:
+        reward += (before_w - after_w) * WATERMELON_CLEAR_BONUS
 
     # 高い山は将来の死に近づくので小さく減点 (即死の手前)。
     if after.fruits:

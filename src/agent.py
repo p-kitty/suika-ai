@@ -33,6 +33,17 @@ def x_to_action(x: float) -> int:
     return max(0, min(N_ACTIONS - 1, action))
 
 
+def teacher_action_target(x: float) -> np.ndarray:
+    """先生の連続 x を近傍ビンに柔らかく割った分布。"""
+    width = float(NORMALIZED_WIDTH)
+    centers = (np.arange(N_ACTIONS, dtype=np.float64) + 0.5) * width / N_ACTIONS
+    sigma = max(width / N_ACTIONS, 1e-6)
+    z = -0.5 * ((centers - float(x)) / sigma) ** 2
+    z = z - z.max()
+    exp = np.exp(z)
+    return exp / exp.sum()
+
+
 class LinearPolicy:
     """1 隠れ層 MLP + softmax。名前は互換のため残す。"""
 
@@ -134,13 +145,68 @@ class LinearPolicy:
             batch_obs, batch_actions, [1.0] * len(batch_actions), lr=lr
         )
 
+    def bc_update_dist(
+        self,
+        batch_obs: list[np.ndarray],
+        batch_targets: list[np.ndarray],
+        *,
+        lr: float = 0.05,
+    ) -> float:
+        """柔らかい教師分布へのクロスエントロピー。"""
+        if not batch_obs:
+            return 0.0
+        gw1 = np.zeros_like(self.w1)
+        gb1 = np.zeros_like(self.b1)
+        gw2 = np.zeros_like(self.w2)
+        gb2 = np.zeros_like(self.b2)
+        loss = 0.0
+        for obs_vec, target in zip(batch_obs, batch_targets):
+            x = obs_vec.astype(np.float64)
+            t = target.astype(np.float64)
+            h, logits = self._forward(x)
+            z = logits - logits.max()
+            exp = np.exp(z)
+            probs = exp / exp.sum()
+            loss -= float(np.sum(t * np.log(probs + 1e-12)))
+            dlogits = t - probs
+            gw2 += np.outer(dlogits, h)
+            gb2 += dlogits
+            dh = self.w2.T @ dlogits
+            dh *= (h > 0.0).astype(np.float64)
+            gw1 += np.outer(dh, x)
+            gb1 += dh
+        n = float(len(batch_obs))
+        self.w1 += lr * gw1 / n
+        self.b1 += lr * gb1 / n
+        self.w2 += lr * gw2 / n
+        self.b2 += lr * gb2 / n
+        return float(loss / n)
+
+    def snapshot(self) -> dict[str, np.ndarray]:
+        return {
+            "w1": self.w1.copy(),
+            "b1": self.b1.copy(),
+            "w2": self.w2.copy(),
+            "b2": self.b2.copy(),
+        }
+
+    def restore(self, data: dict[str, np.ndarray]) -> None:
+        self.w1 = data["w1"].copy()
+        self.b1 = data["b1"].copy()
+        self.w2 = data["w2"].copy()
+        self.b2 = data["b2"].copy()
+        self.hidden = int(self.w1.shape[0])
+
     def save(self, path: str | PathLike) -> None:
         np.savez(path, w1=self.w1, b1=self.b1, w2=self.w2, b2=self.b2)
 
     def load(self, path: str | PathLike) -> None:
         data = np.load(path)
-        self.w1 = data["w1"]
-        self.b1 = data["b1"]
-        self.w2 = data["w2"]
-        self.b2 = data["b2"]
-        self.hidden = int(self.w1.shape[0])
+        self.restore(
+            {
+                "w1": data["w1"],
+                "b1": data["b1"],
+                "w2": data["w2"],
+                "b2": data["b2"],
+            }
+        )
