@@ -32,9 +32,15 @@
 - **Noted on**: 2026-07-31
 - **Status**: fixed — playable only when stillness is confirmed. Thresholds tightened too. A timeout does not stop auto. Pinned in `tests/test_env.py`
 
+## The view swings too far on edge placements
+
+- **Symptom**: when placing at the right edge, the view swings wastefully through (1) only the view advancing during fine adjustment at the wall (2) a round trip back to center every time. The left edge likewise
+- **Where to look**: `src/control.py` (`aim`, `recenter`), `src/env.py`
+- **Noted on**: 2026-07-31
+- **Status**: fixed — early stop in the edge band + stall when held does not move. `recenter` only pulls back lightly from the edge. Pinned in `tests/test_control.py`
+
 ## Deferred
 
-- **The view swings too far on edge placements**: when placing at the right edge, (1) only the view advancing during fine adjustment at the wall and (2) a round trip back to center every time were large. Changed to an early edge stop in `aim` + `recenter` only pulling back lightly from the edge (2026-07-31). If it still swings too far, look at `EDGE_TOLERANCE` / `RECENTER_INSET`
 - **Training (RL)**: while holes in observation and policy remain it becomes noise. Only after position UTs reduce misplacements and play runs for minutes without stopping
 - **`10.png` vision**: similar-color mask fusion + a strawberry outside the frame. Needs a redesign of the cropping; worse value for effort than the policy / held
 
