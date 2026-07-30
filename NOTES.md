@@ -80,3 +80,5 @@
 - `src/encode.py`: 固定長観測ベクトル
 - `src/sim_env.py`: 画面なし落下 sim (`policy.simulate_drop`)
 - 評価: `python scripts/eval_bootstrap.py`
+- 学習: `python scripts/train_sim.py` (線形 softmax + REINFORCE、numpy のみ)
+- `src/agent.py`: 離散列 20 ビンの線形方策
