@@ -67,3 +67,9 @@
 
 - **Training (RL)**: fine to start once the thin bootstrap policy keeps playing for minutes. Per-position placement UTs were dropped (adding concrete heuristics becomes a long-term habit)
 - **`10.png` vision**: similar-color mask fusion + a strawberry outside the frame. Needs a redesign of the cropping; worse value for effort than the policy / held
+
+## Policy (bootstrap)
+
+- `src/policy.py` is a thin policy before RL. Only merging, dangerous height, burying, light size order and accident prevention for rolling / knock-aways / gap junk
+- Not included: push-in merges, restoring pushes, growing priority, cascade gap opening, forced moves one tier up
+- Do not add UTs for concrete procedures. When something breaks, look at accident prevention or the observation side
