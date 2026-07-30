@@ -99,7 +99,7 @@ class Env:
             return StepResult(after, target, done=False, info="timeout")
         info = info_aim if not aimed else "ok"
 
-        # 次の手が端から始まらないよう、新しい落下待ちを中央へ戻す。
+        # 極端な端に居残らない程度に内側へ戻す (毎回中央までは戻さない)。
         control.recenter(read, abort=abort)
         after = self.observe()
 

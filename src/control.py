@@ -29,6 +29,14 @@ LOOK_PAUSE_SEC = 0.09
 
 # 狙いをまたいだあと、この幅以内なら打ち返さず止める。
 CROSS_STOP = 14.0
+# 端付近は held が壁で止まり、検出も揺れる。厳密に寄せようとして視点だけが
+# 振れ続けるのを避ける。
+EDGE_BAND = 48.0
+EDGE_TOLERANCE = 18.0
+# held がほとんど動かないのに視点だけ進むのを何手で諦めるか。
+STALL_MOVES = 2
+# 落下後の復帰: 極端な端だけ内側へ戻す。毎回中央まで戻すと往復が大きすぎる。
+RECENTER_INSET = 80.0
 
 
 class MOUSEINPUT(ctypes.Structure):
@@ -69,11 +77,30 @@ def recenter(
     read: Callable[[], tuple[object, np.ndarray | None]],
     abort: Callable[[], bool] | None = None,
 ) -> bool:
-    """次の手の前に、落下待ちを盤面中央へ戻す。クリックはしない。"""
+    """次の手の前に、極端な端にいるときだけ内側へ戻す。クリックはしない。
+
+    以前は毎回中央へ戻していたが、端置きのたびに端↔中央の往復になって
+    視点が無駄に振れる。端から次手を始めない程度に寄せれば足りる。
+    """
+    if abort is not None and abort():
+        return False
+    obs, _corners = read()
+    if getattr(obs, "blocked", False):
+        return False
+    held_x = getattr(obs, "held_x", None)
+    if held_x is None:
+        return False
+
+    held = float(held_x)
+    lo = RECENTER_INSET
+    hi = NORMALIZED_WIDTH - RECENTER_INSET
+    if lo <= held <= hi:
+        return True
+
     cfg = load()
-    # 中央は厳密でなくてよい。寄せ切れず左右しないことを優先。
     tolerance = float(cfg.get("recenter_tolerance", 14))
-    return aim(NORMALIZED_WIDTH / 2, read, tolerance=tolerance, abort=abort)
+    target = lo if held < lo else hi
+    return aim(target, read, tolerance=tolerance, abort=abort)
 
 
 def aim(
@@ -97,6 +124,7 @@ def aim(
 
     deadline = time.monotonic() + timeout_sec
     previous_error: float | None = None
+    previous_held: float | None = None
     best_error: float | None = None
     stall_moves = 0
 
@@ -111,18 +139,30 @@ def aim(
             time.sleep(LOOK_PAUSE_SEC)
             continue
 
-        error = target_x - float(held_x)
+        held = float(held_x)
+        error = target_x - held
         abs_error = abs(error)
         if abs_error <= tolerance:
             return True
+        # 右端・左端: 壁際まで来ていれば、残り誤差のために視点を振らない。
+        if _edge_close_enough(target_x, held, tolerance):
+            return True
 
-        # 端など、これ以上 held が寄らないときは動かし続けず今の位置で落とす。
-        if best_error is None or abs_error < best_error - 1.0:
-            best_error = abs_error
-            stall_moves = 0
-        else:
+        # held が動かない = 壁などで止まっている。視点だけ進めても無駄。
+        if previous_held is not None and abs(held - previous_held) < 0.5:
             stall_moves += 1
-            if stall_moves >= 3:
+            if stall_moves >= STALL_MOVES:
+                return True
+        else:
+            stall_moves = 0
+
+        # 誤差が改善しないときも打ち切る (検出揺れで微改善し続ける対策)。
+        if best_error is None or abs_error < best_error - 2.0:
+            best_error = abs_error
+            no_improve = 0
+        else:
+            no_improve += 1
+            if no_improve >= 3:
                 return True
 
         # 狙いをまたいだ。近いなら打ち返さず採用。遠いときだけ弱く戻す。
@@ -130,18 +170,40 @@ def aim(
         if crossed and abs_error <= max(tolerance, CROSS_STOP):
             return True
 
-        # 0.8 で手前に寄せる。近いほど一歩を抑える。
+        # 0.8 で手前に寄せる。近いほど一歩を抑える。端は一歩をさらに抑える。
         scale = 0.3 if crossed else 0.8
         if abs_error < 24:
             scale *= 0.55
+        if _near_edge(target_x) or _near_edge(held):
+            scale *= 0.5
         raw = error * gain * scale
         magnitude = min(max_step, max(1, int(round(abs(raw)))))
         step = magnitude if raw > 0 else -magnitude
 
         move_by(step, 0)
         previous_error = error
+        previous_held = held
         time.sleep(LOOK_PAUSE_SEC)
 
+    return False
+
+
+def _near_edge(x: float) -> bool:
+    return x <= EDGE_BAND or x >= NORMALIZED_WIDTH - EDGE_BAND
+
+
+def _edge_close_enough(target_x: float, held_x: float, tolerance: float) -> bool:
+    """壁際の狙いで、held が同じ側の端まで来ていれば十分とみなす。"""
+    if not _near_edge(target_x):
+        return False
+    limit = max(tolerance, EDGE_TOLERANCE)
+    if abs(target_x - held_x) <= limit:
+        return True
+    # 右端狙い: held が目標以上に右へ来ている / 左端は対称。
+    if target_x >= NORMALIZED_WIDTH - EDGE_BAND and held_x >= target_x - limit:
+        return True
+    if target_x <= EDGE_BAND and held_x <= target_x + limit:
+        return True
     return False
 
 def move_by(dx: int, dy: int = 0) -> None:

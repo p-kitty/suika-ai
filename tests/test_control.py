@@ -80,11 +80,19 @@ def test_drop_aims_then_clicks_at_target(world: FakeWorld) -> None:
     assert abs(world.clicked_at - target) <= LOOK_CFG["look_tolerance"]
 
 
-def test_recenter_brings_held_to_center(world: FakeWorld) -> None:
-    world.held_x = 30.0
+def test_recenter_pulls_in_from_edge_only(world: FakeWorld) -> None:
+    # 端にいるときだけ内側へ。中央までは戻さない。
+    world.held_x = 20.0
     assert control.recenter(world.read) is True
-    center = NORMALIZED_WIDTH / 2
-    assert abs(world.held_x - center) <= LOOK_CFG["recenter_tolerance"]
+    assert abs(world.held_x - control.RECENTER_INSET) <= LOOK_CFG["recenter_tolerance"]
+    assert world.held_x < NORMALIZED_WIDTH / 2
+
+
+def test_recenter_skips_when_already_inward(world: FakeWorld) -> None:
+    world.held_x = 150.0
+    assert control.recenter(world.read) is True
+    assert world.moves == []
+    assert world.held_x == 150.0
 
 
 def test_aim_stops_when_held_cannot_move(world: FakeWorld, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -93,7 +101,23 @@ def test_aim_stops_when_held_cannot_move(world: FakeWorld, monkeypatch: pytest.M
     world.held_x = 10.0
     assert control.aim(200.0, world.read) is True
     assert abs(world.held_x - 10.0) < 1e-6
-    assert len(world.moves) >= 3
+    assert len(world.moves) >= control.STALL_MOVES
+
+
+def test_aim_stops_early_near_right_edge(world: FakeWorld) -> None:
+    # 右端狙いで held が壁際まで来ていれば、残り数 px のために視点を振らない。
+    world.held_x = NORMALIZED_WIDTH - 30.0
+    target = NORMALIZED_WIDTH - 12.0
+    assert control.aim(target, world.read) is True
+    assert world.moves == []
+    assert abs(world.held_x - (NORMALIZED_WIDTH - 30.0)) < 1e-6
+
+
+def test_aim_stops_early_near_left_edge(world: FakeWorld) -> None:
+    world.held_x = 28.0
+    target = 10.0
+    assert control.aim(target, world.read) is True
+    assert world.moves == []
 
 
 def test_aim_fails_when_blocked(world: FakeWorld) -> None:
