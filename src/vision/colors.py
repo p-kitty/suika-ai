@@ -1,8 +1,6 @@
 import cv2
 import numpy as np
 
-from ..config import load
-
 # 新しく出てくるフルーツの最大段階 (orange)。apple 以上は来ない。
 # 落下待ちのものと next の泡のどちらにも当てはまる。
 SPAWN_MAX_TYPE = 4
@@ -39,9 +37,8 @@ FRUIT_RELATIVE_RADIUS = [
     1.000,   # watermelon
 ]
 
-# watermelon の半径 / 盤面幅。実測に合わせて config の
-# watermelon_radius_ratio で上書きする。
-DEFAULT_WATERMELON_RATIO = 0.24
+# watermelon の半径 / 盤面幅。実測から。
+WATERMELON_RADIUS_RATIO = 0.24
 
 # 盤面の下地 (ベージュ)。影で暗くなっても外せるよう V は絞らない。
 BOARD_BG_HSV = ((10, 0, 55), (35, 100, 255))
@@ -53,13 +50,13 @@ BOARD_BG_HSV = ((10, 0, 55), (35, 100, 255))
 BOARD_FRAME_HSV = ((14, 60, 100), (45, 255, 255))
 
 # フルーツはどれも鮮やかで、下地との差は彩度に出る。
-DEFAULT_FRUIT_SATURATION_MIN = 95
+FRUIT_SATURATION_MIN = 95
 
 # 盤面の外 (夜空、next の泡の中) は暗いが彩度は高く、彩度だけでは切れない。
 # 一方そこに写る淡くて明るいもの (雲、泡、星) は彩度で落ちる。明るさと彩度の
 # 両方を要求すると、残るのはフルーツだけになる。
-DEFAULT_VIVID_SATURATION_MIN = 130
-DEFAULT_VIVID_VALUE_MIN = 110
+VIVID_SATURATION_MIN = 130
+VIVID_VALUE_MIN = 110
 
 COLOR_FAMILIES = {
     "red_orange": [0, 1, 3, 4, 5],
@@ -71,17 +68,12 @@ COLOR_FAMILIES = {
 
 def saturated_mask(hsv: np.ndarray) -> np.ndarray:
     """彩度でフルーツらしい画素だけを残す。"""
-    saturation_min = load().get("fruit_saturation_min", DEFAULT_FRUIT_SATURATION_MIN)
-    return cv2.inRange(hsv, (0, saturation_min, 45), (180, 255, 255))
+    return cv2.inRange(hsv, (0, FRUIT_SATURATION_MIN, 45), (180, 255, 255))
 
 
 def vivid_mask(hsv: np.ndarray) -> np.ndarray:
     """明るくて鮮やかな画素だけを残す。盤面の外でフルーツを取るのに使う。"""
-    cfg = load()
-    saturation_min = cfg.get("vivid_saturation_min", DEFAULT_VIVID_SATURATION_MIN)
-    value_min = cfg.get("vivid_value_min", DEFAULT_VIVID_VALUE_MIN)
-
-    return cv2.inRange(hsv, (0, saturation_min, value_min), (180, 255, 255))
+    return cv2.inRange(hsv, (0, VIVID_SATURATION_MIN, VIVID_VALUE_MIN), (180, 255, 255))
 
 
 def color_family(h: float, s: float) -> str:

@@ -1,17 +1,4 @@
 {
-    "capture_fps": 15,
-    "held_radius_scale": 0.93,
-    "vivid_saturation_min": 130,
-    "vivid_value_min": 110,
-    "use_color_filter": true,
-    "fruit_saturation_min": 95,
-    "watermelon_radius_ratio": 0.24,
-    "min_confidence": 0.35,
     "debug_radius": true,
-    "debug_dump_interval_sec": 0,
-    "look_gain": 0.55,
-    "look_tolerance": 8,
-    "look_timeout_sec": 4.0,
-    "look_max_step": 48,
-    "recenter_tolerance": 14
+    "debug_dump_interval_sec": 0
 }

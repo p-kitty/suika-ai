@@ -9,13 +9,17 @@ import pytest
 from src import control
 from src.vision.normalized import NORMALIZED_WIDTH
 
-LOOK_CFG = {
-    "look_gain": 1.0,
-    "look_tolerance": 8,
-    "look_timeout_sec": 1.0,
-    "look_max_step": 48,
-    "recenter_tolerance": 14,
-}
+
+@pytest.fixture
+def world(monkeypatch: pytest.MonkeyPatch) -> FakeWorld:
+    fake = FakeWorld(held_x=40.0)
+    # テストでは速く・大きく動かして収束させる。
+    monkeypatch.setattr(control, "LOOK_GAIN", 1.0)
+    monkeypatch.setattr(control, "LOOK_TIMEOUT_SEC", 1.0)
+    monkeypatch.setattr(control, "move_by", fake.move_by)
+    monkeypatch.setattr(control, "click", fake.click)
+    monkeypatch.setattr(control.time, "sleep", lambda _sec: None)
+    return fake
 
 
 class FakeWorld:
@@ -47,20 +51,10 @@ class FakeWorld:
         self.clicked_at = self.held_x
 
 
-@pytest.fixture
-def world(monkeypatch: pytest.MonkeyPatch) -> FakeWorld:
-    fake = FakeWorld(held_x=40.0)
-    monkeypatch.setattr(control, "load", lambda: LOOK_CFG)
-    monkeypatch.setattr(control, "move_by", fake.move_by)
-    monkeypatch.setattr(control, "click", fake.click)
-    monkeypatch.setattr(control.time, "sleep", lambda _sec: None)
-    return fake
-
-
 def test_aim_reaches_target_within_tolerance(world: FakeWorld) -> None:
     target = 260.0
     assert control.aim(target, world.read) is True
-    assert abs(world.held_x - target) <= LOOK_CFG["look_tolerance"]
+    assert abs(world.held_x - target) <= control.LOOK_TOLERANCE
     assert world.moves  # 何か動かしている
 
 
@@ -77,14 +71,14 @@ def test_drop_aims_then_clicks_at_target(world: FakeWorld) -> None:
     assert control.drop_column(target, read=world.read) is True
     assert world.clicks == 1
     assert world.clicked_at is not None
-    assert abs(world.clicked_at - target) <= LOOK_CFG["look_tolerance"]
+    assert abs(world.clicked_at - target) <= control.LOOK_TOLERANCE
 
 
 def test_recenter_pulls_in_from_edge_only(world: FakeWorld) -> None:
     # 端にいるときだけ内側へ。中央までは戻さない。
     world.held_x = 20.0
     assert control.recenter(world.read) is True
-    assert abs(world.held_x - control.RECENTER_INSET) <= LOOK_CFG["recenter_tolerance"]
+    assert abs(world.held_x - control.RECENTER_INSET) <= control.RECENTER_TOLERANCE
     assert world.held_x < NORMALIZED_WIDTH / 2
 
 
@@ -128,7 +122,7 @@ def test_aim_does_not_stop_early_for_inward_target_from_edge(world: FakeWorld) -
     target = NORMALIZED_WIDTH - 55.0
     assert control.aim(target, world.read) is True
     assert world.moves
-    assert abs(world.held_x - target) <= LOOK_CFG["look_tolerance"]
+    assert abs(world.held_x - target) <= control.LOOK_TOLERANCE
 
 
 def test_aim_fails_when_blocked(world: FakeWorld) -> None:
@@ -146,7 +140,7 @@ def test_aim_aborts_without_finishing(world: FakeWorld) -> None:
 
     world.held_x = 40.0
     assert control.aim(300.0, world.read, abort=abort) is False
-    assert abs(world.held_x - 300.0) > LOOK_CFG["look_tolerance"]
+    assert abs(world.held_x - 300.0) > control.LOOK_TOLERANCE
 
 
 def test_drop_skips_click_when_aborted(world: FakeWorld) -> None:

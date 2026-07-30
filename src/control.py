@@ -14,7 +14,6 @@ from ctypes import wintypes
 
 import numpy as np
 
-from .config import load
 from .vision.normalized import NORMALIZED_WIDTH
 
 # Win32 のマウス入力。
@@ -27,6 +26,11 @@ CLICK_PAUSE_SEC = 0.05
 # 動かしたあと、視点と検出が落ち着くまで待つ。
 LOOK_PAUSE_SEC = 0.09
 
+# 誤差 (盤面 px) に対するマウス移動。わざと少し短めに寄せる。
+LOOK_GAIN = 0.55
+LOOK_TOLERANCE = 8.0
+LOOK_TIMEOUT_SEC = 4.0
+LOOK_MAX_STEP = 48
 # 狙いをまたいだあと、この幅以内なら打ち返さず止める。
 CROSS_STOP = 14.0
 # 端付近は held が壁で止まり、検出も揺れる。厳密に寄せようとして視点だけが
@@ -37,6 +41,7 @@ EDGE_TOLERANCE = 18.0
 STALL_MOVES = 2
 # 落下後の復帰: 極端な端だけ内側へ戻す。毎回中央まで戻すと往復が大きすぎる。
 RECENTER_INSET = 80.0
+RECENTER_TOLERANCE = 14.0
 
 
 class MOUSEINPUT(ctypes.Structure):
@@ -97,10 +102,8 @@ def recenter(
     if lo <= held <= hi:
         return True
 
-    cfg = load()
-    tolerance = float(cfg.get("recenter_tolerance", 14))
     target = lo if held < lo else hi
-    return aim(target, read, tolerance=tolerance, abort=abort)
+    return aim(target, read, tolerance=RECENTER_TOLERANCE, abort=abort)
 
 
 def aim(
@@ -114,15 +117,11 @@ def aim(
 
     比例で寄せる。わざと少し短めに動かし、行き過ぎより手前止まりを優先する。
     """
-    cfg = load()
     # 誤差 (盤面 px) に対するマウス移動。逆方向なら負にする。
-    gain = float(cfg.get("look_gain", 0.55))
     if tolerance is None:
-        tolerance = float(cfg.get("look_tolerance", 8))
-    timeout_sec = float(cfg.get("look_timeout_sec", 4.0))
-    max_step = int(cfg.get("look_max_step", 48))
+        tolerance = LOOK_TOLERANCE
 
-    deadline = time.monotonic() + timeout_sec
+    deadline = time.monotonic() + LOOK_TIMEOUT_SEC
     previous_error: float | None = None
     previous_held: float | None = None
     best_error: float | None = None
@@ -176,8 +175,8 @@ def aim(
             scale *= 0.55
         if _near_edge(target_x) or _near_edge(held):
             scale *= 0.5
-        raw = error * gain * scale
-        magnitude = min(max_step, max(1, int(round(abs(raw)))))
+        raw = error * LOOK_GAIN * scale
+        magnitude = min(LOOK_MAX_STEP, max(1, int(round(abs(raw)))))
         step = magnitude if raw > 0 else -magnitude
 
         move_by(step, 0)

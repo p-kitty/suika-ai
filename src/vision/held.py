@@ -3,7 +3,6 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from ..config import load
 from ..draw import Color, put_text
 from .blobs import circle_peaks, solid_mask
 from .classify import ClassifyResult, classify, fruit_radius_ratios, sample_hsv
@@ -26,7 +25,7 @@ DROP_HEIGHT_TOLERANCE = 15.0
 
 # 落下待ちフルーツは盤面のフルーツより少し小さく写る。上辺の外へ射影を
 # 伸ばした先なので、盤面の中と尺度がわずかに違う。
-DEFAULT_RADIUS_SCALE = 0.93
+HELD_RADIUS_SCALE = 0.93
 
 
 @dataclass
@@ -49,7 +48,7 @@ def detect(frame: np.ndarray, corners: np.ndarray) -> HeldResult:
         return HeldResult(fruit=None)
 
     x, y, radius = blob
-    radius_ratio = radius / (NORMALIZED_WIDTH * _radius_scale())
+    radius_ratio = radius / (NORMALIZED_WIDTH * HELD_RADIUS_SCALE)
 
     hsv_mean = sample_hsv(band, x, y, radius, valid_mask=mask)
     fruit = classify(radius_ratio, hsv_mean, max_type=SPAWN_MAX_TYPE)
@@ -105,12 +104,13 @@ def _find_blob(mask: np.ndarray) -> tuple[float, float, float] | None:
     帯には落ちていく途中のフルーツや、盤面に積み上がって縁を越えたフルーツも
     写る。落下待ちのものだけが落下点の高さにいるので、そこからのずれで選ぶ。
     """
-    scale = _radius_scale()
-
     # 落とせるのは cherry〜orange だけ。その範囲外の大きさは別のものを見ている。
     ratios = fruit_radius_ratios()
-    min_radius = max(2.0, NORMALIZED_WIDTH * scale * ratios[0] * 0.6)
-    max_radius = max(min_radius + 1.0, NORMALIZED_WIDTH * scale * ratios[SPAWN_MAX_TYPE] * 1.4)
+    min_radius = max(2.0, NORMALIZED_WIDTH * HELD_RADIUS_SCALE * ratios[0] * 0.6)
+    max_radius = max(
+        min_radius + 1.0,
+        NORMALIZED_WIDTH * HELD_RADIUS_SCALE * ratios[SPAWN_MAX_TYPE] * 1.4,
+    )
 
     mask = _without_overhang(mask)
 
@@ -162,7 +162,3 @@ def _without_overhang(mask: np.ndarray) -> np.ndarray:
 
 def _height_error(y: float) -> float:
     return abs((BAND_HEIGHT - y) - DROP_HEIGHT)
-
-
-def _radius_scale() -> float:
-    return load().get("held_radius_scale", DEFAULT_RADIUS_SCALE) or DEFAULT_RADIUS_SCALE

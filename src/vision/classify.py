@@ -4,12 +4,11 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from ..config import load
 from .colors import (
     COLOR_FAMILIES,
-    DEFAULT_WATERMELON_RATIO,
     FRUIT_NAMES,
     FRUIT_RELATIVE_RADIUS,
+    WATERMELON_RADIUS_RATIO,
     color_family,
 )
 
@@ -19,6 +18,8 @@ RADIUS_LOG_TOLERANCE = math.log(1.6)
 # 色が合わない段階への減点。候補から外さないのが重要で、色を読み違えても
 # 半径がはっきりしていれば正解が残る。半径が拮抗したときだけ色が効く強さ。
 COLOR_MISMATCH_PENALTY = 0.75
+MIN_CONFIDENCE = 0.35
+USE_COLOR_FILTER = True
 
 
 @dataclass
@@ -32,8 +33,7 @@ class ClassifyResult:
 
 
 def fruit_radius_ratios() -> list[float]:
-    anchor = load().get("watermelon_radius_ratio", DEFAULT_WATERMELON_RATIO)
-    return [relative * anchor for relative in FRUIT_RELATIVE_RADIUS]
+    return [relative * WATERMELON_RADIUS_RATIO for relative in FRUIT_RELATIVE_RADIUS]
 
 
 def classify(
@@ -41,11 +41,10 @@ def classify(
     hsv_mean: np.ndarray | None,
     max_type: int | None = None,
 ) -> ClassifyResult | None:
-    cfg = load()
     ratios = fruit_radius_ratios()
     upper = max_type + 1 if max_type is not None else len(ratios)
 
-    preferred = _preferred_types(cfg, hsv_mean)
+    preferred = _preferred_types(hsv_mean)
 
     best_type = 0
     best_score = -1.0
@@ -59,7 +58,7 @@ def classify(
             best_score = score
             best_type = fruit_type
 
-    if best_score < cfg.get("min_confidence", 0.35):
+    if best_score < MIN_CONFIDENCE:
         return None
 
     return ClassifyResult(type=best_type, confidence=min(best_score, 1.0) * 100)
@@ -101,9 +100,9 @@ def _score(radius_ratio: float, center: float) -> float:
     return max(0.0, 1.0 - deviation / RADIUS_LOG_TOLERANCE)
 
 
-def _preferred_types(cfg: dict, hsv_mean: np.ndarray | None) -> set[int] | None:
+def _preferred_types(hsv_mean: np.ndarray | None) -> set[int] | None:
     """色から見て有力な段階。判断できないときは None (減点なし)。"""
-    if not cfg.get("use_color_filter", True) or hsv_mean is None:
+    if not USE_COLOR_FILTER or hsv_mean is None:
         return None
 
     family = color_family(float(hsv_mean[0]), float(hsv_mean[1]))
