@@ -1,8 +1,9 @@
-"""薄い bootstrap 方策を sim で評価する。
+"""bootstrap / learned を同じ条件で sim 評価する。
 
 用法:
-  python scripts/eval_bootstrap.py
-  python scripts/eval_bootstrap.py --episodes 50
+  python scripts/eval_policy.py
+  python scripts/eval_policy.py --policy learned --max-steps 100 --episodes 20
+  python scripts/eval_policy.py --policy bootstrap --max-steps 100
 """
 
 from __future__ import annotations
@@ -16,12 +17,20 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.agent import LinearPolicy
 from src.policy import choose_x
 from src.reward import watermelon_count
 from src.sim_env import SimEnv
 
+DEFAULT_CKPT = ROOT / "artifacts" / "policy_sim.npz"
 
-def run_episode(seed: int, max_steps: int = 200) -> dict[str, float]:
+
+def run_episode(
+    seed: int,
+    *,
+    choose,
+    max_steps: int,
+) -> dict[str, float]:
     env = SimEnv(seed=seed)
     obs = env.reset()
     total_reward = 0.0
@@ -30,7 +39,7 @@ def run_episode(seed: int, max_steps: int = 200) -> dict[str, float]:
     max_type = -1
     max_wm = 0
     for _ in range(max_steps):
-        result = env.step(choose_x(obs))
+        result = env.step(choose(obs))
         obs = result.observation
         total_reward += result.reward
         merges += result.merges
@@ -52,18 +61,38 @@ def run_episode(seed: int, max_steps: int = 200) -> dict[str, float]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--episodes", type=int, default=10)
+    parser.add_argument(
+        "--policy",
+        choices=("bootstrap", "learned"),
+        default="learned",
+    )
+    parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CKPT)
+    parser.add_argument("--episodes", type=int, default=20)
     parser.add_argument("--seed", type=int, default=0)
-    # choose_x は候補×next で重い。長い比較は eval_policy.py を使う。
     parser.add_argument("--max-steps", type=int, default=100)
     args = parser.parse_args()
 
-    rows = [run_episode(args.seed + i, args.max_steps) for i in range(args.episodes)]
+    if args.policy == "bootstrap":
+        choose = choose_x
+    else:
+        if not args.checkpoint.is_file():
+            raise SystemExit(f"checkpoint が無い: {args.checkpoint}")
+        policy = LinearPolicy()
+        policy.load(args.checkpoint)
+
+        def choose(obs):
+            _, x, _ = policy.act(obs, greedy=True)
+            return x
+
+    rows = [
+        run_episode(args.seed + i, choose=choose, max_steps=args.max_steps)
+        for i in range(args.episodes)
+    ]
     steps = [r["steps"] for r in rows]
     rewards = [r["reward"] for r in rows]
     merges = [r["merges"] for r in rows]
     max_types = [r["max_type"] for r in rows]
-    print(f"episodes={args.episodes}")
+    print(f"policy={args.policy}  episodes={args.episodes}  max_steps={args.max_steps}")
     print(f"steps  mean={statistics.mean(steps):.1f}  median={statistics.median(steps):.1f}")
     print(f"reward mean={statistics.mean(rewards):.2f}")
     print(f"merges mean={statistics.mean(merges):.1f}")

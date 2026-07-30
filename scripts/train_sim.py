@@ -9,8 +9,11 @@ REINFORCE は match が十分上がってから手動で足す。
 
 用法:
   python scripts/train_sim.py
-  python scripts/train_sim.py --bc-episodes 80 --bc-epochs 60
-  python scripts/train_sim.py --bc-episodes 80 --bc-epochs 60 --episodes 50 --lr 0.002
+  python scripts/train_sim.py --bc-episodes 100 --max-steps 100
+  python scripts/train_sim.py --bc-episodes 100 --bc-epochs 80 --episodes 50 --lr 0.002
+
+注: max-steps はゲームの負け条件ではなく、収集・評価の打ち切り。
+死ぬか上限に達するまで。長いほど終盤を学べるが collect は遅くなる。
 """
 
 from __future__ import annotations
@@ -168,18 +171,25 @@ def run_rl_episode(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bc-episodes", type=int, default=80)
-    parser.add_argument("--bc-epochs", type=int, default=60)
+    parser.add_argument("--bc-episodes", type=int, default=100)
+    parser.add_argument("--bc-epochs", type=int, default=80)
     # RL は BC が足りてから。既定オフ。
     parser.add_argument("--episodes", type=int, default=0)
-    parser.add_argument("--max-steps", type=int, default=40)
+    # ゲームオーバーまでは続行。これは収集・評価の上限打ち切り。
+    parser.add_argument("--max-steps", type=int, default=100)
+    parser.add_argument(
+        "--eval-max-steps",
+        type=int,
+        default=None,
+        help="生徒評価の手数上限 (省略時は --max-steps)",
+    )
     parser.add_argument("--bc-lr", type=float, default=0.05)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=0.002)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--log-every", type=int, default=10)
-    parser.add_argument("--eval-episodes", type=int, default=5)
+    parser.add_argument("--eval-episodes", type=int, default=8)
     parser.add_argument(
         "--save",
         type=Path,
@@ -187,6 +197,9 @@ def main() -> None:
         help="重み保存先 (nullptr で無効)",
     )
     args = parser.parse_args()
+    eval_max_steps = (
+        args.eval_max_steps if args.eval_max_steps is not None else args.max_steps
+    )
 
     rng = np.random.default_rng(args.seed)
     policy = LinearPolicy(rng)
@@ -195,7 +208,8 @@ def main() -> None:
 
     if args.bc_episodes > 0:
         print(
-            f"=== collect teacher ({args.bc_episodes} ep) ===",
+            f"=== collect teacher ({args.bc_episodes} ep, "
+            f"max_steps={args.max_steps}) ===",
             flush=True,
         )
         for ep in range(1, args.bc_episodes + 1):
@@ -235,7 +249,7 @@ def main() -> None:
                     policy,
                     seed=args.seed + 9000,
                     episodes=args.eval_episodes,
-                    max_steps=args.max_steps,
+                    max_steps=eval_max_steps,
                 )
                 # 実力 (student_r) 優先。同点なら match。
                 better = student_r > best_r + 1e-9 or (

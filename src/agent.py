@@ -10,9 +10,9 @@ from .encode import OBS_DIM, encode
 from .observe import Observation, clamp_drop_x
 from .vision.normalized import NORMALIZED_WIDTH
 
-# 落とす列のビン数。
-N_ACTIONS = 20
-HIDDEN = 64
+# 落とす列のビン数 (細かいほど先生の連続 x に寄せやすい)。
+N_ACTIONS = 32
+HIDDEN = 128
 
 
 def action_to_x(action: int, held_type: int | None) -> float:
@@ -202,11 +202,17 @@ class LinearPolicy:
 
     def load(self, path: str | PathLike) -> None:
         data = np.load(path)
+        w1, w2 = data["w1"], data["w2"]
+        if w1.shape[1] != OBS_DIM or w2.shape[0] != N_ACTIONS:
+            raise ValueError(
+                f"checkpoint shape mismatch: got w1={w1.shape} w2={w2.shape}, "
+                f"expected (*, {OBS_DIM}) and ({N_ACTIONS}, *). Re-train."
+            )
         self.restore(
             {
-                "w1": data["w1"],
+                "w1": w1,
                 "b1": data["b1"],
-                "w2": data["w2"],
+                "w2": w2,
                 "b2": data["b2"],
             }
         )
