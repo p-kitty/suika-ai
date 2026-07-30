@@ -112,6 +112,8 @@ def _find_blob(mask: np.ndarray) -> tuple[float, float, float] | None:
     min_radius = max(2.0, NORMALIZED_WIDTH * scale * ratios[0] * 0.6)
     max_radius = max(min_radius + 1.0, NORMALIZED_WIDTH * scale * ratios[SPAWN_MAX_TYPE] * 1.4)
 
+    mask = _without_overhang(mask)
+
     candidates = [
         peak
         for peak in circle_peaks(mask, min_radius, max_radius)
@@ -121,6 +123,41 @@ def _find_blob(mask: np.ndarray) -> tuple[float, float, float] | None:
         return None
 
     return min(candidates, key=lambda peak: _height_error(peak[1]))
+
+
+def _without_overhang(mask: np.ndarray) -> np.ndarray:
+    """Remove fruits past the rim from the band mask.
+
+    Overflowing fruits touch the bottom of the band. They may be connected to held, so
+    first cut a thin strip at the bottom to separate them, then drop the remaining blobs 'toward the bottom'.
+    """
+    if mask.size == 0 or not np.any(mask):
+        return mask
+
+    height = mask.shape[0]
+    strip = max(4, height // 16)
+    severed = mask.copy()
+    severed[-strip:, :] = 0
+
+    num, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        (severed > 0).astype(np.uint8), connectivity=8
+    )
+    if num <= 1:
+        return severed
+
+    # A blob whose centroid is well below the drop point is an intrusion from the rim.
+    limit = BAND_HEIGHT - DROP_HEIGHT + DROP_HEIGHT_TOLERANCE
+    clear = np.zeros(num, dtype=bool)
+    for label in range(1, num):
+        if centroids[label][1] > limit:
+            clear[label] = True
+
+    if not np.any(clear):
+        return severed
+
+    cleaned = severed.copy()
+    cleaned[clear[labels]] = 0
+    return cleaned
 
 
 def _height_error(y: float) -> float:
