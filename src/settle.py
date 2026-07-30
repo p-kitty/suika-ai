@@ -11,16 +11,19 @@ from .observe import Observation
 from .vision.state import Fruit
 
 # 静止判定は raw_fruits (Tracker 平滑化前) を見る。
-# 検出ノイズで永遠に settle しないほどは厳しくしない。
-DEFAULT_STILL_PX = 1.5
-# この長さずっと静かなら止まったとみなす。
-DEFAULT_STILL_SEC = 1.15
+# 完全静止は待たず、遅い動きなら着手してよい。
+# 正規化盤でだいたい 60px/s 以下なら「ほぼ止まっている」。
+DEFAULT_STILL_SPEED = 60.0
+# この長さずっと遅ければ止まったとみなす。
+DEFAULT_STILL_SEC = 0.4
 # 落としてからここまで動かなければ諦める。
 DEFAULT_TIMEOUT_SEC = 12.0
 # 落下待ちが消えてから、次のが出るまでの待ち上限。
 DEFAULT_HELD_TIMEOUT_SEC = 4.0
 # ready 待ちを含めた「次の一手ができる」までの上限。
 DEFAULT_PLAYABLE_TIMEOUT_SEC = 20.0
+# 旧 API / テスト用。フレーム間 px。指定時は速度換算せずこの閾値を使う。
+DEFAULT_STILL_PX = 1.5
 
 
 def motion(previous: list[Fruit] | tuple[Fruit, ...], current: list[Fruit] | tuple[Fruit, ...]) -> float:
@@ -37,13 +40,13 @@ def motion(previous: list[Fruit] | tuple[Fruit, ...], current: list[Fruit] | tup
     matched_curr = {b for _, b in pairs}
 
     distances = [float(np.hypot(previous[a].x - current[b].x, previous[a].y - current[b].y)) for a, b in pairs]
-    # 出現・消失も動きだが、半径まるごまだと検出点滅で永遠に settle しない。
+    # 出現・消失も動きだが、大きく足すと検出点滅で永遠に settle しない。
     for i in range(len(previous)):
         if i not in matched_prev:
-            distances.append(min(previous[i].radius, 10.0))
+            distances.append(min(previous[i].radius, 5.0))
     for i in range(len(current)):
         if i not in matched_curr:
-            distances.append(min(current[i].radius, 10.0))
+            distances.append(min(current[i].radius, 5.0))
 
     return max(distances) if distances else 0.0
 
@@ -51,35 +54,46 @@ def motion(previous: list[Fruit] | tuple[Fruit, ...], current: list[Fruit] | tup
 def wait_settled(
     read: Callable[[], Observation],
     *,
-    still_px: float = DEFAULT_STILL_PX,
+    still_speed: float = DEFAULT_STILL_SPEED,
     still_sec: float = DEFAULT_STILL_SEC,
     timeout_sec: float = DEFAULT_TIMEOUT_SEC,
     abort: Callable[[], bool] | None = None,
+    still_px: float | None = None,
 ) -> tuple[Observation, bool]:
-    """盤面のフルーツが止まった観測を返す。
+    """盤面のフルーツが十分遅くなった観測を返す。
 
-    戻り値は (観測, 止まったか)。タイムアウトや中断なら最後の観測と False。
+    既定は速度 (px/s) で判定する。still_px を渡したときだけフレーム間変位で見る
+    (テスト用)。戻り値は (観測, 止まったか)。タイムアウトや中断なら False。
     """
     deadline = time.monotonic() + timeout_sec
     quiet_since: float | None = None
     previous = read()
+    previous_t = time.monotonic()
 
     while time.monotonic() < deadline:
         if abort is not None and abort():
             return previous, False
         time.sleep(1 / 30)
+        now = time.monotonic()
         current = read()
 
         if current.blocked:
             return current, True
 
         moved = motion(previous.motion_fruits, current.motion_fruits)
+        dt = max(now - previous_t, 1e-3)
         previous = current
+        previous_t = now
 
-        if moved <= still_px:
+        if still_px is not None:
+            quiet = moved <= still_px
+        else:
+            quiet = (moved / dt) <= still_speed
+
+        if quiet:
             if quiet_since is None:
-                quiet_since = time.monotonic()
-            elif time.monotonic() - quiet_since >= still_sec:
+                quiet_since = now
+            elif now - quiet_since >= still_sec:
                 return current, True
         else:
             quiet_since = None
