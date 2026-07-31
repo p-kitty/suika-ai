@@ -7,8 +7,9 @@ from dataclasses import dataclass
 import numpy as np
 
 from .observe import Observation, clamp_drop_x
-from .policy import drop_scores, simulate_drop
+from .policy import drop_scores
 from .reward import cleared_double_watermelon, is_game_over
+from .sim_physics import simulate_drop
 from .vision.colors import SPAWN_MAX_TYPE
 from .vision.normalized import NORMALIZED_WIDTH
 from .vision.state import Fruit
@@ -27,7 +28,7 @@ class SimStep:
 
 
 class SimEnv:
-    """空盤から held/next を配り、policy.simulate_drop で落とす。"""
+    """空盤から held/next を配り、sim_physics.simulate_drop で落とす。"""
 
     def __init__(self, seed: int | None = None) -> None:
         self.rng = np.random.default_rng(seed)

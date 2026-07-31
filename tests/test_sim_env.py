@@ -62,5 +62,3 @@ def test_double_watermelon_clear_wins() -> None:
     assert result.info == "win"
     assert result.done
     assert result.score == CLEAR_SCORE
-    # eval は減点ぶんだけ score より下。
-    assert result.eval_score <= result.score

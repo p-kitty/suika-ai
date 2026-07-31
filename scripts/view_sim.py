@@ -30,8 +30,10 @@ if str(ROOT) not in sys.path:
 
 from src.draw import put_text
 from src.observe import clamp_drop_x
-from src.policy import _preview_land, choose_x, drop_scores, simulate_drop
+from src.policy import choose_x, drop_scores
 from src.sim_env import SimEnv
+from src.sim_physics import preview_land as _preview_land
+from src.sim_physics import simulate_drop
 from src.vision.classify import fruit_radius
 from src.vision.colors import FRUIT_NAMES
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
