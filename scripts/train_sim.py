@@ -21,7 +21,6 @@ REINFORCE は match が十分上がってから手動で足す。
 from __future__ import annotations
 
 import argparse
-import os
 import statistics
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -29,22 +28,20 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._bootstrap import ROOT, ensure_import_path
+
+ensure_import_path()
 
 from src.agent import LinearPolicy, x_to_action
 from src.encode import encode
+from src.parallel import default_workers
 from src.policy import choose_x
 from src.sim_env import SimEnv
 
 DEFAULT_CKPT = ROOT / "artifacts" / "policy_sim.npz"
-
-
-def default_collect_workers() -> int:
-    """CPU-bound の choose_x 向け。論理コアの半分を既定にする (9700X なら 8)。"""
-    n = os.cpu_count() or 4
-    return max(1, n // 2)
 
 
 def collect_teacher_episode(
@@ -286,7 +283,7 @@ def main() -> None:
         args.eval_max_steps if args.eval_max_steps is not None else args.max_steps
     )
     workers = (
-        args.workers if args.workers is not None else default_collect_workers()
+        args.workers if args.workers is not None else default_workers()
     )
 
     rng = np.random.default_rng(args.seed)

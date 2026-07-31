@@ -1,5 +1,4 @@
 import argparse
-import ctypes
 import time
 from pathlib import Path
 
@@ -10,13 +9,11 @@ from src.agent import LinearPolicy
 from src.capture import CAPTURE_FPS, capture
 from src.config import load
 from src.debug_dump import dump
-from src.draw import mode_badge, put_text
 from src.env import Env
+from src.hotkeys import EdgeKey
 from src.observe import Observation
 from src.policy import choose_x
-from src.vision.board import draw_frame_debug
-from src.vision.held import DROP_HEIGHT
-from src.vision.normalized import inverse_warp_matrix, transform_point
+from src.preview import PreviewState, render_preview
 from src.window import maximize_window
 
 WINDOW_TITLE = "Suika"
@@ -90,22 +87,26 @@ def main() -> None:
         return choose_x(obs_in)
 
     maximize_window(WINDOW_TITLE)
-    g_was_down = False
-    p_was_down = False
-    l_was_down = False
+    g_key = EdgeKey(VK_G)
+    p_key = EdgeKey(VK_P)
+    l_key = EdgeKey(VK_L)
     frame: np.ndarray | None = None
     print(f"policy={policy_name}")
 
-    def _edge(vk: int, was_down: bool) -> tuple[bool, bool]:
-        """グローバルキーの立ち上がり。 (pressed, down)。"""
-        down = bool(ctypes.windll.user32.GetAsyncKeyState(vk) & 0x8000)
-        return down and not was_down, down
+    def preview_state(now: float) -> PreviewState:
+        return PreviewState(
+            aim_x=aim_x,
+            auto_play=auto_play,
+            policy_name=policy_name,
+            message=message,
+            message_until=message_until,
+            now=now,
+        )
 
     def poll_g_toggle() -> bool:
         """G の立ち上がりで auto をトグル。押されたら True。"""
-        nonlocal auto_play, g_was_down, message, message_until
-        pressed, g_was_down = _edge(VK_G, g_was_down)
-        if not pressed:
+        nonlocal auto_play, message, message_until
+        if not g_key.poll():
             return False
         auto_play = not auto_play
         message = f"auto={'ON' if auto_play else 'off'}"
@@ -115,9 +116,8 @@ def main() -> None:
 
     def poll_policy_toggle() -> None:
         """L で bootstrap / learned を切替。"""
-        nonlocal policy_name, l_was_down, message, message_until
-        pressed, l_was_down = _edge(VK_L, l_was_down)
-        if not pressed:
+        nonlocal policy_name, message, message_until
+        if not l_key.poll():
             return
         if learned_policy is None:
             message = "learned ckpt missing"
@@ -131,9 +131,7 @@ def main() -> None:
 
     def poll_step_key() -> bool:
         """P の立ち上がりで 1 手。待ち中は状態だけ更新する。"""
-        nonlocal p_was_down
-        pressed, p_was_down = _edge(VK_P, p_was_down)
-        return pressed
+        return p_key.poll()
 
     def pump_ui() -> None:
         """settle / aim 待ち中も映像を回す。狙い線だけは残す。"""
@@ -150,28 +148,24 @@ def main() -> None:
             frame = fresh
         if frame is None:
             return
-        # フルーツ円は載せない (カクつく)。狙い列は aim 中に見えないと困るので残す。
-        output = frame.copy()
-        board_now = env.board
-        if aim_x is not None and board_now is not None and board_now.corners is not None:
-            _draw_aim(output, board_now.corners, aim_x)
-        mode_badge(output, auto_play)
-        put_text(
-            output,
-            f"aim x={aim_x:.0f}" if aim_x is not None else "aim —",
-            (8, 128),
-            (0, 255, 255),
+        render_preview(
+            frame,
+            board=env.board,
+            obs=obs,
+            state=preview_state(now),
+            debug_board=False,
+            window_title=WINDOW_TITLE,
         )
-        put_text(output, f"policy={policy_name}", (8, 152), (0, 220, 255), scale=0.5)
-        put_text(
-            output,
-            message if now < message_until else "settling...",
-            (8, output.shape[0] - 12),
-            (255, 255, 255),
-            scale=0.5,
+
+    def show(now: float) -> None:
+        render_preview(
+            frame,
+            board=env.board,
+            obs=obs,
+            state=preview_state(now),
+            debug_board=True,
+            window_title=WINDOW_TITLE,
         )
-        cv2.imshow(WINDOW_TITLE, output)
-        cv2.waitKey(1)
 
     def should_abort() -> bool:
         """自動中の待ちループ用。G で off にしたら打ち切る。"""
@@ -222,17 +216,7 @@ def main() -> None:
         if step_pressed or (auto_play and obs.ready and not obs.blocked):
             message = "settling..."
             message_until = now + MESSAGE_SECONDS
-            _show(
-                frame,
-                board,
-                obs,
-                aim_x,
-                auto_play,
-                policy_name,
-                message,
-                message_until,
-                now,
-            )
+            show(now)
 
             def abort() -> bool:
                 # 待ち中もプレビューを回す。auto なら G で打ち切れる。
@@ -252,17 +236,7 @@ def main() -> None:
                     message = f"aiming x={target:.0f}"
                     message_until = time.monotonic() + MESSAGE_SECONDS
                     frame, obs, board = _refresh(env, frame, obs)
-                    _show(
-                        frame,
-                        board,
-                        obs,
-                        aim_x,
-                        auto_play,
-                        policy_name,
-                        message,
-                        message_until,
-                        time.monotonic(),
-                    )
+                    show(time.monotonic())
 
                 # 静止確認→同じ観測で列決め→狙い。動いている盤を読まない。
                 result = env.step(abort=abort, choose=choose, on_aim=on_aim)
@@ -293,54 +267,12 @@ def main() -> None:
                         message = f"{message} (stop)"
             message_until = time.monotonic() + MESSAGE_SECONDS
 
-        _show(
-            frame,
-            board,
-            obs,
-            aim_x,
-            auto_play,
-            policy_name,
-            message,
-            message_until,
-            now,
-        )
+        show(now)
 
         if key == QUIT_KEY:
             break
 
     cv2.destroyAllWindows()
-
-
-def _show(
-    frame: np.ndarray,
-    board,
-    obs: Observation,
-    aim_x: float | None,
-    auto_play: bool,
-    policy_name: str,
-    message: str,
-    message_until: float,
-    now: float,
-) -> None:
-    output = frame.copy()
-    if board is not None:
-        output = draw_frame_debug(frame, board)
-        if aim_x is not None and board.corners is not None and obs.ready:
-            _draw_aim(output, board.corners, aim_x)
-
-    mode_badge(output, auto_play)
-    hint = "p: step  g: auto  l: policy  s: save"
-    put_text(output, f"aim x={aim_x:.0f}" if aim_x is not None else "aim —", (8, 128), (0, 255, 255))
-    put_text(output, f"policy={policy_name}", (8, 152), (0, 220, 255), scale=0.5)
-    put_text(
-        output,
-        message if now < message_until else hint,
-        (8, output.shape[0] - 12),
-        (255, 255, 255),
-        scale=0.5,
-    )
-    cv2.imshow(WINDOW_TITLE, output)
-    cv2.waitKey(1)
 
 
 def _refresh(env: Env, frame: np.ndarray, fallback: Observation):
@@ -350,14 +282,6 @@ def _refresh(env: Env, frame: np.ndarray, fallback: Observation):
         return frame, fallback, env.board
     obs = env.observe(fresh)
     return fresh, obs, env.board
-
-
-def _draw_aim(frame, corners, x: float) -> None:
-    matrix = inverse_warp_matrix(corners)
-    top = transform_point(matrix, x, -DROP_HEIGHT)
-    bottom = transform_point(matrix, x, 40)
-    cv2.line(frame, top, bottom, (0, 255, 255), 2)
-    cv2.circle(frame, top, 6, (0, 255, 255), -1)
 
 
 if __name__ == "__main__":

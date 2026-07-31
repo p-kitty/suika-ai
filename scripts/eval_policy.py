@@ -9,28 +9,25 @@
 from __future__ import annotations
 
 import argparse
-import os
 import statistics
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._bootstrap import ROOT, ensure_import_path
+
+ensure_import_path()
 
 from src.agent import LinearPolicy
+from src.parallel import default_workers
 from src.policy import choose_x
 from src.reward import watermelon_count
 from src.sim_env import SimEnv
 
 DEFAULT_CKPT = ROOT / "artifacts" / "policy_sim.npz"
-
-
-def default_workers() -> int:
-    """CPU-bound 向け。論理コアの半分 (9700X なら 8)。"""
-    n = os.cpu_count() or 4
-    return max(1, n // 2)
 
 
 def run_episode(
