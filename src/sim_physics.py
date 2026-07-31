@@ -18,7 +18,8 @@ from .vision.state import Fruit
 CONTACT_SLACK = 2.0
 # Rolling after landing. If it sits on a side, shift sideways down to the valley.
 SETTLE_STEP = 3.0
-SETTLE_MAX_ITERS = 48
+# Big fruits have a long way to the wall clamp, so allow margin.
+SETTLE_MAX_ITERS = 96
 # Cap on how many times unsupported fruits fall after a merge.
 BOARD_SETTLE_MAX_ITERS = 32
 # Iterations pushing aside existing fruits through collisions and merges.
@@ -42,20 +43,28 @@ def simulate_drop(
 ) -> tuple[list[Fruit], int, list[int]]:
     """Board after dropping at column x, merge count and the list of source types merged."""
     placed = list(fruits)
-    # Push aside fruits hit before falling (hit from the left, push right).
-    placed, pre_knocked, pre_dir = _knock_drop_column(placed, fruit_type, x)
-    placed, settled0 = _settle_board(placed)
-    placed, dropped, coast_dir = _place(placed, fruit_type, x)
-    # Prefer the direction slid on the floor. The push direction of a shoulder hit is the pre_dir side.
-    if abs(coast_dir) > 0:
-        knock_dir = coast_dir
-    elif abs(pre_dir) > 0:
-        knock_dir = pre_dir
-    else:
-        knock_dir = _impact_dir(placed, dropped, coast_dir)
-    placed, knocked = _knock_contacts(placed, {dropped}, knock_dir)
+    hit_indices: set[int] = set()
+    aim_x = max(
+        fruit_radius(fruit_type),
+        min(NORMALIZED_WIDTH - fruit_radius(fruit_type), x),
+    )
+    placed, dropped, coast_dir = _place(
+        placed, fruit_type, x, hit_indices=hit_indices
+    )
+    knock_dir = coast_dir if abs(coast_dir) > 0 else _impact_dir(
+        placed, dropped, coast_dir
+    )
+    knocked: set[int] = set()
+    # Except when stably wedged in a valley, contact with a different type rolls both.
+    if not _cradled_in_valley(placed, dropped):
+        placed, knocked = _knock_contacts(placed, {dropped}, knock_dir)
+        # A different type that rode onto the shoulder mid-roll is pushed and slid even if apart after landing.
+        placed, ridden = _slide_ridden_foreign(
+            placed, dropped, aim_x, hit_indices
+        )
+        knocked |= ridden
     placed, settled = _settle_board(placed)
-    active = {dropped} | pre_knocked | settled0 | knocked | settled
+    active = {dropped} | knocked | settled
     return _resolve_merges(placed, active=active)
 
 
@@ -67,6 +76,8 @@ def preview_land(
 ) -> tuple[float, float]:
     """Landing (x, y) after rolling, from drop column x."""
     x = _settle_x(fruits, x, held_r, allow_coast=True, drop_type=fruit_type)
+    if _can_sit_on_floor(fruits, x, held_r):
+        return x, NORMALIZED_HEIGHT - held_r
     return x, land_y(fruits, x, held_r)
 
 
@@ -83,12 +94,82 @@ def land_y(fruits: tuple[Fruit, ...] | list[Fruit], x: float, held_r: float) -> 
     return best
 
 
+def _can_sit_on_floor(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    x: float,
+    held_r: float,
+) -> bool:
+    """Whether the floor coordinate (x, floor) does not overlap other fruits in 2D."""
+    floor = NORMALIZED_HEIGHT - held_r
+    for fruit in fruits:
+        if math.hypot(x - fruit.x, floor - fruit.y) < held_r + fruit.radius - 0.5:
+            return False
+    return True
+
+
+def _cradled_in_valley(fruits: list[Fruit], index: int) -> bool:
+    """Whether it lands stably wedged left and right by bigger fruits on the floor.
+
+    Only the valley walls are looked at. Junk sitting in the valley (floating fruits) does not count as walls.
+    """
+    if index < 0 or index >= len(fruits):
+        return False
+    a = fruits[index]
+    floor = NORMALIZED_HEIGHT - a.radius
+    if a.y >= floor - 2.0:
+        return False
+    left = False
+    right = False
+    for j, b in enumerate(fruits):
+        if j == index or b.radius <= a.radius + 1.0:
+            continue
+        # Only walls on the floor. Stacking on floating junk is not cradled.
+        if b.y < NORMALIZED_HEIGHT - b.radius - 2.0:
+            continue
+        dist = math.hypot(a.x - b.x, a.y - b.y)
+        if dist > a.radius + b.radius + CONTACT_SLACK:
+            continue
+        if not _is_support(b, a.x, a.y, a.radius):
+            continue
+        if b.x < a.x - 1.0:
+            left = True
+        elif b.x > a.x + 1.0:
+            right = True
+    return left and right
+
+
+def _is_support(fruit: Fruit, x: float, y: float, held_r: float) -> bool:
+    """Whether the fruit at (x, y) sits on top of fruit."""
+    dx = x - fruit.x
+    gap = fruit.radius + held_r
+    if abs(dx) >= gap - 1e-6:
+        return False
+    rest_y = fruit.y - math.sqrt(max(0.0, gap * gap - dx * dx))
+    return abs(rest_y - y) <= 2.0
+
+
+def _wedged_on(fruit: Fruit, support: Fruit) -> bool:
+    """Whether, by the wall, it bites into the support's side shoulder and cannot fall to the floor."""
+    floor = NORMALIZED_HEIGHT - fruit.radius
+    if fruit.y >= floor - 2.0:
+        return False
+    near_wall = (
+        fruit.x <= fruit.radius + 1.5
+        or fruit.x >= NORMALIZED_WIDTH - fruit.radius - 1.5
+    )
+    if not near_wall:
+        return False
+    # A lid stacked near directly on top is not biting in.
+    return abs(fruit.x - support.x) > max(support.radius * 0.55, 8.0)
+
+
 def _place(
     fruits: list[Fruit],
     fruit_type: int,
     x: float,
     *,
     allow_coast: bool = True,
+    hit_indices: set[int] | None = None,
 ) -> tuple[list[Fruit], int, float]:
     """Land a fruit at column x and add it.
 
@@ -96,8 +177,21 @@ def _place(
     """
     r = fruit_radius(fruit_type)
     x0 = max(r, min(NORMALIZED_WIDTH - r, x))
-    x = _settle_x(fruits, x, r, allow_coast=allow_coast, drop_type=fruit_type)
-    y = land_y(fruits, x, r)
+    x = _settle_x(
+        fruits,
+        x,
+        r,
+        allow_coast=allow_coast,
+        drop_type=fruit_type,
+        hit_indices=hit_indices,
+    )
+    floor = NORMALIZED_HEIGHT - r
+    # land_y is for fall landings, and sticks to the shoulder even for different-radius contact beside the floor.
+    # Prefer the floor if it can be placed there.
+    if _can_sit_on_floor(fruits, x, r):
+        y = floor
+    else:
+        y = land_y(fruits, x, r)
     coast_dir = math.copysign(1.0, x - x0) if abs(x - x0) > 0.5 else 0.0
     fruits.append(Fruit(type=fruit_type, x=x, y=y, radius=r, confidence=100.0))
     return fruits, len(fruits) - 1, coast_dir
@@ -116,47 +210,49 @@ def _place_on_floor(
     return fruits, len(fruits) - 1
 
 
-def _knock_drop_column(
+def _slide_ridden_foreign(
     fruits: list[Fruit],
-    fruit_type: int,
-    x: float,
-) -> tuple[list[Fruit], set[int], float]:
-    """Push aside existing fruits hit at the drop column in the direction of the hit."""
+    dropped: int,
+    aim_x: float,
+    hit_indices: set[int],
+) -> tuple[list[Fruit], set[int]]:
+    """Slide different types ridden on / hit mid-roll away from the aimed column."""
     fruits = list(fruits)
-    if not fruits:
-        return fruits, set(), 0.0
-    r = fruit_radius(fruit_type)
-    x = max(r, min(NORMALIZED_WIDTH - r, x))
-    y = land_y(fruits, x, r)
-    ghost = Fruit(type=fruit_type, x=x, y=y, radius=r, confidence=100.0)
-    fruits.append(ghost)
-    ghost_i = len(fruits) - 1
-    direction = 0.0
-    best_dist = math.inf
-    hit = False
-    for j, b in enumerate(fruits[:-1]):
-        # Same types are not pushed; merging handles them. Pushing first separates them and they do not merge.
-        if b.type == fruit_type:
+    moved: set[int] = set()
+    if dropped < 0 or dropped >= len(fruits):
+        return fruits, moved
+    drop = fruits[dropped]
+    for hi in hit_indices:
+        if hi < 0 or hi >= len(fruits) or hi == dropped:
             continue
-        dist = math.hypot(x - b.x, y - b.y)
-        if dist > r + b.radius + CONTACT_SLACK:
+        b = fruits[hi]
+        if b.type == drop.type:
             continue
-        # Nearly directly on top is a lid or apex. Pushing exposes what is below and causes false merges, so only side contacts.
-        if abs(b.x - x) <= max(b.radius * 0.25, r * 0.25):
+        # Do not push lids or supports still sitting on it. Only move side-shoulder bites by the wall.
+        if _is_support(b, drop.x, drop.y, drop.radius) and not _wedged_on(
+            drop, b
+        ):
             continue
-        hit = True
-        if dist < best_dist:
-            best_dist = dist
-            direction = math.copysign(1.0, b.x - x)
-    if not hit:
-        fruits.pop()
-        return fruits, set(), 0.0
-    if abs(direction) < 1e-9:
-        direction = 1.0
-    fruits, moved = _knock_contacts(fruits, {ghost_i}, direction)
-    fruits.pop()
-    moved = {i for i in moved if i < len(fruits)}
-    return fruits, moved, direction
+        if abs(b.x - aim_x) > 1e-9:
+            push_dir = math.copysign(1.0, b.x - aim_x)
+        elif abs(b.x - drop.x) > 1e-9:
+            push_dir = math.copysign(1.0, b.x - drop.x)
+        else:
+            push_dir = 1.0
+        floor_y = NORMALIZED_HEIGHT - b.radius
+        knock = min(KNOCK_MAX, max(KNOCK_BASE, drop.radius * KNOCK_RADIUS_FRAC))
+        nudged = _clamp_fruit_x(b, b.x + push_dir * knock * 0.5)
+        if b.y >= floor_y - 2.0:
+            others = [fruits[k] for k in range(len(fruits)) if k != hi]
+            x2 = _coast_on_floor(others, nudged, b.radius, push_dir)
+            y2 = floor_y
+        else:
+            x2 = nudged
+            y2 = b.y
+        if abs(x2 - b.x) >= 0.25 or abs(y2 - b.y) >= 0.25:
+            fruits[hi] = replace(b, x=x2, y=y2)
+            moved.add(hi)
+    return fruits, moved
 
 
 def _settle_x(
@@ -166,6 +262,7 @@ def _settle_x(
     *,
     allow_coast: bool = True,
     drop_type: int | None = None,
+    hit_indices: set[int] | None = None,
 ) -> float:
     """If it sits on a circle's side, roll it down to the valley or floor, and on the floor slide by inertia to a wall / other fruit.
 
@@ -183,7 +280,9 @@ def _settle_x(
         if y >= floor - 1.0:
             if coast_dir == 0.0 or not allow_coast:
                 return x
-            return _coast_on_floor(fruits, x, held_r, coast_dir)
+            return _coast_on_floor(
+                fruits, x, held_r, coast_dir, hit_indices=hit_indices
+            )
 
         if drop_type is not None and _would_merge_at(fruits, x, y, held_r, drop_type):
             return x
@@ -192,7 +291,7 @@ def _settle_x(
         apex_dx = 0.0
         apex_support_x = x
         on_apex = False
-        for fruit in fruits:
+        for fi, fruit in enumerate(fruits):
             dx = x - fruit.x
             gap = fruit.radius + held_r
             if abs(dx) >= gap - 1e-6:
@@ -203,6 +302,12 @@ def _settle_x(
             push += dx
             if drop_type is not None and fruit.type == drop_type:
                 continue
+            # Do not push a lid directly on top. Only record different types ridden on / hit from the side.
+            if (
+                hit_indices is not None
+                and abs(dx) > max(fruit.radius * 0.25, held_r * 0.25)
+            ):
+                hit_indices.add(fi)
             if abs(dx) <= max(fruit.radius * APEX_DX_FRAC, 1.0):
                 on_apex = True
                 apex_dx = dx
@@ -248,13 +353,28 @@ def _apex_roll_dir(support_x: float) -> float:
     return 1.0 if int(round(support_x / SETTLE_STEP)) % 2 == 0 else -1.0
 
 
+def _floor_touch_dx(held_r: float, fruit: Fruit, floor_y: float) -> float | None:
+    """The |dx| when a fruit at floor y touches fruit in 2D. None if not touching."""
+    dy = floor_y - fruit.y
+    limit = held_r + fruit.radius
+    if abs(dy) >= limit - 1e-9:
+        return None
+    return math.sqrt(max(0.0, limit * limit - dy * dy))
+
+
 def _coast_on_floor(
     fruits: list[Fruit] | tuple[Fruit, ...],
     x: float,
     held_r: float,
     direction: float,
+    *,
+    hit_indices: set[int] | None = None,
 ) -> float:
-    """After falling off a slope onto the floor, slide in that direction until touching a wall or another fruit."""
+    """Slide on the floor with low friction. Advance until 2D contact with a wall or another fruit.
+
+    Fruits of different radii have different center heights, so stopping at sideways distance (r1+r2) alone
+    stops before contact, and neither pushes nor merges happen.
+    """
     lo = held_r
     hi = NORMALIZED_WIDTH - held_r
     floor = NORMALIZED_HEIGHT - held_r
@@ -265,15 +385,21 @@ def _coast_on_floor(
         nxt = max(lo, min(hi, x + direction * SETTLE_STEP))
         if abs(nxt - x) < 1e-6:
             return x
-        nxt_y = land_y(fruits, nxt, held_r)
-        if nxt_y < floor - 1.0:
-            return x
-        for fruit in fruits:
-            limit = fruit.radius + held_r
-            if abs(nxt - fruit.x) < limit - 0.5:
+        blocked: float | None = None
+        for fi, fruit in enumerate(fruits):
+            touch_dx = _floor_touch_dx(held_r, fruit, floor)
+            if touch_dx is None:
+                continue
+            if abs(nxt - fruit.x) < touch_dx - 0.5:
                 if direction > 0:
-                    return max(lo, min(hi, fruit.x - limit))
-                return max(lo, min(hi, fruit.x + limit))
+                    blocked = fruit.x - touch_dx
+                else:
+                    blocked = fruit.x + touch_dx
+                if hit_indices is not None:
+                    hit_indices.add(fi)
+                break
+        if blocked is not None:
+            return max(lo, min(hi, blocked))
         x = nxt
     return x
 
@@ -313,7 +439,10 @@ def _resolve_merges(
             mid_x = mid_x + knock_dir * MERGE_BIAS
         # Place on the floor, then push the neighbors, then compute the landing height.
         fruits, new_i = _place_on_floor(fruits, new_type, mid_x)
-        fruits, knocked = _knock_contacts(fruits, {new_i}, knock_dir)
+        # The merge result does not slide far; only the pushed neighbors roll.
+        fruits, knocked = _knock_contacts(
+            fruits, {new_i}, knock_dir, slide_movers=False
+        )
         fruits, moved2 = _settle_board(fruits)
         active = {new_i} | moved | knocked | moved2
 
@@ -367,21 +496,24 @@ def _clamp_fruit_x(fruit: Fruit, x: float) -> float:
     return max(fruit.radius, min(NORMALIZED_WIDTH - fruit.radius, x))
 
 
-def _knock_amount(mover: Fruit, overlap: float) -> float:
+def _knock_amount(mover: Fruit, overlap: float, max_knock: float = KNOCK_MAX) -> float:
     """Push amount. Even light→heavy, move visibly on a radius basis."""
     by_radius = mover.radius * KNOCK_RADIUS_FRAC
-    return min(KNOCK_MAX, max(overlap, KNOCK_BASE, by_radius))
+    return min(max_knock, max(overlap, KNOCK_BASE, by_radius))
 
 
 def _knock_contacts(
     fruits: list[Fruit],
     movers: set[int],
     direction: float,
+    *,
+    allow_slide: bool = True,
+    slide_movers: bool = True,
+    max_knock: float = KNOCK_MAX,
 ) -> tuple[list[Fruit], set[int]]:
-    """Push existing fruits touched by movers aside.
+    """On contact with a different type, separate both, and on the floor slide in that direction.
 
-    Hit from the left, push right; hit from the right, push left.
-    The momentum push happens only once. After that, only untangle overlaps.
+    Same types are not pushed; merging handles them.
     """
     fruits = list(fruits)
     moved: set[int] = set()
@@ -394,43 +526,65 @@ def _knock_contacts(
             continue
         a = fruits[i]
         for j, b in enumerate(fruits):
-            if j == i:
+            if j == i or b.type == a.type:
                 continue
             dist = math.hypot(a.x - b.x, a.y - b.y)
             limit = a.radius + b.radius
             if dist > limit + CONTACT_SLACK:
                 continue
-            if abs(direction) > 0:
-                if direction > 0 and b.x < a.x - 1.0:
+            # Do not push lids or supports sitting on it. The only exception is side-shoulder bites by the wall.
+            if _is_support(b, a.x, a.y, a.radius) and not _wedged_on(a, b):
+                continue
+            if abs(b.x - a.x) <= max(b.radius * 0.2, a.radius * 0.2):
+                if not _wedged_on(a, b):
                     continue
-                if direction < 0 and b.x > a.x + 1.0:
-                    continue
-                push_dir = direction
-            elif abs(b.x - a.x) > 1e-9:
+            if abs(b.x - a.x) > 1e-9:
                 push_dir = math.copysign(1.0, b.x - a.x)
+            elif abs(direction) > 0:
+                push_dir = math.copysign(1.0, direction)
             else:
                 push_dir = 1.0
             overlap = max(0.0, limit - dist)
-            knock = _knock_amount(a, overlap)
+            knock = _knock_amount(a, overlap, max_knock=max_knock)
             impulses.append((i, j, push_dir * knock))
 
+    slide_dirs: dict[int, float] = {}
     for i, j, raw in impulses:
         a = fruits[i]
         b = fruits[j]
         ma = _fruit_mass(a)
         mb = _fruit_mass(b)
-        # The mass ratio only adjusts. The partner moves at least 55% of the push.
-        share_b = max(0.55, ma / (ma + mb))
+        total = ma + mb
         push_dir = math.copysign(1.0, raw)
         knock = abs(raw)
+        # Move both. The lighter moves more, but each moves at least 35%.
+        share_b = min(0.65, max(0.35, ma / total))
+        share_a = min(0.65, max(0.35, mb / total))
         new_b = _clamp_fruit_x(b, b.x + push_dir * knock * share_b)
-        new_a = _clamp_fruit_x(a, a.x - push_dir * knock * 0.05 * (mb / (ma + mb)))
+        new_a = _clamp_fruit_x(a, a.x - push_dir * knock * share_a)
         if abs(new_b - b.x) >= 0.25:
             fruits[j] = replace(b, x=new_b)
             moved.add(j)
+            slide_dirs[j] = push_dir
         if abs(new_a - a.x) >= 0.25:
             fruits[i] = replace(a, x=new_a)
             moved.add(i)
+            if slide_movers:
+                slide_dirs[i] = -push_dir
+
+    # The one on the floor slides in the pushed direction until a wall / the next contact.
+    if allow_slide:
+        for idx, push_dir in list(slide_dirs.items()):
+            f = fruits[idx]
+            floor_y = NORMALIZED_HEIGHT - f.radius
+            if f.y < floor_y - 2.0:
+                continue
+            others = [fruits[k] for k in range(len(fruits)) if k != idx]
+            x2 = _coast_on_floor(others, f.x, f.radius, push_dir)
+            if abs(x2 - f.x) < 0.5:
+                continue
+            fruits[idx] = replace(f, x=x2, y=floor_y)
+            moved.add(idx)
 
     for _ in range(KNOCK_MAX_ITERS):
         fruits, sep = _separate_overlaps(fruits)
@@ -442,7 +596,7 @@ def _knock_contacts(
 
 
 def _separate_overlaps(fruits: list[Fruit]) -> tuple[list[Fruit], set[int]]:
-    """Untangle circle overlaps left and right (1 pass)."""
+    """Untangle overlaps of different types left and right (1 pass). Same types are left for merging."""
     fruits = list(fruits)
     moved: set[int] = set()
     if len(fruits) < 2:
@@ -452,6 +606,8 @@ def _separate_overlaps(fruits: list[Fruit]) -> tuple[list[Fruit], set[int]]:
         a = fruits[i]
         for j in range(i + 1, len(fruits)):
             b = fruits[j]
+            if a.type == b.type:
+                continue
             dist = math.hypot(a.x - b.x, a.y - b.y)
             limit = a.radius + b.radius
             if dist >= limit - 0.25:
@@ -507,7 +663,10 @@ def _settle_board(fruits: list[Fruit]) -> tuple[list[Fruit], set[int]]:
             f = fruits[i]
             others = [fruits[j] for j in range(len(fruits)) if j != i]
             x2 = _settle_x(others, f.x, f.radius, allow_coast=True, drop_type=f.type)
-            y2 = land_y(others, x2, f.radius)
+            if _can_sit_on_floor(others, x2, f.radius):
+                y2 = NORMALIZED_HEIGHT - f.radius
+            else:
+                y2 = land_y(others, x2, f.radius)
             if abs(x2 - f.x) > 0.5 or abs(y2 - f.y) > 0.5:
                 fruits[i] = replace(f, x=x2, y=y2)
                 rolled.add(i)
