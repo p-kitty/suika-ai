@@ -30,6 +30,8 @@ NEXT_DISCOUNT = 0.55
 # Rolling after landing. If it sits on a side, shift sideways down to the valley.
 SETTLE_STEP = 3.0
 SETTLE_MAX_ITERS = 48
+# |dx| / radius considered nearly at the top of the supporting circle (unstable).
+APEX_DX_FRAC = 0.2
 # Penalty for directly above nearly the center of a different type.
 FOREIGN_CENTER_PENALTY = 140.0
 # Penalty per type difference of an inverted size pair.
@@ -362,7 +364,7 @@ def _preview_land(
     held_r: float,
 ) -> tuple[float, float]:
     """Landing (x, y) after rolling, from drop column x."""
-    x = _settle_x(fruits, x, held_r, allow_coast=True)
+    x = _settle_x(fruits, x, held_r, allow_coast=True, drop_type=fruit_type)
     return x, _land_y(fruits, x, held_r)
 
 
@@ -375,7 +377,7 @@ def _place(
 ) -> tuple[list[Fruit], int]:
     """Land a fruit at column x and add it. Also returns the added index."""
     r = fruit_radius(fruit_type)
-    x = _settle_x(fruits, x, r, allow_coast=allow_coast)
+    x = _settle_x(fruits, x, r, allow_coast=allow_coast, drop_type=fruit_type)
     y = _land_y(fruits, x, r)
     fruits.append(Fruit(type=fruit_type, x=x, y=y, radius=r, confidence=100.0))
     return fruits, len(fruits) - 1
@@ -387,8 +389,13 @@ def _settle_x(
     held_r: float,
     *,
     allow_coast: bool = True,
+    drop_type: int | None = None,
 ) -> float:
-    """If it sits on a circle's side, roll it down to the valley or floor, and on the floor slide by inertia to a wall / other fruit."""
+    """If it sits on a circle's side, roll it down to the valley or floor, and on the floor slide by inertia to a wall / other fruit.
+
+    Nearly at the top of a different type's supporting circle is unstable, so roll it to one side.
+    Directly above the same type it lands as is, to merge.
+    """
     lo = held_r
     hi = NORMALIZED_WIDTH - held_r
     x = max(lo, min(hi, x))
@@ -403,6 +410,9 @@ def _settle_x(
             return _coast_on_floor(fruits, x, held_r, coast_dir)
 
         push = 0.0
+        apex_dx = 0.0
+        apex_support_x = x
+        on_apex = False
         for fruit in fruits:
             dx = x - fruit.x
             gap = fruit.radius + held_r
@@ -412,9 +422,21 @@ def _settle_x(
             if abs((fruit.y - dy) - y) > 2.0:
                 continue
             push += dx
+            if drop_type is not None and fruit.type == drop_type:
+                continue
+            if abs(dx) <= max(fruit.radius * APEX_DX_FRAC, 1.0):
+                on_apex = True
+                apex_dx = dx
+                apex_support_x = fruit.x
 
         if abs(push) < 0.75:
-            return x
+            if not on_apex:
+                return x
+            # Break a balance on the top. With a tiny dx use that direction, otherwise left or right deterministically.
+            if abs(apex_dx) > 1e-9:
+                push = math.copysign(1.0, apex_dx)
+            else:
+                push = _apex_roll_dir(apex_support_x)
 
         coast_dir = math.copysign(1.0, push)
         nxt = max(lo, min(hi, x + coast_dir * SETTLE_STEP))
@@ -425,6 +447,11 @@ def _settle_x(
             return x
         x = nxt
     return x
+
+
+def _apex_roll_dir(support_x: float) -> float:
+    """The direction breaking a balance directly on top. Always the same for the same support_x."""
+    return 1.0 if int(round(support_x / SETTLE_STEP)) % 2 == 0 else -1.0
 
 
 def _coast_on_floor(

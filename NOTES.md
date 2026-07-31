@@ -3,7 +3,8 @@
 ## Deferred
 
 - **`10.png` vision**: similar-color mask fusion + a strawberry outside the frame. Needs a redesign of the cropping; worse value for effort than policy / held
-- **Straight-down drops in the sim**: make a drop directly on top roll to one side. Dropping aimed directly on top is often seen
+- **`FOREIGN_CENTER_PENALTY`**: directly above a different type now rolls via physics. The penalty is kept, but whether it is still needed and when to remove it needs review
+- **`GAP_JUNK_PENALTY`**: gap filling can be both an accident and the seed of a cascade. Judging only by score results is stronger than forbidding it by hand. Remove later
 - **Training episode length**: raise `max_steps` and lower `episodes` (fewer, longer games)
 
 ## Policy (bootstrap)
