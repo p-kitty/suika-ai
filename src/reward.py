@@ -1,33 +1,34 @@
-"""The reward for learning. The goal is a successful end by clearing a double watermelon."""
+"""The reward for learning. Only merge points identical to the real Suika Game."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from .observe import Observation
 from .vision.colors import MAX_FRUIT_TYPE
-from .vision.normalized import NORMALIZED_HEIGHT
 
 WATERMELON = MAX_FRUIT_TYPE
 # Losing when the crown rises above this y (y points down).
 GAME_OVER_Y = 40.0
 
-# Surviving one move.
-STEP_REWARD = 0.05
-# Per merge (heavier for bigger fruits).
-MERGE_WEIGHT = 1.0
-# When the max type on the board grows.
-PROGRESS_WEIGHT = 2.0
-# When a watermelon is newly added.
-WATERMELON_BONUS = 20.0
-# The moment there are 2 or more watermelons (not a keeping bonus).
-DOUBLE_REACH_BONUS = 15.0
-# When watermelons decrease / disappear through a merge.
-WATERMELON_CLEAR_BONUS = 25.0
-# A successful end by a double watermelon clear (the highest).
-WIN_BONUS = 200.0
-# Backward-compatible aliases (old names, reaching bonus).
-DOUBLE_WATERMELON_BONUS = DOUBLE_REACH_BONUS
-# Game over.
-DEATH_PENALTY = -20.0
+# Points when a fruit of that stage is made by a merge (index = type made).
+# Cherries are only dropped and never made by merging, so 0.
+# A double watermelon clear is CLEAR_SCORE, outside CREATE_SCORE.
+CREATE_SCORE: tuple[int, ...] = (
+    0,   # cherry
+    1,   # straw
+    3,   # grape
+    6,   # dekopon
+    10,  # orange
+    15,  # apple
+    21,  # pear
+    28,  # peach
+    36,  # pineapple
+    45,  # melon
+    55,  # watermelon
+)
+# When watermelons merge with each other and disappear.
+CLEAR_SCORE = 65
 
 
 def is_game_over(obs: Observation) -> bool:
@@ -56,59 +57,28 @@ def cleared_double_watermelon(
     return before_w >= 2 and after_w < before_w
 
 
-def _max_fruit_type(obs: Observation) -> int:
-    if not obs.fruits:
-        return -1
-    return max(f.type for f in obs.fruits)
+def merge_points(source_type: int) -> int:
+    """The real-game score when merging two fruits of source_type."""
+    if source_type >= WATERMELON:
+        return CLEAR_SCORE
+    created = source_type + 1
+    if 0 <= created < len(CREATE_SCORE):
+        return CREATE_SCORE[created]
+    return 0
 
 
 def step_reward(
     before: Observation,
     after: Observation,
     *,
-    merges: int,
-    done: bool,
+    merges: int = 0,
+    merge_types: Sequence[int] = (),
+    done: bool = False,
     win: bool = False,
 ) -> float:
-    """The reward for one move.
+    """The reward for one move = the sum of merge points of that move. No penalties or survival bonus.
 
-    - survival and merges are the base reward
-    - bonuses for updating the board's max stage, more watermelons, reaching a double, clearing watermelons
-    - WIN_BONUS (the highest) on a successful end by a double clear
-    - a big penalty on game over
+    before/after/merges/done/win are for the caller's end-of-game checks and not used for points.
     """
-    if done and not win:
-        return DEATH_PENALTY
-
-    reward = STEP_REWARD
-    if merges > 0:
-        # Roughly weight by the max type after merging (merges only assuming held if none).
-        grown = _max_fruit_type(after)
-        weight = MERGE_WEIGHT * (1.0 + max(grown, 0) * 0.15)
-        reward += merges * weight
-
-    before_max = _max_fruit_type(before)
-    after_max = _max_fruit_type(after)
-    if after_max > before_max:
-        reward += (after_max - before_max) * PROGRESS_WEIGHT
-
-    before_w = watermelon_count(before)
-    after_w = watermelon_count(after)
-    if after_w > before_w:
-        reward += (after_w - before_w) * WATERMELON_BONUS
-    if before_w < 2 <= after_w:
-        reward += DOUBLE_REACH_BONUS
-    if merges > 0 and after_w < before_w:
-        reward += (before_w - after_w) * WATERMELON_CLEAR_BONUS
-
-    if win:
-        reward += WIN_BONUS
-
-    # A tall pile approaches future death, so a small penalty (just before instant death).
-    if after.fruits:
-        crown = min(f.y - f.radius for f in after.fruits)
-        headroom = (crown - GAME_OVER_Y) / max(NORMALIZED_HEIGHT - GAME_OVER_Y, 1.0)
-        if headroom < 0.25:
-            reward -= (0.25 - headroom) * 2.0
-
-    return float(reward)
+    _ = (before, after, merges, done, win)
+    return float(sum(merge_points(t) for t in merge_types))

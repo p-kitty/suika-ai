@@ -12,7 +12,7 @@
 
 ## Training
 
-- `src/reward.py`: survival, merges, stage, more watermelons / reaching a double / clear. win (+WIN_BONUS) on a double clear. Death penalty. No maintenance bonus
+- `src/reward.py`: only merge points identical to the real game (cherry→0 … watermelon 55, double clear 65). No survival bonus or death penalty. Episodes end as before (losing line / double clear)
 - `src/encode.py`: fixed-length observation vector
 - `src/sim_env.py`: headless drop sim (`policy.simulate_drop`)
 - Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`)

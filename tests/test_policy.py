@@ -69,7 +69,7 @@ def test_prefers_merge_that_lowers_stack() -> None:
     b = Fruit(type=0, x=250 + 2 * cherry_r + 8, y=floor_y, radius=cherry_r, confidence=90)
     x = choose_x(_obs(held_type=0, fruits=(a, b)))
     assert x > 200
-    after, merges = simulate_drop((a, b), 0, x)
+    after, merges, _types = simulate_drop((a, b), 0, x)
     assert merges >= 1
     assert abs(x - (a.x + b.x) / 2) < cherry_r * 4
 
@@ -169,7 +169,7 @@ def test_merge_result_settles_from_midpoint() -> None:
     a = Fruit(type=0, x=200, y=floor_y, radius=cherry_r, confidence=90)
     b = Fruit(type=0, x=200 + 2 * cherry_r + 4, y=floor_y, radius=cherry_r, confidence=90)
     mid = (a.x + b.x) / 2
-    after, merges = simulate_drop((a, b), 0, mid)
+    after, merges, _types = simulate_drop((a, b), 0, mid)
     assert merges >= 1
     grown = [f for f in after if f.type == 1]
     assert grown
