@@ -43,19 +43,19 @@ PAD = 16
 GAP = 20
 HEADER = 72
 FOOTER = 56
-# 段階ごとの BGR (見分けやすさ優先)。
+# 段階ごとの BGR。screenshots の盤面から中央付近をサンプリングした色。
 FRUIT_BGR = [
-    (60, 60, 220),    # cherry
-    (80, 80, 255),    # strawberry
-    (180, 80, 200),   # grape
-    (40, 180, 255),   # dekopon
-    (0, 140, 255),    # orange
-    (40, 200, 80),    # apple
-    (40, 220, 220),   # pear
-    (180, 140, 255),  # peach
-    (0, 215, 255),    # pineapple
-    (60, 200, 60),    # melon
-    (40, 180, 40),    # watermelon
+    (2, 5, 199),       # cherry — 濃い赤
+    (59, 90, 208),     # strawberry — 赤みの強い橙赤
+    (212, 88, 134),    # grape — 紫
+    (5, 155, 211),     # dekopon — 明るい橙
+    (19, 113, 216),    # orange — やや赤みの橙 (柿色)
+    (17, 15, 204),     # apple — 濃い赤
+    (104, 202, 211),   # pear — 淡黄緑
+    (145, 153, 213),   # peach — ピンク
+    (4, 196, 206),     # pineapple — 黄
+    (12, 185, 130),    # melon — 黄緑
+    (6, 127, 14),      # watermelon — 濃い緑
 ]
 WINDOW = "suika-ai sim"
 # main で画面サイズに合わせて入れる。
