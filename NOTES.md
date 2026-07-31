@@ -12,7 +12,7 @@
 
 ## 学習まわり
 
-- `src/reward.py`: 生存・合成・段階・スイカ増／ダブル到達／消去。ダブル消去で win (+WIN_BONUS)。死亡減点。維持加点なし
+- `src/reward.py`: 本家と同じ合成点のみ (cherry→0 … watermelon 55、ダブル消去 65)。生存加点・死亡減点なし。エピソード終了は従来どおり (負けライン / ダブル消去)
 - `src/encode.py`: 固定長観測ベクトル
 - `src/sim_env.py`: 画面なし落下 sim (`policy.simulate_drop`)
 - 評価: `python scripts/eval_policy.py` (`--policy bootstrap|learned`)

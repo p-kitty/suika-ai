@@ -1,7 +1,7 @@
 """オフライン sim の単体テスト。"""
 
 from src.policy import choose_x
-from src.reward import WATERMELON, WIN_BONUS
+from src.reward import CLEAR_SCORE, WATERMELON
 from src.sim_env import SimEnv
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT
@@ -61,4 +61,4 @@ def test_double_watermelon_clear_wins() -> None:
     result = env.step(left)
     assert result.info == "win"
     assert result.done
-    assert result.reward >= WIN_BONUS
+    assert result.reward == CLEAR_SCORE

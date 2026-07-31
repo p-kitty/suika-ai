@@ -44,7 +44,9 @@ class SimEnv:
 
         before = self._obs()
         target = clamp_drop_x(x, self.held_type)
-        after_fruits, merges = simulate_drop(self.fruits, self.held_type, target)
+        after_fruits, merges, merge_types = simulate_drop(
+            self.fruits, self.held_type, target
+        )
         self.fruits = after_fruits
         self.held_type = self.next_type
         self.next_type = self._spawn()
@@ -53,7 +55,14 @@ class SimEnv:
         dead = is_game_over(after)
         win = cleared_double_watermelon(before, after, merges=merges)
         done = dead or win
-        reward = step_reward(before, after, merges=merges, done=done, win=win)
+        reward = step_reward(
+            before,
+            after,
+            merges=merges,
+            merge_types=merge_types,
+            done=done,
+            win=win,
+        )
         if win:
             info = "win"
         elif dead:

@@ -72,7 +72,7 @@ src/
   policy.py             # bootstrap policy (merges, danger height, mishap guards)
   agent.py              # linear policy over 20 discrete columns
   encode.py             # fixed-length observation vector
-  reward.py             # survival, merges, max stage, watermelons, death
+  reward.py             # game-identical merge scores only
   sim_env.py            # headless drop sim
   capture.py / control.py / settle.py
   vision/               # board, fruit, held / next detection

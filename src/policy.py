@@ -140,7 +140,7 @@ def _evaluate_drop(
     before = list(fruits)
     sign = _order_sign(before)
     land_x, land_y = _preview_land(before, drop_type, x, held_r)
-    after, merges = simulate_drop(before, drop_type, x)
+    after, merges, _merge_types = simulate_drop(before, drop_type, x)
 
     score = _board_score(after, merges, land_y=land_y, sign=sign)
     score -= _foreign_center_penalty(before, x, land_x, land_y, drop_type, held_r)
@@ -348,8 +348,8 @@ def simulate_drop(
     fruits: list[Fruit] | tuple[Fruit, ...],
     fruit_type: int,
     x: float,
-) -> tuple[list[Fruit], int]:
-    """列 x に落としたあとの盤面と合成回数。sim / 学習用。"""
+) -> tuple[list[Fruit], int, list[int]]:
+    """列 x に落としたあとの盤面・合成回数・合成元 type 列。sim / 学習用。"""
     placed = list(fruits)
     placed, dropped = _place(placed, fruit_type, x)
     return _resolve_merges(placed, active={dropped})
@@ -457,31 +457,35 @@ def _coast_on_floor(
     return x
 
 
-def _resolve_merges(fruits: list[Fruit], active: set[int]) -> tuple[list[Fruit], int]:
+def _resolve_merges(
+    fruits: list[Fruit], active: set[int]
+) -> tuple[list[Fruit], int, list[int]]:
     """落とした実から始まる同種接触だけを合成する。観測盤は静止前提。"""
     fruits = list(fruits)
     merges = 0
+    merge_types: list[int] = []
     for _ in range(64):
         pair = _find_merge_pair(fruits, active)
         if pair is None:
             break
         i, j = pair
         a, b = fruits[i], fruits[j]
-        new_type = a.type + 1
+        source_type = a.type
+        new_type = source_type + 1
         mid_x = (a.x + b.x) / 2
         for idx in sorted((i, j), reverse=True):
             fruits.pop(idx)
 
+        merge_types.append(source_type)
+        merges += 1
         if new_type > MAX_FRUIT_TYPE:
             active = set()
-            merges += 1
             continue
 
         fruits, new_i = _place(fruits, new_type, mid_x, allow_coast=False)
         active = {new_i}
-        merges += 1
 
-    return fruits, merges
+    return fruits, merges, merge_types
 
 
 def _find_merge_pair(fruits: list[Fruit], active: set[int]) -> tuple[int, int] | None:
