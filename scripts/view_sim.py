@@ -12,7 +12,7 @@ Controls:
   [ / ]    shift the column slightly
   q / Esc  quit
 
-Left: the current board. Right: the sim result after dropping at that column.
+Left: the current board + held contact preview. Right: the sim result after dropping at that column.
 """
 
 from __future__ import annotations
@@ -35,8 +35,7 @@ from src.draw import put_text
 from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
 from src.sim_env import SimEnv
-from src.sim_physics import preview_land as _preview_land
-from src.sim_physics import simulate_drop
+from src.sim_physics import land_y, simulate_drop
 from src.vision.classify import fruit_radius
 from src.vision.colors import FRUIT_NAMES
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
@@ -158,7 +157,8 @@ def main() -> None:
         land: tuple[float, float] | None = None
         score = penalties = eval_score = 0.0
         if held is not None:
-            land = _preview_land(obs.fruits, held, aim, fruit_radius(held))
+            held_r = fruit_radius(held)
+            land = (aim, land_y(obs.fruits, aim, held_r))
             after, merges, _types = simulate_drop(obs.fruits, held, aim)
             score, penalties, eval_score = drop_scores(
                 obs.fruits, held, aim, next_type=obs.next_type
