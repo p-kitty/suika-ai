@@ -308,5 +308,6 @@ def test_merges_when_three_same_type_waiting() -> None:
     # 3 + 1 → 1 合成で cherry は 2 以下、straw が 1。
     assert sum(1 for f in after if f.type == 0) <= 2
     assert any(f.type == 1 for f in after)
+    # 端に捨てて 4 個目にする手より、合成する手が明らかに良い。
     far = 40.0
-    assert _score(obs, x, cherry_r) > _score(obs, far, cherry_r)
+    assert _score(obs, x, cherry_r) > _score(obs, far, cherry_r) + 20.0
