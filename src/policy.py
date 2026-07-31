@@ -14,7 +14,7 @@ import statistics
 
 from .observe import Observation, clamp_drop_x
 from .reward import merge_score
-from .sim_physics import preview_land as _preview_land
+from .sim_physics import landed_xy
 from .sim_physics import simulate_drop
 from .vision.classify import fruit_radius
 from .vision.colors import MAX_FRUIT_TYPE, SPAWN_MAX_TYPE
@@ -23,6 +23,10 @@ from .vision.state import Fruit
 
 # Spacing of candidate columns (normalized coordinates).
 CANDIDATE_STEP = 8.0
+# The next lookahead is applied only to the top immediate eval (because the physics is heavy).
+NEXT_BEAM = 6
+# next candidates at a coarse spacing (held stays at CANDIDATE_STEP).
+NEXT_CANDIDATE_STEP = 24.0
 # Tolerance for a contact that could merge (difference between center distance and sum of radii). For candidate evaluation.
 MERGE_SLACK = 18.0
 # The 'toward the center' |dx| / lower radius used in burying checks and the like.
@@ -66,16 +70,31 @@ def choose_x(obs: Observation) -> float:
         raise ValueError("no held_type")
 
     held_r = fruit_radius(obs.held_type)
-    best_x = NORMALIZED_WIDTH / 2
-    best_score = -math.inf
-
-    for x in _candidates(obs.fruits, obs.held_type, held_r, extra_type=obs.next_type):
+    before = list(obs.fruits)
+    ranked: list[tuple[float, float, list[Fruit]]] = []
+    for x in _candidates(before, obs.held_type, held_r, extra_type=obs.next_type):
         x = clamp_drop_x(x, obs.held_type)
-        score = _score(obs, x, held_r)
-        if score > best_score:
-            best_score = score
-            best_x = x
+        after, score, penalties = _evaluate_drop(
+            before, obs.held_type, x, held_r, next_type=obs.next_type
+        )
+        ranked.append((score - penalties, x, after))
 
+    if not ranked:
+        return NORMALIZED_WIDTH / 2
+
+    ranked.sort(key=lambda row: row[0], reverse=True)
+    if obs.next_type is None:
+        return ranked[0][1]
+
+    best_x = ranked[0][1]
+    best_score = -math.inf
+    for immediate, x, after in ranked[:NEXT_BEAM]:
+        value = immediate + NEXT_DISCOUNT * _best_next_score(
+            after, obs.next_type, step=NEXT_CANDIDATE_STEP
+        )
+        if value > best_score:
+            best_score = value
+            best_x = x
     return best_x
 
 
@@ -84,12 +103,15 @@ def _candidates(
     drop_type: int,
     held_r: float,
     extra_type: int | None = None,
+    *,
+    step: float | None = None,
 ) -> list[float]:
     """Uniform spacing plus spots above / beside same-type and nearby fruits, and ideal_x."""
     sign = _order_sign(fruits)
     lo = held_r
     hi = NORMALIZED_WIDTH - held_r
-    xs = {round(x / CANDIDATE_STEP) * CANDIDATE_STEP for x in _frange(lo, hi, CANDIDATE_STEP)}
+    grid = CANDIDATE_STEP if step is None else step
+    xs = {round(x / grid) * grid for x in _frange(lo, hi, grid)}
     xs.add(_ideal_x(drop_type, sign))
 
     for fruit in fruits:
@@ -151,11 +173,16 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
     return value
 
 
-def _best_next_score(fruits: list[Fruit], next_type: int) -> float:
+def _best_next_score(
+    fruits: list[Fruit],
+    next_type: int,
+    *,
+    step: float | None = None,
+) -> float:
     """eval when next is dropped at its best column."""
     next_r = fruit_radius(next_type)
     best = -math.inf
-    for nx in _candidates(fruits, next_type, next_r):
+    for nx in _candidates(fruits, next_type, next_r, step=step):
         nx = clamp_drop_x(nx, next_type)
         # The next after that is unknown. Only same-type fruit in a valley counts for the growing exemption.
         _, score, penalties = _evaluate_drop(fruits, next_type, nx, next_r)
@@ -175,8 +202,8 @@ def _evaluate_drop(
     """Board, real-game score and penalties after one drop."""
     before = list(fruits)
     sign = _order_sign(before)
-    land_x, land_y = _preview_land(before, drop_type, x, held_r)
     after, merges, merge_types = simulate_drop(before, drop_type, x)
+    land_x, land_y = landed_xy(before, after, drop_type, x, held_r, merges)
 
     score = merge_score(merge_types)
     penalties = _board_penalties(after, sign=sign)

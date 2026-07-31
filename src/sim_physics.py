@@ -103,26 +103,39 @@ def simulate_drop(
     return after, merges, merge_types
 
 
-def preview_land(
-    fruits: list[Fruit] | tuple[Fruit, ...],
+def landed_xy(
+    fruits_before: list[Fruit] | tuple[Fruit, ...],
+    after: list[Fruit] | tuple[Fruit, ...],
     fruit_type: int,
     x: float,
     held_r: float,
+    merges: int,
 ) -> tuple[float, float]:
-    """Approximate landing (x, y) after rolling from drop column x.
+    """Get the approximate landing (x, y) after rolling from a simulate_drop result.
 
     It may disappear in a merge, so while leaning on the initial geometric estimate,
     a same type remaining after the simulation is used if present.
     """
     x0 = max(held_r, min(NORMALIZED_WIDTH - held_r, x))
-    est_y = land_y(fruits, x0, held_r)
-    after, merges, _types = simulate_drop(fruits, fruit_type, x0)
+    est_y = land_y(fruits_before, x0, held_r)
     if merges == 0:
         cands = [f for f in after if f.type == fruit_type]
         if cands:
             best = min(cands, key=lambda f: abs(f.x - x0) + abs(f.y - est_y))
             return best.x, best.y
     return x0, est_y
+
+
+def preview_land(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    fruit_type: int,
+    x: float,
+    held_r: float,
+) -> tuple[float, float]:
+    """Landing (x, y) for drop column x. Runs simulate_drop once internally."""
+    x0 = max(held_r, min(NORMALIZED_WIDTH - held_r, x))
+    after, merges, _types = simulate_drop(fruits, fruit_type, x0)
+    return landed_xy(fruits, after, fruit_type, x0, held_r, merges)
 
 
 def _build_space(
