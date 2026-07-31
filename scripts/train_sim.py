@@ -11,6 +11,7 @@ REINFORCE は match が十分上がってから手動で足す。
   python scripts/train_sim.py
   python scripts/train_sim.py --bc-episodes 100 --max-steps 100
   python scripts/train_sim.py --bc-episodes 100 --bc-epochs 80 --episodes 50 --lr 0.002
+  python scripts/train_sim.py --workers 8
 
 注: max-steps はゲームの負け条件ではなく、収集・評価の打ち切り。
 死ぬか上限に達するまで。長いほど終盤を学べるが collect は遅くなる。
@@ -19,8 +20,10 @@ REINFORCE は match が十分上がってから手動で足す。
 from __future__ import annotations
 
 import argparse
+import os
 import statistics
 import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +38,12 @@ from src.policy import choose_x
 from src.sim_env import SimEnv
 
 DEFAULT_CKPT = ROOT / "artifacts" / "policy_sim.npz"
+
+
+def default_collect_workers() -> int:
+    """CPU-bound の choose_x 向け。論理コアの半分を既定にする (9700X なら 8)。"""
+    n = os.cpu_count() or 4
+    return max(1, n // 2)
 
 
 def collect_teacher_episode(
@@ -56,6 +65,66 @@ def collect_teacher_episode(
         if result.done:
             break
     return obs_list, actions
+
+
+def _collect_teacher_episode_job(
+    seed: int,
+    max_steps: int,
+) -> tuple[list[np.ndarray], list[int]]:
+    """ProcessPool 用。モジュールトップレベルに置く (Windows spawn)。"""
+    env = SimEnv(seed=seed)
+    return collect_teacher_episode(env, max_steps=max_steps)
+
+
+def collect_teacher_episodes(
+    *,
+    episodes: int,
+    max_steps: int,
+    seed: int,
+    workers: int,
+    log_every: int,
+) -> tuple[list[np.ndarray], list[int]]:
+    """先生軌道を並列収集して結合する。"""
+    obs_buf: list[np.ndarray] = []
+    act_buf: list[int] = []
+    jobs = [
+        (seed + 1000 + ep, max_steps) for ep in range(1, episodes + 1)
+    ]
+
+    if workers <= 1 or episodes <= 1:
+        for i, (ep_seed, steps) in enumerate(jobs, start=1):
+            obs_list, actions = _collect_teacher_episode_job(ep_seed, steps)
+            obs_buf.extend(obs_list)
+            act_buf.extend(actions)
+            if i % log_every == 0 or i == 1 or i == episodes:
+                print(f"collect={i:4d}  buf={len(obs_buf)}", flush=True)
+        return obs_buf, act_buf
+
+    done = 0
+    # 完了順ではなく ep 番号順で結合して、直列時と同じバッファ順にする。
+    results: list[tuple[list[np.ndarray], list[int]] | None] = [None] * episodes
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        future_to_idx = {
+            pool.submit(_collect_teacher_episode_job, ep_seed, steps): i
+            for i, (ep_seed, steps) in enumerate(jobs)
+        }
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            results[idx] = future.result()
+            done += 1
+            if done % log_every == 0 or done == 1 or done == episodes:
+                filled = sum(len(r[0]) for r in results if r is not None)
+                print(
+                    f"collect={done:4d}/{episodes}  buf~{filled}  workers={workers}",
+                    flush=True,
+                )
+
+    for item in results:
+        assert item is not None
+        obs_list, actions = item
+        obs_buf.extend(obs_list)
+        act_buf.extend(actions)
+    return obs_buf, act_buf
 
 
 def match_rate(
@@ -191,6 +260,12 @@ def main() -> None:
     parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument("--eval-episodes", type=int, default=8)
     parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="教師収集の並列プロセス数 (省略時は論理コア/2、1 で直列)",
+    )
+    parser.add_argument(
         "--save",
         type=Path,
         default=DEFAULT_CKPT,
@@ -199,6 +274,9 @@ def main() -> None:
     args = parser.parse_args()
     eval_max_steps = (
         args.eval_max_steps if args.eval_max_steps is not None else args.max_steps
+    )
+    workers = (
+        args.workers if args.workers is not None else default_collect_workers()
     )
 
     rng = np.random.default_rng(args.seed)
@@ -209,21 +287,16 @@ def main() -> None:
     if args.bc_episodes > 0:
         print(
             f"=== collect teacher ({args.bc_episodes} ep, "
-            f"max_steps={args.max_steps}) ===",
+            f"max_steps={args.max_steps}, workers={workers}) ===",
             flush=True,
         )
-        for ep in range(1, args.bc_episodes + 1):
-            env = SimEnv(seed=args.seed + 1000 + ep)
-            obs_list, actions = collect_teacher_episode(
-                env, max_steps=args.max_steps
-            )
-            obs_buf.extend(obs_list)
-            act_buf.extend(actions)
-            if ep % args.log_every == 0 or ep == 1 or ep == args.bc_episodes:
-                print(
-                    f"collect={ep:4d}  buf={len(obs_buf)}",
-                    flush=True,
-                )
+        obs_buf, act_buf = collect_teacher_episodes(
+            episodes=args.bc_episodes,
+            max_steps=args.max_steps,
+            seed=args.seed,
+            workers=workers,
+            log_every=args.log_every,
+        )
 
     best_match = -1.0
     best_r = -float("inf")

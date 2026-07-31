@@ -17,6 +17,7 @@
 - `src/sim_env.py`: 画面なし落下 sim (`policy.simulate_drop`)
 - 評価: `python scripts/eval_policy.py` (`--policy bootstrap|learned`)
 - 学習: `python scripts/train_sim.py` (収集 → オフライン BC。既定 max-steps=100 は打ち切りであり負けラインではない)
+- 教師収集は `ProcessPool` 並列 (既定 workers=論理コア/2。9700X なら 8。`--workers 1` で直列)
 - `src/agent.py`: 離散列 32 ビン / hidden 128 の MLP (旧 20/64 の npz は再学習が必要)
 - 実プレイ: `python main.py` (npz があれば既定 learned。`L` で bootstrap 切替、`--policy bootstrap`)
 
