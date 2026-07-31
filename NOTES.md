@@ -13,6 +13,7 @@
 ## Policy (bootstrap)
 
 - `src/policy.py` is a thin policy before RL. Only merging, dangerous height, burying, light size order and accident prevention for rolling / knock-aways
+- The physics of falling, collision and merging is `src/sim_physics.py` (UT in `tests/test_sim_physics.py`). `choose_x` scores with the same `simulate_drop`
 - Moves are scored as `eval = score - penalties`. The only bonus is the real game's score; stacking, accidents and burying are penalties
 - Burying is the main penalty. Moves that block a same-type pair waiting to merge with a bigger fruit of another type, directly above or on the shoulder, are heavily penalized
 - Aiming at the center of a different type (`FOREIGN_AIM`) and excess same type (`EXCESS_SAME` = 20 per excess fruit) suppress breaking and delayed merging. Stacking a different type in valleys or on shoulders is not forbidden
@@ -25,7 +26,7 @@
 - **score / eval**: `score` is the real game's merge score (1-65, no penalties), `penalties` are the penalties for accidents and bad moves, `eval = score - penalties`. Policy move selection and the student's quality use eval; **the RL reward stays score** (dense penalties are not rewards)
 - `src/reward.py`: `merge_score(merge_types)` gives only merge points identical to the real game (cherry→0 … watermelon 55, double clear 65). No survival bonus or death penalty. Episodes end as before (losing line / double clear)
 - `src/encode.py`: fixed-length observation vector
-- `src/sim_env.py`: headless drop sim (`policy.simulate_drop`). `SimStep` has `score` and `eval_score`
+- `src/sim_env.py`: headless drop sim (`sim_physics.simulate_drop`). `SimStep` has `score` and `eval_score`
 - Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`. `--workers` default = logical cores/2)
 - Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=100 is a cap, not the losing line). Logs show score and eval side by side, and best is chosen by eval
 - Teacher collection runs in parallel with `ProcessPool` (default workers=logical cores/2; 8 on a 9700X; `--workers 1` for serial)
