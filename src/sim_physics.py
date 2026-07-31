@@ -32,6 +32,12 @@ WALL_FRICTION = 0.4
 WALL_ELASTICITY = 0.05
 # Overlap margin for the merge check (ratio to the sum of radii).
 MERGE_SLOP = 1.02
+# Shift the merge position toward the one with more kinetic energy (0 = center of mass, 1 = up to that fruit's position).
+MERGE_PULL_BIAS = 0.35
+# Shift only when the sideways offset is at least this multiple × the smaller radius (avoids cascades on straight-down drops).
+MERGE_PULL_MIN_HORIZ = 0.7
+# Velocity multiplier inherited in merges where only one side is moving.
+MERGE_VEL_SCALE = 0.55
 # Mass = density * area. Bigger is harder to push.
 DENSITY = 0.08
 
@@ -76,17 +82,8 @@ def simulate_drop(
         # Merge touching same types (at most 1 pair per step).
         paired = _find_merge_pair(bodies)
         if paired is not None:
-            a, b = paired
-            source = a.fruit_type
-            new_type = source + 1
-            mid_x = 0.5 * (a.body.position.x + b.body.position.x)
-            mid_y = 0.5 * (a.body.position.y + b.body.position.y)
-            _remove_fruit(space, bodies, a)
-            _remove_fruit(space, bodies, b)
-            merge_types.append(source)
+            _merge_pair(space, bodies, paired[0], paired[1], merge_types)
             merges += 1
-            if new_type <= MAX_FRUIT_TYPE:
-                _add_fruit(space, bodies, new_type, mid_x, mid_y)
             quiet = 0
             space.step(DT)
             continue
@@ -203,6 +200,66 @@ def _remove_fruit(
     if item.body in space.bodies:
         space.remove(item.body)
     bodies.remove(item)
+
+
+def _merge_pair(
+    space: pymunk.Space,
+    bodies: list[_BodyFruit],
+    a: _BodyFruit,
+    b: _BodyFruit,
+    merge_types: list[int],
+) -> None:
+    """Merge two of the same type. Reproduces the pull after merging with momentum and a slight position shift."""
+    source = a.fruit_type
+    new_type = source + 1
+    merge_types.append(source)
+
+    ma = a.body.mass
+    mb = b.body.mass
+    total_m = ma + mb
+    pa = a.body.position
+    pb = b.body.position
+    va = a.body.velocity
+    vb = b.body.velocity
+
+    base_x = (ma * pa.x + mb * pb.x) / total_m
+    base_y = (ma * pa.y + mb * pb.y) / total_m
+    ke_a = ma * (va.x * va.x + va.y * va.y)
+    ke_b = mb * (vb.x * vb.x + vb.y * vb.y)
+    ke_sum = ke_a + ke_b
+    ra = a.shape.radius
+    rb = b.shape.radius
+    horiz = abs(pa.x - pb.x)
+    if ke_sum > 1e-6 and horiz > min(ra, rb) * MERGE_PULL_MIN_HORIZ:
+        bias = ke_b / ke_sum
+        pull_x = pa.x * (1.0 - bias) + pb.x * bias
+        pull_y = pa.y * (1.0 - bias) + pb.y * bias
+        mid_x = base_x + MERGE_PULL_BIAS * (pull_x - base_x)
+        mid_y = base_y + MERGE_PULL_BIAS * (pull_y - base_y)
+    else:
+        mid_x = base_x
+        mid_y = base_y
+
+    px = ma * va.x + mb * vb.x
+    py = ma * va.y + mb * vb.y
+    ang = ma * a.body.angular_velocity + mb * b.body.angular_velocity
+
+    _remove_fruit(space, bodies, a)
+    _remove_fruit(space, bodies, b)
+    if new_type > MAX_FRUIT_TYPE:
+        return
+
+    new = _add_fruit(space, bodies, new_type, mid_x, mid_y)
+    new_m = new.body.mass
+    if (
+        ke_sum > 1e-6
+        and horiz > min(ra, rb) * MERGE_PULL_MIN_HORIZ
+    ):
+        ke_bias = abs(ke_b - ke_a) / ke_sum
+        scale = MERGE_VEL_SCALE * ke_bias
+        # Initial vertical velocity tends to bounce into neighbors, so inherit only horizontal.
+        new.body.velocity = (px / new_m * scale, 0.0)
+        new.body.angular_velocity = ang / new_m * scale
 
 
 def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] | None:
