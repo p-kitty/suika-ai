@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 import statistics
+from dataclasses import replace
 
 from .observe import Observation, clamp_drop_x
 from .reward import merge_score
@@ -25,8 +26,7 @@ CANDIDATE_STEP = 8.0
 MERGE_SLACK = 18.0
 # Contact for a virtual merge. The observed board is assumed still, so do not loosen too much.
 CONTACT_SLACK = 2.0
-# Upper limit of |dx| / lower radius for counting as a merge by sitting on the same type.
-# Shoulders shallower than this are often knocked off on the real machine and do not reach, so they are rolled rather than merged.
+# The 'toward the center' |dx| / lower radius used in burying checks and the like.
 MERGE_SUPPORT_DX_FRAC = 0.5
 # Dangerous if the head rises above this y (near the top edge of the board).
 DANGER_Y = 90.0
@@ -37,6 +37,8 @@ NEXT_DISCOUNT = 0.55
 # Rolling after landing. If it sits on a side, shift sideways down to the valley.
 SETTLE_STEP = 3.0
 SETTLE_MAX_ITERS = 48
+# Cap on how many times unsupported fruits fall after a merge.
+BOARD_SETTLE_MAX_ITERS = 32
 # |dx| / radius considered nearly at the top of the supporting circle (unstable).
 APEX_DX_FRAC = 0.2
 # Penalties are scaled to balance with the real-game score (1-65). The only bonus is the real-game score.
@@ -480,8 +482,7 @@ def _settle_x(
                 return x
             return _coast_on_floor(fruits, x, held_r, coast_dir)
 
-        # If the current column can sit near the center of a same type, do not roll it on a different type's slope and miss the merge.
-        # Overlaps only on a shallow shoulder do not stop (rolled below).
+        # Stop if the landing touches a same type (real game: merges on touch, including shoulders).
         if drop_type is not None and _would_merge_at(fruits, x, y, held_r, drop_type):
             return x
 
@@ -532,30 +533,13 @@ def _would_merge_at(
     held_r: float,
     drop_type: int,
 ) -> bool:
-    """Whether it can sit stably near the center of a same type at column (x, y). Shallow shoulders excluded."""
+    """Whether it touches a same type at column (x, y). Shoulders included."""
     for fruit in fruits:
         if fruit.type != drop_type:
             continue
-        if _resting_merge_support(fruit, x, y, held_r):
+        if math.hypot(x - fruit.x, y - fruit.y) <= fruit.radius + held_r + CONTACT_SLACK:
             return True
     return False
-
-
-def _resting_merge_support(
-    fruit: Fruit,
-    x: float,
-    y: float,
-    held_r: float,
-) -> bool:
-    """Whether fruit may stop at (x, y) on the supporting circle, as a way of sitting aiming to merge."""
-    dx = x - fruit.x
-    gap = fruit.radius + held_r
-    if abs(dx) >= gap - 1e-6:
-        return False
-    dy = math.sqrt(max(0.0, gap * gap - dx * dx))
-    if abs((fruit.y - dy) - y) > 2.0:
-        return False
-    return abs(dx) <= max(fruit.radius * MERGE_SUPPORT_DX_FRAC, 1.0)
 
 
 def _apex_roll_dir(support_x: float) -> float:
@@ -596,7 +580,11 @@ def _coast_on_floor(
 def _resolve_merges(
     fruits: list[Fruit], active: set[int]
 ) -> tuple[list[Fruit], int, list[int]]:
-    """Merge only same-type contacts starting from the dropped fruit. The observed board is assumed still."""
+    """Merge same-type contacts starting from the dropped fruit.
+
+    Fruits on the already stable observed board are not moved. Fruits whose support disappeared in a merge
+    fall and roll, and only contacts continuing from moved fruits cascade.
+    """
     fruits = list(fruits)
     merges = 0
     merge_types: list[int] = []
@@ -614,14 +602,57 @@ def _resolve_merges(
 
         merge_types.append(source_type)
         merges += 1
+        # Drop the fruits left above a vanished support first (do not put the new fruit on floating fruits).
+        fruits, moved = _settle_board(fruits)
         if new_type > MAX_FRUIT_TYPE:
-            active = set()
+            active = moved
             continue
 
         fruits, new_i = _place(fruits, new_type, mid_x, allow_coast=False)
-        active = {new_i}
+        fruits, moved2 = _settle_board(fruits)
+        active = {new_i} | moved | moved2
 
     return fruits, merges, merge_types
+
+
+def _settle_board(fruits: list[Fruit]) -> tuple[list[Fruit], set[int]]:
+    """Let unsupported fruits fall, and roll only fallen fruits off unstable tops.
+
+    Indices are preserved (for tracking active merges).
+    """
+    fruits = list(fruits)
+    moved_all: set[int] = set()
+    if not fruits:
+        return fruits, moved_all
+
+    for _ in range(BOARD_SETTLE_MAX_ITERS):
+        order = sorted(range(len(fruits)), key=lambda i: (-fruits[i].y, fruits[i].x))
+        settled: list[int] = []
+        fell: set[int] = set()
+        for i in order:
+            f = fruits[i]
+            y = _land_y([fruits[j] for j in settled], f.x, f.radius)
+            if abs(y - f.y) > 0.5:
+                fruits[i] = replace(f, y=y)
+                fell.add(i)
+            settled.append(i)
+
+        rolled: set[int] = set()
+        for i in fell:
+            f = fruits[i]
+            others = [fruits[j] for j in range(len(fruits)) if j != i]
+            x2 = _settle_x(others, f.x, f.radius, allow_coast=True, drop_type=f.type)
+            y2 = _land_y(others, x2, f.radius)
+            if abs(x2 - f.x) > 0.5 or abs(y2 - f.y) > 0.5:
+                fruits[i] = replace(f, x=x2, y=y2)
+                rolled.add(i)
+
+        pass_moved = fell | rolled
+        moved_all |= pass_moved
+        if not pass_moved:
+            break
+
+    return fruits, moved_all
 
 
 def _find_merge_pair(fruits: list[Fruit], active: set[int]) -> tuple[int, int] | None:
@@ -633,53 +664,9 @@ def _find_merge_pair(fruits: list[Fruit], active: set[int]) -> tuple[int, int] |
         for j, b in enumerate(fruits):
             if j == i or b.type != a.type:
                 continue
-            if _mergeable_contact(fruits, a, b):
+            if _touching(a, b):
                 return (i, j) if i < j else (j, i)
     return None
-
-
-def _mergeable_contact(
-    fruits: list[Fruit] | tuple[Fruit, ...],
-    a: Fruit,
-    b: Fruit,
-) -> bool:
-    """Whether the contact may merge.
-
-    Side by side, stacked toward the center, and stacked wedged in a valley are OK.
-    Sitting alone on the shallow shoulder of a big fruit is not, since it gets knocked off on the real machine.
-    """
-    if not _touching(a, b):
-        return False
-    if abs(a.y - b.y) <= max(a.radius, b.radius) * 0.55:
-        return True
-    lower, upper = (a, b) if a.y > b.y else (b, a)
-    if abs(upper.x - lower.x) <= max(lower.radius * MERGE_SUPPORT_DX_FRAC, 1.0):
-        return True
-    # Shallow sitting is also allowed only when settled with other support, such as in a valley.
-    return _support_count(fruits, upper.x, upper.y, upper.radius, skip=lower) >= 1
-
-
-def _support_count(
-    fruits: list[Fruit] | tuple[Fruit, ...],
-    x: float,
-    y: float,
-    held_r: float,
-    *,
-    skip: Fruit | None = None,
-) -> int:
-    """Number of circles supporting (x, y). skip is excluded."""
-    count = 0
-    for fruit in fruits:
-        if skip is not None and fruit is skip:
-            continue
-        dx = x - fruit.x
-        gap = fruit.radius + held_r
-        if abs(dx) >= gap - 1e-6:
-            continue
-        dy = math.sqrt(max(0.0, gap * gap - dx * dx))
-        if abs((fruit.y - dy) - y) <= 2.0:
-            count += 1
-    return count
 
 
 def _touching(a: Fruit, b: Fruit) -> bool:
