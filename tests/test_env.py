@@ -252,6 +252,7 @@ def test_step_chooses_after_settle(monkeypatch) -> None:
 
     ready = _obs(x=10.0)
     chosen: list[float] = []
+    aimed: list[float] = []
 
     def choose(obs: Observation) -> float:
         chosen.append(obs.fruits[0].x)
@@ -268,9 +269,10 @@ def test_step_chooses_after_settle(monkeypatch) -> None:
     monkeypatch.setattr("src.env._wait_held_gone", lambda *_a, **_k: None)
     monkeypatch.setattr(control, "recenter", lambda *_a, **_k: True)
 
-    result = env.step(abort=None, choose=choose)
+    result = env.step(abort=None, choose=choose, on_aim=aimed.append)
     assert result.info == "ok"
     assert result.target_x == 250.0
+    assert aimed == [250.0]
     assert chosen[0] == 10.0
     assert chosen[1] == 250.0
 

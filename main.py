@@ -136,7 +136,7 @@ def main() -> None:
         return pressed
 
     def pump_ui() -> None:
-        """Keep only the video running while waiting for settle / aim. Stale detection circles are not drawn."""
+        """Keep the video running while waiting for settle / aim. Only the aim line stays."""
         nonlocal frame, next_pump
         # Do not misfire on a key held or pressed again while waiting after returning.
         poll_step_key()
@@ -150,9 +150,18 @@ def main() -> None:
             frame = fresh
         if frame is None:
             return
-        # No detection overlay. Drawing the previous board on a new frame stutters.
+        # Fruit circles are not drawn (it stutters). The aim column stays, since it must be visible during aim.
         output = frame.copy()
+        board_now = env.board
+        if aim_x is not None and board_now is not None and board_now.corners is not None:
+            _draw_aim(output, board_now.corners, aim_x)
         mode_badge(output, auto_play)
+        put_text(
+            output,
+            f"aim x={aim_x:.0f}" if aim_x is not None else "aim —",
+            (8, 128),
+            (0, 255, 255),
+        )
         put_text(output, f"policy={policy_name}", (8, 152), (0, 220, 255), scale=0.5)
         put_text(
             output,
@@ -236,8 +245,27 @@ def main() -> None:
                 message = "step: not ready"
                 print(message)
             else:
+                def on_aim(target: float) -> None:
+                    """Show the line the moment the column is decided, so it stays visible throughout aim."""
+                    nonlocal aim_x, message, message_until, frame, obs, board
+                    aim_x = target
+                    message = f"aiming x={target:.0f}"
+                    message_until = time.monotonic() + MESSAGE_SECONDS
+                    frame, obs, board = _refresh(env, frame, obs)
+                    _show(
+                        frame,
+                        board,
+                        obs,
+                        aim_x,
+                        auto_play,
+                        policy_name,
+                        message,
+                        message_until,
+                        time.monotonic(),
+                    )
+
                 # Confirm settle → decide the column on the same observation → aim. Do not read a moving board.
-                result = env.step(abort=abort, choose=choose)
+                result = env.step(abort=abort, choose=choose, on_aim=on_aim)
                 if from_auto and not auto_play:
                     message = "auto=off"
                     frame, obs, board = _refresh(env, frame, obs)

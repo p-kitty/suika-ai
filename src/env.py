@@ -67,12 +67,14 @@ class Env:
         abort: Callable[[], bool] | None = None,
         *,
         choose: Callable[[Observation], float] | None = None,
+        on_aim: Callable[[float], None] | None = None,
     ) -> StepResult:
         """Decide the column after the board stops, line up the view, and drop.
 
         If x is omitted and choose is passed, the column is decided on the same observation after the settle check.
         Prevents the offset of aiming from a board that is still moving.
         If abort returns true, the operation is aborted (for stopping auto mode).
+        on_aim is called right after the target column is decided (before the view moves).
         """
         before = self.observe()
         if before.blocked:
@@ -92,6 +94,8 @@ class Env:
                 raise ValueError("x or choose is required")
             x = choose(before)
         target = clamp_drop_x(x, before.held_type)
+        if on_aim is not None:
+            on_aim(target)
         read = self._aim_read
 
         # Aim right away at the column decided on the observation that just stopped (do not wait again to reread the board).
