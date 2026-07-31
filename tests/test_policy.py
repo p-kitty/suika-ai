@@ -272,6 +272,71 @@ def test_same_type_center_drop_still_merges() -> None:
     assert any(f.type == 1 for f in after)
 
 
+def test_shallow_shoulder_of_high_same_type_does_not_merge() -> None:
+    # 上の大きい同種の浅い肩は合成にしない (壁で止まっても届いてない扱い)。
+    apple_r = fruit_radius(5)
+    melon_r = fruit_radius(9)
+    apple = Fruit(type=5, x=200, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
+    melon = Fruit(
+        type=9,
+        x=200,
+        y=apple.y - apple_r - melon_r,
+        radius=melon_r,
+        confidence=90,
+    )
+    fruits = (apple, melon)
+    shallow = melon.x + melon_r * 0.72
+    after, merges, _types = simulate_drop(fruits, 9, shallow)
+    assert merges == 0
+    assert sum(1 for f in after if f.type == 9) == 2
+
+
+def test_does_not_prefer_unreachable_high_same_type_column() -> None:
+    # 真上は塞がれて浅い肩しかない同種より、届く床側の同種を選ぶ。
+    peach_r = fruit_radius(7)
+    cover_r = fruit_radius(5)
+    left_base = Fruit(
+        type=4,
+        x=80,
+        y=NORMALIZED_HEIGHT - fruit_radius(4),
+        radius=fruit_radius(4),
+        confidence=90,
+    )
+    right_base = Fruit(
+        type=4,
+        x=320,
+        y=NORMALIZED_HEIGHT - fruit_radius(4),
+        radius=fruit_radius(4),
+        confidence=90,
+    )
+    left = Fruit(
+        type=7,
+        x=80,
+        y=left_base.y - left_base.radius - peach_r,
+        radius=peach_r,
+        confidence=90,
+    )
+    right = Fruit(
+        type=7,
+        x=320,
+        y=right_base.y - right_base.radius - peach_r,
+        radius=peach_r,
+        confidence=90,
+    )
+    cover = Fruit(
+        type=5,
+        x=left.x,
+        y=left.y - peach_r - cover_r,
+        radius=cover_r,
+        confidence=90,
+    )
+    fruits = (left_base, right_base, left, right, cover)
+    assert simulate_drop(fruits, 7, left.x)[1] == 0
+    x = choose_x(_obs(held_type=7, fruits=fruits))
+    assert abs(x - right.x) < peach_r
+    assert simulate_drop(fruits, 7, x)[1] >= 1
+
+
 def test_merges_sandwiched_same_type_despite_foreign_slope() -> None:
     # 大実の谷に挟まった同種は、狙いが少しずれても異種斜面で逃げず合体する。
     pear_r = fruit_radius(6)
