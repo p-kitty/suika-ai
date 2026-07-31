@@ -11,6 +11,7 @@ REINFORCE は match が十分上がってから手動で足す。
   python scripts/train_sim.py
   python scripts/train_sim.py --bc-episodes 100 --max-steps 100
   python scripts/train_sim.py --bc-episodes 100 --bc-epochs 80 --episodes 50 --lr 0.002
+  python scripts/train_sim.py --bc-episodes 0 --bc-epochs 0 --episodes 400 --save artifacts/policy_rl.npz
   python scripts/train_sim.py --workers 8
 
 注: max-steps はゲームの負け条件ではなく、収集・評価の打ち切り。
@@ -365,15 +366,34 @@ def main() -> None:
             )
             window.append(total)
             window_steps.append(steps)
-            if ep % args.log_every == 0 or ep == 1:
+            if ep % args.log_every == 0 or ep == 1 or ep == args.episodes:
+                train_r = statistics.fmean(window)
+                train_s = statistics.fmean(window_steps)
+                student_r, student_s = eval_student(
+                    policy,
+                    seed=args.seed + 9000,
+                    episodes=args.eval_episodes,
+                    max_steps=eval_max_steps,
+                )
+                better = student_r > best_r + 1e-9
+                if better:
+                    best_r = student_r
+                    best_snap = policy.snapshot()
                 print(
                     f"rl={ep:4d}  "
-                    f"reward={statistics.fmean(window):7.2f}  "
-                    f"steps={statistics.fmean(window_steps):5.1f}",
+                    f"train_r={train_r:7.2f}  "
+                    f"train_s={train_s:5.1f}  "
+                    f"student_r={student_r:7.2f}  "
+                    f"student_s={student_s:5.1f}  "
+                    f"best_r={best_r:7.2f}",
                     flush=True,
                 )
                 window.clear()
                 window_steps.clear()
+
+        if best_snap is not None:
+            policy.restore(best_snap)
+            print(f"restored best_r={best_r:.2f}", flush=True)
 
     if args.save is not None:
         args.save.parent.mkdir(parents=True, exist_ok=True)
