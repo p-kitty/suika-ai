@@ -9,7 +9,6 @@ import numpy as np
 from .observe import Observation, clamp_drop_x
 from .policy import drop_scores
 from .reward import cleared_double_watermelon, is_game_over
-from .sim_physics import simulate_drop
 from .vision.colors import SPAWN_MAX_TYPE
 from .vision.normalized import NORMALIZED_WIDTH
 from .vision.state import Fruit
@@ -48,10 +47,7 @@ class SimEnv:
 
         before = self._obs()
         target = clamp_drop_x(x, self.held_type)
-        score, _penalties, eval_score = drop_scores(
-            self.fruits, self.held_type, target
-        )
-        after_fruits, merges, _merge_types = simulate_drop(
+        score, _penalties, eval_score, after_fruits, merges = drop_scores(
             self.fruits, self.held_type, target
         )
         self.fruits = after_fruits

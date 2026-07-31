@@ -22,11 +22,11 @@ from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from .vision.state import Fruit
 
 # 候補列の刻み (正規化座標)。
-CANDIDATE_STEP = 8.0
+CANDIDATE_STEP = 12.0
 # next 先読みは、即時 eval 上位だけにかける (物理が重いので)。
-NEXT_BEAM = 6
+NEXT_BEAM = 3
 # next 候補は粗い刻み (held は CANDIDATE_STEP のまま)。
-NEXT_CANDIDATE_STEP = 24.0
+NEXT_CANDIDATE_STEP = 32.0
 # 合成できそうな接触の許容 (中心距離と半径和の差)。候補評価用。
 MERGE_SLACK = 18.0
 # 埋め込み判定などで使う「中央寄り」の |dx| / 下側 radius。
@@ -74,7 +74,7 @@ def choose_x(obs: Observation) -> float:
     ranked: list[tuple[float, float, list[Fruit]]] = []
     for x in _candidates(before, obs.held_type, held_r, extra_type=obs.next_type):
         x = clamp_drop_x(x, obs.held_type)
-        after, score, penalties = _evaluate_drop(
+        after, score, penalties, _merges = _evaluate_drop(
             before, obs.held_type, x, held_r, next_type=obs.next_type
         )
         ranked.append((score - penalties, x, after))
@@ -141,15 +141,16 @@ def drop_scores(
     x: float,
     *,
     next_type: int | None = None,
-) -> tuple[float, float, float]:
-    """列 x に落とした 1 手の (score, penalties, eval)。sim / 学習用。
+) -> tuple[float, float, float, list[Fruit], int]:
+    """列 x に落とした 1 手の (score, penalties, eval, after, merges)。
 
+    sim / 学習用。after と merges は simulate_drop の結果をそのまま返す。
     盤面ぶんの減点は落下前との差にする。同じ盤では定数差なので choose_x の
     選び方は変わらず、手ごとに足しても盤の大きさで膨らまない。
     """
     held_r = fruit_radius(drop_type)
     before = list(fruits)
-    _, score, penalties = _evaluate_drop(
+    after, score, penalties, merges = _evaluate_drop(
         before,
         drop_type,
         clamp_drop_x(x, drop_type),
@@ -157,14 +158,14 @@ def drop_scores(
         next_type=next_type,
     )
     penalties -= _board_penalties(before, sign=_order_sign(before))
-    return score, penalties, score - penalties
+    return score, penalties, score - penalties, after, merges
 
 
 def _score(obs: Observation, x: float, held_r: float) -> float:
     """held を落とした盤＋ next の仮想最善手を採点する。"""
     assert obs.held_type is not None
     before = list(obs.fruits)
-    after, score, penalties = _evaluate_drop(
+    after, score, penalties, _merges = _evaluate_drop(
         before, obs.held_type, x, held_r, next_type=obs.next_type
     )
     value = score - penalties
@@ -185,7 +186,7 @@ def _best_next_score(
     for nx in _candidates(fruits, next_type, next_r, step=step):
         nx = clamp_drop_x(nx, next_type)
         # その先の next は未知。育成免除は谷内同種だけが効く。
-        _, score, penalties = _evaluate_drop(fruits, next_type, nx, next_r)
+        _, score, penalties, _merges = _evaluate_drop(fruits, next_type, nx, next_r)
         if score - penalties > best:
             best = score - penalties
     return 0.0 if best == -math.inf else best
@@ -198,8 +199,8 @@ def _evaluate_drop(
     held_r: float,
     *,
     next_type: int | None = None,
-) -> tuple[list[Fruit], float, float]:
-    """1 手落としたあとの盤面・本家点・減点。"""
+) -> tuple[list[Fruit], float, float, int]:
+    """1 手落としたあとの盤面・本家点・減点・合成回数。"""
     before = list(fruits)
     sign = _order_sign(before)
     after, merges, merge_types = simulate_drop(before, drop_type, x)
@@ -221,7 +222,7 @@ def _evaluate_drop(
         penalties += _foreign_aim_penalty(before, x, drop_type)
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
     penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
-    return after, score, penalties
+    return after, score, penalties, merges
 
 
 def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
