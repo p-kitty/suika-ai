@@ -136,7 +136,7 @@ def main() -> None:
         return pressed
 
     def pump_ui() -> None:
-        """settle / aim 待ち中も映像だけ回す。古い検出円は載せない。"""
+        """settle / aim 待ち中も映像を回す。狙い線だけは残す。"""
         nonlocal frame, next_pump
         # 待ち中の押しっぱなし／再押しを、戻ったあとに誤発火させない。
         poll_step_key()
@@ -150,9 +150,18 @@ def main() -> None:
             frame = fresh
         if frame is None:
             return
-        # 検出オーバーレイ無し。直前の board を新フレームに載せるとカクつく。
+        # フルーツ円は載せない (カクつく)。狙い列は aim 中に見えないと困るので残す。
         output = frame.copy()
+        board_now = env.board
+        if aim_x is not None and board_now is not None and board_now.corners is not None:
+            _draw_aim(output, board_now.corners, aim_x)
         mode_badge(output, auto_play)
+        put_text(
+            output,
+            f"aim x={aim_x:.0f}" if aim_x is not None else "aim —",
+            (8, 128),
+            (0, 255, 255),
+        )
         put_text(output, f"policy={policy_name}", (8, 152), (0, 220, 255), scale=0.5)
         put_text(
             output,
@@ -236,8 +245,27 @@ def main() -> None:
                 message = "step: not ready"
                 print(message)
             else:
+                def on_aim(target: float) -> None:
+                    """列が決まった瞬間に線を出して、aim 中ずっと見えるようにする。"""
+                    nonlocal aim_x, message, message_until, frame, obs, board
+                    aim_x = target
+                    message = f"aiming x={target:.0f}"
+                    message_until = time.monotonic() + MESSAGE_SECONDS
+                    frame, obs, board = _refresh(env, frame, obs)
+                    _show(
+                        frame,
+                        board,
+                        obs,
+                        aim_x,
+                        auto_play,
+                        policy_name,
+                        message,
+                        message_until,
+                        time.monotonic(),
+                    )
+
                 # 静止確認→同じ観測で列決め→狙い。動いている盤を読まない。
-                result = env.step(abort=abort, choose=choose)
+                result = env.step(abort=abort, choose=choose, on_aim=on_aim)
                 if from_auto and not auto_play:
                     message = "auto=off"
                     frame, obs, board = _refresh(env, frame, obs)

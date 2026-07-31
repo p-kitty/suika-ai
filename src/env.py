@@ -67,12 +67,14 @@ class Env:
         abort: Callable[[], bool] | None = None,
         *,
         choose: Callable[[Observation], float] | None = None,
+        on_aim: Callable[[float], None] | None = None,
     ) -> StepResult:
         """盤面が止まってから列を決め、視線を合わせて落とす。
 
         x を省略し choose を渡すと、静止確認後の同じ観測で列を決める。
         動いている盤面を読んで狙うずれを防ぐ。
         abort が真を返したら操作を打ち切る (自動モードの停止用)。
+        on_aim は狙い列が決まった直後 (視点移動の前) に呼ばれる。
         """
         before = self.observe()
         if before.blocked:
@@ -92,6 +94,8 @@ class Env:
                 raise ValueError("x か choose が必要")
             x = choose(before)
         target = clamp_drop_x(x, before.held_type)
+        if on_aim is not None:
+            on_aim(target)
         read = self._aim_read
 
         # いま止まった観測で決めた列へすぐ狙う (再度 wait して盤面を取り直さない)。
