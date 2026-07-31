@@ -11,7 +11,7 @@
 - `src/policy.py` is a thin policy before RL. Only merging, dangerous height, burying, light size order and accident prevention for rolling / knock-aways / gap junk
 - Moves are scored as `eval = score - penalties`. The only bonus is the real game's score; stacking, accidents and burying are penalties
 - Burying is the main penalty. Moves that block a same-type pair waiting to merge with a bigger fruit of another type, directly above or on the shoulder, are heavily penalized
-- Aiming at the center of a different type (`FOREIGN_AIM`) and 3+ of the same type (`EXCESS_SAME`) suppress breaking and delayed merging. Stacking a different type in valleys or on shoulders is not forbidden
+- Aiming at the center of a different type (`FOREIGN_AIM`) and excess same type (`EXCESS_SAME` = 20 per excess fruit) suppress breaking and delayed merging. Stacking a different type in valleys or on shoulders is not forbidden
 - Not included: push-in merges, restoring pushes, growing priority, cascade gap opening, forced moves one tier up
 - Do not add UTs for concrete procedures. When something breaks, look at accident prevention or the observation side
 

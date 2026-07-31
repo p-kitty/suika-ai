@@ -37,8 +37,8 @@ APEX_DX_FRAC = 0.2
 # Penalties are scaled to balance with the real-game score (1-65). The only bonus is the real-game score.
 # Penalty for aiming nearly at the center of a different type (even if it rolls to the floor). It breaks easily on the real machine.
 FOREIGN_AIM_PENALTY = 10.0
-# Penalty per excess fruit when there are 3 or more of the same type. Encourages merging early.
-EXCESS_SAME_WEIGHT = 8.0
+# Penalty per excess fruit when there are 3 or more of the same type. Up to 2 waiting is OK.
+EXCESS_SAME_WEIGHT = 20.0
 # Penalty per type difference of an inverted size pair.
 SIZE_ORDER_PAIR_WEIGHT = 1.5
 # Penalty per mean distance from the ideal column (weak; not forcing a layout).
