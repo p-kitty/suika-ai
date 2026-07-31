@@ -74,19 +74,17 @@ def test_drop_aims_then_clicks_at_target(world: FakeWorld) -> None:
     assert abs(world.clicked_at - target) <= control.LOOK_TOLERANCE
 
 
-def test_recenter_pulls_in_from_edge_only(world: FakeWorld) -> None:
-    # 端にいるときだけ内側へ。中央までは戻さない。
+def test_recenter_returns_to_center_from_edge(world: FakeWorld) -> None:
     world.held_x = 20.0
     assert control.recenter(world.read) is True
-    assert abs(world.held_x - control.RECENTER_INSET) <= control.RECENTER_TOLERANCE
-    assert world.held_x < NORMALIZED_WIDTH / 2
+    assert abs(world.held_x - control.RECENTER_X) <= control.RECENTER_TOLERANCE
 
 
-def test_recenter_skips_when_already_inward(world: FakeWorld) -> None:
-    world.held_x = 150.0
+def test_recenter_skips_when_already_centered(world: FakeWorld) -> None:
+    world.held_x = control.RECENTER_X
     assert control.recenter(world.read) is True
     assert world.moves == []
-    assert world.held_x == 150.0
+    assert world.held_x == control.RECENTER_X
 
 
 def test_aim_stops_when_held_cannot_move(world: FakeWorld, monkeypatch: pytest.MonkeyPatch) -> None:

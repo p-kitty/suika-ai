@@ -119,7 +119,7 @@ class Env:
             return StepResult(after, target, done=False, info="timeout")
         info = info_aim if not aimed else "ok"
 
-        # 極端な端に居残らない程度に内側へ戻す (毎回中央までは戻さない)。
+        # 次手の基準がズレないよう、落としたら視線を中央へ戻す。
         control.recenter(read, abort=abort)
         after = self.observe()
 

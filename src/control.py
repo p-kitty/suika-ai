@@ -29,20 +29,21 @@ LOOK_PAUSE_SEC = 0.09
 
 # 誤差 (盤面 px) に対するマウス移動。わざと少し短めに寄せる。
 LOOK_GAIN = 0.55
-LOOK_TOLERANCE = 8.0
+# 盤面幅 400 に対し、チェリー半径 (~12) の 1/3 程度。8 だと列がぶれる。
+LOOK_TOLERANCE = 4.0
 LOOK_TIMEOUT_SEC = 4.0
 LOOK_MAX_STEP = 48
 # 狙いをまたいだあと、この幅以内なら打ち返さず止める。
-CROSS_STOP = 14.0
+CROSS_STOP = 10.0
 # 端付近は held が壁で止まり、検出も揺れる。厳密に寄せようとして視点だけが
 # 振れ続けるのを避ける。
 EDGE_BAND = 48.0
 EDGE_TOLERANCE = 18.0
 # held がほとんど動かないのに視点だけ進むのを何手で諦めるか。
 STALL_MOVES = 2
-# 落下後の復帰: 極端な端だけ内側へ戻す。毎回中央まで戻すと往復が大きすぎる。
-RECENTER_INSET = 80.0
-RECENTER_TOLERANCE = 14.0
+# 落下後は毎回盤面中央へ戻す。端に居残ると次手の視点がズレやすい。
+RECENTER_X = NORMALIZED_WIDTH / 2
+RECENTER_TOLERANCE = LOOK_TOLERANCE
 
 
 class MOUSEINPUT(ctypes.Structure):
@@ -83,11 +84,7 @@ def recenter(
     read: Callable[[], tuple[Observation, np.ndarray | None]],
     abort: Callable[[], bool] | None = None,
 ) -> bool:
-    """次の手の前に、極端な端にいるときだけ内側へ戻す。クリックはしない。
-
-    以前は毎回中央へ戻していたが、端置きのたびに端↔中央の往復になって
-    視点が無駄に振れる。端から次手を始めない程度に寄せれば足りる。
-    """
+    """次の手の前に、視線を盤面中央へ戻す。クリックはしない。"""
     if abort is not None and abort():
         return False
     obs, _corners = read()
@@ -97,13 +94,9 @@ def recenter(
         return False
 
     held = float(obs.held_x)
-    lo = RECENTER_INSET
-    hi = NORMALIZED_WIDTH - RECENTER_INSET
-    if lo <= held <= hi:
+    if abs(held - RECENTER_X) <= RECENTER_TOLERANCE:
         return True
-
-    target = lo if held < lo else hi
-    return aim(target, read, tolerance=RECENTER_TOLERANCE, abort=abort)
+    return aim(RECENTER_X, read, tolerance=RECENTER_TOLERANCE, abort=abort)
 
 
 def aim(
