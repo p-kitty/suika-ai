@@ -15,7 +15,7 @@
 - `src/reward.py`: only merge points identical to the real game (cherry→0 … watermelon 55, double clear 65). No survival bonus or death penalty. Episodes end as before (losing line / double clear)
 - `src/encode.py`: fixed-length observation vector
 - `src/sim_env.py`: headless drop sim (`policy.simulate_drop`)
-- Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`)
+- Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`. `--workers` default = logical cores/2)
 - Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=100 is a cap, not the losing line)
 - Teacher collection runs in parallel with `ProcessPool` (default workers=logical cores/2; 8 on a 9700X; `--workers 1` for serial)
 - `src/agent.py`: MLP with 32 discrete column bins / hidden 128 (old 20/64 npz files need retraining)
