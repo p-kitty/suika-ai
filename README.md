@@ -43,13 +43,13 @@ Detection overlay and aim column are shown. Settings live in `config/config.json
 ## Scripts
 
 ```powershell
-# Evaluate the thin bootstrap policy in sim
-python scripts/eval_bootstrap.py
-python scripts/eval_bootstrap.py --episodes 50
+# Evaluate bootstrap / learned policy in sim
+python scripts/eval_policy.py --policy bootstrap
+python scripts/eval_policy.py --policy learned --episodes 20
 
-# REINFORCE a linear policy in sim (numpy only)
+# Train offline BC (+ optional REINFORCE) in sim
 python scripts/train_sim.py
-python scripts/train_sim.py --episodes 200 --lr 0.02
+python scripts/train_sim.py --bc-episodes 100 --episodes 50 --lr 0.002
 
 # Run detection on saved images → debug/check/
 python scripts/check_detection.py
@@ -77,7 +77,7 @@ src/
   capture.py / control.py / settle.py
   vision/               # board, fruit, held / next detection
 scripts/
-  eval_bootstrap.py
+  eval_policy.py
   train_sim.py
   check_detection.py
 tests/
