@@ -4,6 +4,8 @@
 合成・危険回避・埋め込み・転がり事故・谷育成だけ固定する。
 """
 
+import math
+
 from src.observe import Observation
 from src.policy import (
     BURY_BLOCK_WEIGHT,
@@ -113,10 +115,32 @@ def test_prefers_held_that_enables_next_merge() -> None:
     assert abs(x - cherry.x) < cherry_r + grape_r * 2 + 50
 
 
-def test_grows_grape_in_pear_valley_when_next_matches() -> None:
-    # 大きい実の谷に、next と同種を置いて間を育てる。
+def test_grows_apple_in_pear_valley_when_held_and_next_are_one_smaller() -> None:
+    # 壁よりひとつ小さい実が held/next 両方あるときだけ谷で育てる。
+    pear_r = fruit_radius(6)
+    apple_r = fruit_radius(5)
+    left = Fruit(type=6, x=150, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
+    right = Fruit(
+        type=6,
+        x=150 + pear_r * 2 + apple_r * 1.2,
+        y=NORMALIZED_HEIGHT - pear_r,
+        radius=pear_r,
+        confidence=90,
+    )
+    fruits = (left, right)
+    obs = _obs(held_type=5, fruits=fruits, next_type=5)
+    x = choose_x(obs)
+    land_x, _land_y = _preview_land(fruits, 5, x, apple_r)
+    assert left.x < land_x < right.x
+    far = NORMALIZED_WIDTH - apple_r - 8
+    assert _score(obs, x, apple_r) > _score(obs, far, apple_r)
+
+
+def test_does_not_grow_smaller_junk_in_valley() -> None:
+    # 谷のゴミより小さい実を足して掃除不能にしない。
     pear_r = fruit_radius(6)
     grape_r = fruit_radius(2)
+    straw_r = fruit_radius(1)
     left = Fruit(type=6, x=150, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
     right = Fruit(
         type=6,
@@ -125,14 +149,15 @@ def test_grows_grape_in_pear_valley_when_next_matches() -> None:
         radius=pear_r,
         confidence=90,
     )
-    gap_x = (left.x + right.x) / 2
-    fruits = (left, right)
-    obs = _obs(held_type=2, fruits=fruits, next_type=2)
-    x = choose_x(obs)
-    land_x, _land_y = _preview_land(fruits, 2, x, grape_r)
-    assert left.x < land_x < right.x
-    far = NORMALIZED_WIDTH - grape_r - 8
-    assert _score(obs, x, grape_r) > _score(obs, far, grape_r)
+    cx = (left.x + right.x) / 2
+    dx = cx - left.x
+    gy = left.y - math.sqrt((pear_r + grape_r) ** 2 - dx * dx)
+    grape = Fruit(type=2, x=cx, y=gy, radius=grape_r, confidence=90)
+    fruits = (left, right, grape)
+    obs = _obs(held_type=1, fruits=fruits, next_type=1)
+    valley = cx
+    far = NORMALIZED_WIDTH - straw_r - 8
+    assert _score(obs, far, straw_r) > _score(obs, valley, straw_r)
 
 
 def test_drop_on_slope_rolls_to_floor() -> None:
@@ -249,8 +274,6 @@ def test_same_type_center_drop_still_merges() -> None:
 
 def test_merges_sandwiched_same_type_despite_foreign_slope() -> None:
     # 大実の谷に挟まった同種は、狙いが少しずれても異種斜面で逃げず合体する。
-    import math
-
     pear_r = fruit_radius(6)
     grape_r = fruit_radius(2)
     left = Fruit(type=6, x=160, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)

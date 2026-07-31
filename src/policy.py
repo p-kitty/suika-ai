@@ -2,7 +2,8 @@
 
 具体手順 (押し込み・復元押し・連鎖隙間空けなど) は持たない。
 合成・危険高さ・埋め込み・薄い大小順・転がり事故防止だけ見る。
-大きい実の谷への育成は、隙間ゴミ減点で潰さず結果 (合成・危険) で見る。
+大きい実の谷への育成は、谷に同種があるときか、held と next が両方とも
+壁よりひとつ小さいときに限る (それ以外の隙間埋めは通常減点)。
 手の採点は eval = score (本家の合成点) - penalties (事故・悪手の減点)。
 """
 
@@ -119,6 +120,8 @@ def drop_scores(
     fruits: list[Fruit] | tuple[Fruit, ...],
     drop_type: int,
     x: float,
+    *,
+    next_type: int | None = None,
 ) -> tuple[float, float, float]:
     """列 x に落とした 1 手の (score, penalties, eval)。sim / 学習用。
 
@@ -128,7 +131,11 @@ def drop_scores(
     held_r = fruit_radius(drop_type)
     before = list(fruits)
     _, score, penalties = _evaluate_drop(
-        before, drop_type, clamp_drop_x(x, drop_type), held_r
+        before,
+        drop_type,
+        clamp_drop_x(x, drop_type),
+        held_r,
+        next_type=next_type,
     )
     penalties -= _board_penalties(before, sign=_order_sign(before))
     return score, penalties, score - penalties
@@ -138,7 +145,9 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
     """held を落とした盤＋ next の仮想最善手を採点する。"""
     assert obs.held_type is not None
     before = list(obs.fruits)
-    after, score, penalties = _evaluate_drop(before, obs.held_type, x, held_r)
+    after, score, penalties = _evaluate_drop(
+        before, obs.held_type, x, held_r, next_type=obs.next_type
+    )
     value = score - penalties
     if obs.next_type is not None:
         value += NEXT_DISCOUNT * _best_next_score(after, obs.next_type)
@@ -151,6 +160,7 @@ def _best_next_score(fruits: list[Fruit], next_type: int) -> float:
     best = -math.inf
     for nx in _candidates(fruits, next_type, next_r):
         nx = clamp_drop_x(nx, next_type)
+        # その先の next は未知。育成免除は谷内同種だけが効く。
         _, score, penalties = _evaluate_drop(fruits, next_type, nx, next_r)
         if score - penalties > best:
             best = score - penalties
@@ -162,6 +172,8 @@ def _evaluate_drop(
     drop_type: int,
     x: float,
     held_r: float,
+    *,
+    next_type: int | None = None,
 ) -> tuple[list[Fruit], float, float]:
     """1 手落としたあとの盤面・本家点・減点。"""
     before = list(fruits)
@@ -171,11 +183,11 @@ def _evaluate_drop(
 
     score = merge_score(merge_types)
     penalties = _board_penalties(after, sign=sign)
-    # 大きい実の谷は育成枠。高さ・wrong_side・ideal で潰さない。
-    in_valley = _valley_flanks(before, land_x, drop_type) is not None
+    # 条件を満たす谷着地だけ育成枠。高さ・wrong_side・ideal で潰さない。
+    growing = _valley_grow_ok(before, land_x, drop_type, next_type)
     if merges == 0:
         # 合成した実は残らないので、積み上げ減点は盤に残る手にだけかける。
-        if not in_valley:
+        if not growing:
             floor = NORMALIZED_HEIGHT - held_r
             penalties += max(0.0, floor - land_y) * LAND_HEIGHT_WEIGHT
             penalties += _wrong_side_roll_penalty(
@@ -299,6 +311,32 @@ def _valley_flanks(
     if sep > touch + held_r * 2.8 + MERGE_SLACK:
         return None
     return left_big, right_big
+
+
+def _valley_grow_ok(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    drop_type: int,
+    next_type: int | None,
+) -> bool:
+    """谷への育成免除をしてよいか。
+
+    - 谷の間に同種がある (掃除・合体待ち)
+    - または held と next が両方とも、左右の壁よりひとつ小さい
+    """
+    flanks = _valley_flanks(fruits, land_x, drop_type)
+    if flanks is None:
+        return False
+    left, right = flanks
+    for fruit in fruits:
+        if fruit.type == drop_type and left.x < fruit.x < right.x:
+            return True
+    wall = min(left.type, right.type)
+    return (
+        next_type is not None
+        and drop_type == next_type
+        and drop_type == wall - 1
+    )
 
 
 def _is_nestled(
