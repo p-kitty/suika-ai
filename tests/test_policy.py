@@ -240,6 +240,30 @@ def test_strawberry_stays_beside_right_edge_cherry() -> None:
     assert _score(obs, x, straw_r) > _score(obs, above, straw_r)
 
 
+def test_foreign_center_drop_rolls_off() -> None:
+    # 異種の真上は安定せず、左右どちらかの床へ転がる。
+    apple_r = fruit_radius(5)
+    orange_r = fruit_radius(4)
+    apple = Fruit(type=5, x=200, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
+    land_x, land_y = _preview_land((apple,), 4, apple.x, orange_r)
+    assert land_y >= NORMALIZED_HEIGHT - orange_r - 1.0
+    assert abs(land_x - apple.x) >= apple_r + orange_r - 2.0
+
+
+def test_same_type_center_drop_still_merges() -> None:
+    cherry_r = fruit_radius(0)
+    a = Fruit(
+        type=0,
+        x=200,
+        y=NORMALIZED_HEIGHT - cherry_r,
+        radius=cherry_r,
+        confidence=90,
+    )
+    after, merges, _types = simulate_drop((a,), 0, a.x)
+    assert merges >= 1
+    assert any(f.type == 1 for f in after)
+
+
 def test_avoids_foreign_center_stack() -> None:
     # 異種の中央真上より、空き床や隣を選ぶ。
     apple_r = fruit_radius(5)

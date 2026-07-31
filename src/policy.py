@@ -30,6 +30,8 @@ NEXT_DISCOUNT = 0.55
 # 着地後の転がり。側面に乗ったら谷まで横へずらす。
 SETTLE_STEP = 3.0
 SETTLE_MAX_ITERS = 48
+# 支持円のほぼ頂点 (不安定) とみなす |dx| / radius。
+APEX_DX_FRAC = 0.2
 # 異種のほぼ中央真上への減点。
 FOREIGN_CENTER_PENALTY = 140.0
 # 大小逆転ペアの type 差あたり減点。
@@ -362,7 +364,7 @@ def _preview_land(
     held_r: float,
 ) -> tuple[float, float]:
     """落下列 x から、転がり後の着地 (x, y)。"""
-    x = _settle_x(fruits, x, held_r, allow_coast=True)
+    x = _settle_x(fruits, x, held_r, allow_coast=True, drop_type=fruit_type)
     return x, _land_y(fruits, x, held_r)
 
 
@@ -375,7 +377,7 @@ def _place(
 ) -> tuple[list[Fruit], int]:
     """列 x にフルーツを着地させて追加する。追加した index も返す。"""
     r = fruit_radius(fruit_type)
-    x = _settle_x(fruits, x, r, allow_coast=allow_coast)
+    x = _settle_x(fruits, x, r, allow_coast=allow_coast, drop_type=fruit_type)
     y = _land_y(fruits, x, r)
     fruits.append(Fruit(type=fruit_type, x=x, y=y, radius=r, confidence=100.0))
     return fruits, len(fruits) - 1
@@ -387,8 +389,13 @@ def _settle_x(
     held_r: float,
     *,
     allow_coast: bool = True,
+    drop_type: int | None = None,
 ) -> float:
-    """円の側面に乗ったら谷・床まで転がし、床では惰性で壁／他実まで滑る。"""
+    """円の側面に乗ったら谷・床まで転がし、床では惰性で壁／他実まで滑る。
+
+    異種の支持円のほぼ頂点は不安定なので左右どちらかへ転がす。
+    同種の真上は合成のためそのまま着地させる。
+    """
     lo = held_r
     hi = NORMALIZED_WIDTH - held_r
     x = max(lo, min(hi, x))
@@ -403,6 +410,9 @@ def _settle_x(
             return _coast_on_floor(fruits, x, held_r, coast_dir)
 
         push = 0.0
+        apex_dx = 0.0
+        apex_support_x = x
+        on_apex = False
         for fruit in fruits:
             dx = x - fruit.x
             gap = fruit.radius + held_r
@@ -412,9 +422,21 @@ def _settle_x(
             if abs((fruit.y - dy) - y) > 2.0:
                 continue
             push += dx
+            if drop_type is not None and fruit.type == drop_type:
+                continue
+            if abs(dx) <= max(fruit.radius * APEX_DX_FRAC, 1.0):
+                on_apex = True
+                apex_dx = dx
+                apex_support_x = fruit.x
 
         if abs(push) < 0.75:
-            return x
+            if not on_apex:
+                return x
+            # 頂点のつり合いは壊す。微小 dx があればその向き、無ければ決定論で左右。
+            if abs(apex_dx) > 1e-9:
+                push = math.copysign(1.0, apex_dx)
+            else:
+                push = _apex_roll_dir(apex_support_x)
 
         coast_dir = math.copysign(1.0, push)
         nxt = max(lo, min(hi, x + coast_dir * SETTLE_STEP))
@@ -425,6 +447,11 @@ def _settle_x(
             return x
         x = nxt
     return x
+
+
+def _apex_roll_dir(support_x: float) -> float:
+    """真上つり合いを崩す向き。同じ support_x なら毎回同じ。"""
+    return 1.0 if int(round(support_x / SETTLE_STEP)) % 2 == 0 else -1.0
 
 
 def _coast_on_floor(
