@@ -5,7 +5,7 @@ import math
 from src.sim_physics import land_y, preview_land, simulate_drop
 from src.vision.classify import fruit_radius
 from src.vision.colors import MAX_FRUIT_TYPE
-from src.vision.normalized import NORMALIZED_HEIGHT
+from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
 
 
@@ -30,6 +30,65 @@ def test_drop_on_slope_rolls_to_floor() -> None:
     assert land_x > drop_x
     assert land_y_ >= NORMALIZED_HEIGHT - cherry_r - 1.0
     assert land_x >= pear.x + pear_r + cherry_r - 2.0
+
+
+def test_same_type_floor_contact_merges() -> None:
+    # 床で同種が触れたら、押しで離さず合体する。
+    cherry_r = fruit_radius(0)
+    a = Fruit(
+        type=0,
+        x=200,
+        y=NORMALIZED_HEIGHT - cherry_r,
+        radius=cherry_r,
+        confidence=90,
+    )
+    after, merges, _types = simulate_drop((a,), 0, a.x + 2 * cherry_r)
+    assert merges >= 1
+    assert any(f.type == 1 for f in after)
+
+
+def test_large_fruit_rolls_off_instead_of_wedging_on_wall() -> None:
+    # 大実は壁で中心が止まるが、支えをどかして床まで落ちる。
+    pear_r = fruit_radius(6)
+    melon_r = fruit_radius(9)
+    pear = Fruit(
+        type=6,
+        x=200,
+        y=NORMALIZED_HEIGHT - pear_r,
+        radius=pear_r,
+        confidence=90,
+    )
+    after, merges, _types = simulate_drop((pear,), 9, pear.x + pear_r * 0.4)
+    assert merges == 0
+    melon = next(f for f in after if f.type == 9)
+    assert abs(melon.y - (NORMALIZED_HEIGHT - melon_r)) < 2.0
+
+
+def test_foreign_floor_hit_slides_toward_wall() -> None:
+    # 斜面から異種へ床接触したら、押された実は壁近くまで滑る。
+    pear_r = fruit_radius(6)
+    orange_r = fruit_radius(4)
+    pear = Fruit(
+        type=6,
+        x=100,
+        y=NORMALIZED_HEIGHT - pear_r,
+        radius=pear_r,
+        confidence=90,
+    )
+    orange = Fruit(
+        type=4,
+        x=250,
+        y=NORMALIZED_HEIGHT - orange_r,
+        radius=orange_r,
+        confidence=90,
+    )
+    drop_x = pear.x + pear_r * 0.55
+    after, _merges, _types = simulate_drop((pear, orange), 0, drop_x)
+    moved = [f for f in after if f.type == 4]
+    assert moved
+    wall = NORMALIZED_WIDTH - orange_r
+    assert moved[0].x > orange.x + 40.0
+    assert abs(moved[0].x - wall) < 3.0
 
 
 def test_merge_result_settles_from_midpoint() -> None:

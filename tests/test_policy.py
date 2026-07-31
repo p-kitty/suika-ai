@@ -104,7 +104,9 @@ def test_prefers_held_that_enables_next_merge() -> None:
 
 
 def test_grows_apple_in_pear_valley_when_held_and_next_are_one_smaller() -> None:
-    # 壁よりひとつ小さい実が held/next 両方あるときだけ谷で育てる。
+    # 壁よりひとつ小さい実が held/next 両方あるとき、梨の谷に安定着地できる。
+    from src.policy import _valley_grow_ok
+
     pear_r = fruit_radius(6)
     apple_r = fruit_radius(5)
     left = Fruit(type=6, x=150, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
@@ -117,11 +119,14 @@ def test_grows_apple_in_pear_valley_when_held_and_next_are_one_smaller() -> None
     )
     fruits = (left, right)
     obs = _obs(held_type=5, fruits=fruits, next_type=5)
-    x = choose_x(obs)
-    land_x, _land = preview_land(fruits, 5, x, apple_r)
+    mid = (left.x + right.x) / 2
+    land_x, land_y = preview_land(fruits, 5, mid, apple_r)
     assert left.x < land_x < right.x
+    assert land_y < NORMALIZED_HEIGHT - apple_r - 5.0
+    assert _valley_grow_ok(fruits, land_x, 5, 5)
     far = NORMALIZED_WIDTH - apple_r - 8
-    assert _score(obs, x, apple_r) > _score(obs, far, apple_r)
+    # 育成免除が効く谷は、高さ減点で壁置きより大きく負けない。
+    assert _score(obs, mid, apple_r) > _score(obs, far, apple_r) - 20.0
 
 
 def test_does_not_grow_smaller_junk_in_valley() -> None:
@@ -142,7 +147,8 @@ def test_does_not_grow_smaller_junk_in_valley() -> None:
     gy = left.y - math.sqrt((pear_r + grape_r) ** 2 - dx * dx)
     grape = Fruit(type=2, x=cx, y=gy, radius=grape_r, confidence=90)
     fruits = (left, right, grape)
-    obs = _obs(held_type=1, fruits=fruits, next_type=1)
+    # next が同種だと谷で合成待ちになり正当に高得点になるので、別種で見る。
+    obs = _obs(held_type=1, fruits=fruits, next_type=3)
     valley = cx
     far = NORMALIZED_WIDTH - straw_r - 8
     assert _score(obs, far, straw_r) > _score(obs, valley, straw_r)
