@@ -17,6 +17,7 @@
 - `src/sim_env.py`: headless drop sim (`policy.simulate_drop`)
 - Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`)
 - Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=100 is a cap, not the losing line)
+- Teacher collection runs in parallel with `ProcessPool` (default workers=logical cores/2; 8 on a 9700X; `--workers 1` for serial)
 - `src/agent.py`: MLP with 32 discrete column bins / hidden 128 (old 20/64 npz files need retraining)
 - Live play: `python main.py` (defaults to learned if an npz exists. `L` toggles bootstrap, `--policy bootstrap`)
 
