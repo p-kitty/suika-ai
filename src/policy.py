@@ -25,6 +25,9 @@ CANDIDATE_STEP = 8.0
 MERGE_SLACK = 18.0
 # Contact for a virtual merge. The observed board is assumed still, so do not loosen too much.
 CONTACT_SLACK = 2.0
+# Upper limit of |dx| / lower radius for counting as a merge by sitting on the same type.
+# Shoulders shallower than this are often knocked off on the real machine and do not reach, so they are rolled rather than merged.
+MERGE_SUPPORT_DX_FRAC = 0.5
 # Dangerous if the head rises above this y (near the top edge of the board).
 DANGER_Y = 90.0
 # Column width for evaluating flatness.
@@ -477,7 +480,8 @@ def _settle_x(
                 return x
             return _coast_on_floor(fruits, x, held_r, coast_dir)
 
-        # If the current column reaches a same type, do not roll it on a different type's slope or top and miss the merge.
+        # If the current column can sit near the center of a same type, do not roll it on a different type's slope and miss the merge.
+        # Overlaps only on a shallow shoulder do not stop (rolled below).
         if drop_type is not None and _would_merge_at(fruits, x, y, held_r, drop_type):
             return x
 
@@ -528,9 +532,30 @@ def _would_merge_at(
     held_r: float,
     drop_type: int,
 ) -> bool:
-    """Whether a same type landed at column (x, y) touches an existing same type."""
-    held = Fruit(type=drop_type, x=x, y=y, radius=held_r, confidence=100.0)
-    return any(fruit.type == drop_type and _touching(held, fruit) for fruit in fruits)
+    """Whether it can sit stably near the center of a same type at column (x, y). Shallow shoulders excluded."""
+    for fruit in fruits:
+        if fruit.type != drop_type:
+            continue
+        if _resting_merge_support(fruit, x, y, held_r):
+            return True
+    return False
+
+
+def _resting_merge_support(
+    fruit: Fruit,
+    x: float,
+    y: float,
+    held_r: float,
+) -> bool:
+    """Whether fruit may stop at (x, y) on the supporting circle, as a way of sitting aiming to merge."""
+    dx = x - fruit.x
+    gap = fruit.radius + held_r
+    if abs(dx) >= gap - 1e-6:
+        return False
+    dy = math.sqrt(max(0.0, gap * gap - dx * dx))
+    if abs((fruit.y - dy) - y) > 2.0:
+        return False
+    return abs(dx) <= max(fruit.radius * MERGE_SUPPORT_DX_FRAC, 1.0)
 
 
 def _apex_roll_dir(support_x: float) -> float:
@@ -600,7 +625,7 @@ def _resolve_merges(
 
 
 def _find_merge_pair(fruits: list[Fruit], active: set[int]) -> tuple[int, int] | None:
-    """Same-type pairs in contact with the active side."""
+    """Same-type pairs in contact that may merge with the active side."""
     for i in sorted(active):
         if i < 0 or i >= len(fruits):
             continue
@@ -608,9 +633,53 @@ def _find_merge_pair(fruits: list[Fruit], active: set[int]) -> tuple[int, int] |
         for j, b in enumerate(fruits):
             if j == i or b.type != a.type:
                 continue
-            if _touching(a, b):
+            if _mergeable_contact(fruits, a, b):
                 return (i, j) if i < j else (j, i)
     return None
+
+
+def _mergeable_contact(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    a: Fruit,
+    b: Fruit,
+) -> bool:
+    """Whether the contact may merge.
+
+    Side by side, stacked toward the center, and stacked wedged in a valley are OK.
+    Sitting alone on the shallow shoulder of a big fruit is not, since it gets knocked off on the real machine.
+    """
+    if not _touching(a, b):
+        return False
+    if abs(a.y - b.y) <= max(a.radius, b.radius) * 0.55:
+        return True
+    lower, upper = (a, b) if a.y > b.y else (b, a)
+    if abs(upper.x - lower.x) <= max(lower.radius * MERGE_SUPPORT_DX_FRAC, 1.0):
+        return True
+    # Shallow sitting is also allowed only when settled with other support, such as in a valley.
+    return _support_count(fruits, upper.x, upper.y, upper.radius, skip=lower) >= 1
+
+
+def _support_count(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    x: float,
+    y: float,
+    held_r: float,
+    *,
+    skip: Fruit | None = None,
+) -> int:
+    """Number of circles supporting (x, y). skip is excluded."""
+    count = 0
+    for fruit in fruits:
+        if skip is not None and fruit is skip:
+            continue
+        dx = x - fruit.x
+        gap = fruit.radius + held_r
+        if abs(dx) >= gap - 1e-6:
+            continue
+        dy = math.sqrt(max(0.0, gap * gap - dx * dx))
+        if abs((fruit.y - dy) - y) <= 2.0:
+            count += 1
+    return count
 
 
 def _touching(a: Fruit, b: Fruit) -> bool:
