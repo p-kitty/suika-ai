@@ -3,6 +3,8 @@
 ## Deferred
 
 - **`10.png` vision**: similar-color mask fusion + a strawberry outside the frame. Needs a redesign of the cropping; worse value for effort than policy / held
+- **Straight-down drops in the sim**: make a drop directly on top roll to one side. Dropping aimed directly on top is often seen
+- **Training episode length**: raise `max_steps` and lower `episodes` (fewer, longer games)
 
 ## Policy (bootstrap)
 
