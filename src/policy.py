@@ -1,7 +1,8 @@
 """落とす列を決める。薄い bootstrap 方策 (RL の土台)。
 
-具体手順 (押し込み・育成優先・連鎖隙間など) は持たない。
+具体手順 (押し込み・復元押し・連鎖隙間空けなど) は持たない。
 合成・危険高さ・埋め込み・薄い大小順・転がり事故防止だけ見る。
+大きい実の谷への育成は、隙間ゴミ減点で潰さず結果 (合成・危険) で見る。
 手の採点は eval = score (本家の合成点) - penalties (事故・悪手の減点)。
 """
 
@@ -43,8 +44,6 @@ EXCESS_SAME_WEIGHT = 20.0
 SIZE_ORDER_PAIR_WEIGHT = 1.5
 # ideal 列からの平均距離あたり減点 (弱め。レイアウト強制にしない)。
 SIZE_ORDER_IDEAL_WEIGHT = 0.004
-# 自分より2段階以上大きい実どうしの隙間に詰める減点。
-GAP_JUNK_PENALTY = 12.0
 # ideal 列への弱い引力。
 IDEAL_PULL = 0.015
 # 床から積み上げた高さあたりの減点 (積み上げを止める最低限)。
@@ -172,17 +171,19 @@ def _evaluate_drop(
 
     score = merge_score(merge_types)
     penalties = _board_penalties(after, sign=sign)
+    # 大きい実の谷は育成枠。高さ・wrong_side・ideal で潰さない。
+    in_valley = _valley_flanks(before, land_x, drop_type) is not None
     if merges == 0:
         # 合成した実は残らないので、積み上げ減点は盤に残る手にだけかける。
-        floor = NORMALIZED_HEIGHT - held_r
-        penalties += max(0.0, floor - land_y) * LAND_HEIGHT_WEIGHT
+        if not in_valley:
+            floor = NORMALIZED_HEIGHT - held_r
+            penalties += max(0.0, floor - land_y) * LAND_HEIGHT_WEIGHT
+            penalties += _wrong_side_roll_penalty(
+                before, land_x, land_y, drop_type, held_r, sign
+            )
+            penalties += abs(x - _ideal_x(drop_type, sign)) * IDEAL_PULL
         penalties += _foreign_aim_penalty(before, x, drop_type)
-        penalties += _wrong_side_roll_penalty(
-            before, land_x, land_y, drop_type, held_r, sign
-        )
-        penalties += _gap_junk_penalty(before, land_x, drop_type, held_r)
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
-        penalties += abs(x - _ideal_x(drop_type, sign)) * IDEAL_PULL
     penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
     return after, score, penalties
 
@@ -273,35 +274,39 @@ def _coast_away_penalty(
     return penalty
 
 
-def _gap_junk_penalty(
+def _valley_flanks(
     fruits: list[Fruit] | tuple[Fruit, ...],
-    land_x: float,
+    x: float,
     drop_type: int,
-    held_r: float,
-) -> float:
-    """自分より2段階以上大きい実どうしの間に小さい実を詰める減点。"""
+) -> tuple[Fruit, Fruit] | None:
+    """x が、drop_type より大きい実どうしの狭い谷に入っているときの左右。"""
     left_big: Fruit | None = None
     right_big: Fruit | None = None
     for fruit in fruits:
         if fruit.type <= drop_type:
             continue
-        if fruit.x < land_x:
+        if fruit.x < x:
             if left_big is None or fruit.x > left_big.x:
                 left_big = fruit
-        elif fruit.x > land_x:
+        elif fruit.x > x:
             if right_big is None or fruit.x < right_big.x:
                 right_big = fruit
     if left_big is None or right_big is None:
-        return 0.0
-
-    if min(left_big.type, right_big.type) - drop_type < 2:
-        return 0.0
-
+        return None
+    held_r = fruit_radius(drop_type)
     sep = right_big.x - left_big.x
     touch = left_big.radius + right_big.radius
     if sep > touch + held_r * 2.8 + MERGE_SLACK:
-        return 0.0
-    return GAP_JUNK_PENALTY
+        return None
+    return left_big, right_big
+
+
+def _is_nestled(
+    fruit: Fruit,
+    fruits: list[Fruit] | tuple[Fruit, ...],
+) -> bool:
+    """より大きい実どうしの谷に収まっているか。"""
+    return _valley_flanks(fruits, fruit.x, fruit.type) is not None
 
 
 def _ideal_x(fruit_type: int, sign: int = 1) -> float:
@@ -343,24 +348,31 @@ def _order_sign(fruits: list[Fruit] | tuple[Fruit, ...]) -> int:
 
 
 def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
-    """左右の大小が逆転しているペアを減点。絶対 ideal より相対順を見る。"""
+    """左右の大小が逆転しているペアを減点。絶対 ideal より相対順を見る。
+
+    谷に育てている小さい実は大小順の対象外 (育成をレイアウト減点で潰さない)。
+    """
     if not fruits:
         return 0.0
     penalty = 0.0
+    open_fruits = [f for f in fruits if not _is_nestled(f, fruits)]
     for i, a in enumerate(fruits):
         for b in fruits[i + 1 :]:
             if abs(a.x - b.x) < min(a.radius, b.radius) * 0.5:
+                continue
+            if _is_nestled(a, fruits) or _is_nestled(b, fruits):
                 continue
             left, right = (a, b) if a.x <= b.x else (b, a)
             if sign > 0 and left.type < right.type:
                 penalty += (right.type - left.type) * SIZE_ORDER_PAIR_WEIGHT
             elif sign < 0 and left.type > right.type:
                 penalty += (left.type - right.type) * SIZE_ORDER_PAIR_WEIGHT
-    penalty += (
-        sum(abs(f.x - _ideal_x(f.type, sign)) for f in fruits)
-        / len(fruits)
-        * SIZE_ORDER_IDEAL_WEIGHT
-    )
+    if open_fruits:
+        penalty += (
+            sum(abs(f.x - _ideal_x(f.type, sign)) for f in open_fruits)
+            / len(open_fruits)
+            * SIZE_ORDER_IDEAL_WEIGHT
+        )
     return penalty
 
 
@@ -427,6 +439,10 @@ def _settle_x(
                 return x
             return _coast_on_floor(fruits, x, held_r, coast_dir)
 
+        # 今の列で同種に届くなら、異種の斜面・頂点で転がして合体を逃さない。
+        if drop_type is not None and _would_merge_at(fruits, x, y, held_r, drop_type):
+            return x
+
         push = 0.0
         apex_dx = 0.0
         apex_support_x = x
@@ -465,6 +481,18 @@ def _settle_x(
             return x
         x = nxt
     return x
+
+
+def _would_merge_at(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    x: float,
+    y: float,
+    held_r: float,
+    drop_type: int,
+) -> bool:
+    """列 (x, y) に着地した同種が、既存の同種と接触するか。"""
+    held = Fruit(type=drop_type, x=x, y=y, radius=held_r, confidence=100.0)
+    return any(fruit.type == drop_type and _touching(held, fruit) for fruit in fruits)
 
 
 def _apex_roll_dir(support_x: float) -> float:

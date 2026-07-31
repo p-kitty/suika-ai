@@ -1,7 +1,7 @@
 """薄い bootstrap 方策の単体テスト。画面は使わない。
 
-具体手順 (育成優先・押し込み・連鎖隙間) は要求しない。
-合成・危険回避・埋め込み・転がり事故・隙間ゴミだけ固定する。
+具体手順 (押し込み・連鎖隙間空け) は要求しない。
+合成・危険回避・埋め込み・転がり事故・谷育成だけ固定する。
 """
 
 from src.observe import Observation
@@ -113,44 +113,26 @@ def test_prefers_held_that_enables_next_merge() -> None:
     assert abs(x - cherry.x) < cherry_r + grape_r * 2 + 50
 
 
-def test_does_not_stuff_cherry_between_pear_and_apple() -> None:
+def test_grows_grape_in_pear_valley_when_next_matches() -> None:
+    # 大きい実の谷に、next と同種を置いて間を育てる。
     pear_r = fruit_radius(6)
-    apple_r = fruit_radius(5)
-    cherry_r = fruit_radius(0)
-    pear = Fruit(type=6, x=80, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
-    apple = Fruit(
-        type=5,
-        x=80 + pear_r + apple_r + cherry_r * 2 + 10,
-        y=NORMALIZED_HEIGHT - apple_r,
-        radius=apple_r,
-        confidence=90,
-    )
-    gap_x = (pear.x + apple.x) / 2
-    x = choose_x(_obs(held_type=0, fruits=(pear, apple)))
-    assert x > apple.x
-    assert abs(x - gap_x) > apple_r
-
-
-def test_does_not_stuff_cherry_in_orange_grape_valley() -> None:
-    orange_r = fruit_radius(4)
     grape_r = fruit_radius(2)
-    cherry_r = fruit_radius(0)
-    orange = Fruit(type=4, x=180, y=NORMALIZED_HEIGHT - orange_r, radius=orange_r, confidence=90)
-    grape = Fruit(
-        type=2,
-        x=180 + orange_r + grape_r - 5,
-        y=NORMALIZED_HEIGHT - grape_r,
-        radius=grape_r,
+    left = Fruit(type=6, x=150, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
+    right = Fruit(
+        type=6,
+        x=150 + pear_r * 2 + grape_r * 1.5,
+        y=NORMALIZED_HEIGHT - pear_r,
+        radius=pear_r,
         confidence=90,
     )
-    obs = _obs(held_type=0, fruits=(orange, grape))
+    gap_x = (left.x + right.x) / 2
+    fruits = (left, right)
+    obs = _obs(held_type=2, fruits=fruits, next_type=2)
     x = choose_x(obs)
-    land_x, land_y = _preview_land((orange, grape), 0, x, cherry_r)
-    assert land_x > grape.x
-    assert not (orange.x < land_x < grape.x)
-    assert land_y >= NORMALIZED_HEIGHT - cherry_r - 1.0
-    valley = (orange.x + grape.x) / 2
-    assert _score(obs, x, cherry_r) > _score(obs, valley, cherry_r)
+    land_x, _land_y = _preview_land(fruits, 2, x, grape_r)
+    assert left.x < land_x < right.x
+    far = NORMALIZED_WIDTH - grape_r - 8
+    assert _score(obs, x, grape_r) > _score(obs, far, grape_r)
 
 
 def test_drop_on_slope_rolls_to_floor() -> None:
@@ -263,6 +245,35 @@ def test_same_type_center_drop_still_merges() -> None:
     after, merges, _types = simulate_drop((a,), 0, a.x)
     assert merges >= 1
     assert any(f.type == 1 for f in after)
+
+
+def test_merges_sandwiched_same_type_despite_foreign_slope() -> None:
+    # 大実の谷に挟まった同種は、狙いが少しずれても異種斜面で逃げず合体する。
+    import math
+
+    pear_r = fruit_radius(6)
+    grape_r = fruit_radius(2)
+    left = Fruit(type=6, x=160, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
+    right = Fruit(
+        type=6,
+        x=160 + pear_r * 2 + 10,
+        y=NORMALIZED_HEIGHT - pear_r,
+        radius=pear_r,
+        confidence=90,
+    )
+    gx = left.x + pear_r * 0.3
+    dx = gx - left.x
+    gy = left.y - math.sqrt((pear_r + grape_r) ** 2 - dx * dx)
+    grape = Fruit(type=2, x=gx, y=gy, radius=grape_r, confidence=90)
+    fruits = (left, right, grape)
+    # 実プレイの aim 誤差くらいずらしても合体できる。
+    for d in (-8.0, -4.0, 0.0, 4.0, 8.0):
+        after, merges, _types = simulate_drop(fruits, 2, gx + d)
+        assert merges >= 1, d
+        assert any(f.type == 3 for f in after)
+    obs = _obs(held_type=2, fruits=fruits)
+    x = choose_x(obs)
+    assert simulate_drop(fruits, 2, x)[1] >= 1
 
 
 def test_does_not_block_waiting_pair_with_bigger_fruit() -> None:
