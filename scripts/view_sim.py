@@ -24,9 +24,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._bootstrap import ensure_import_path
+
+ensure_import_path()
 
 from src.draw import put_text
 from src.observe import clamp_drop_x
