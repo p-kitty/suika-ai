@@ -5,6 +5,11 @@
 - **`10.png` vision**: similar-color mask fusion + a strawberry outside the frame. Needs a redesign of the cropping; worse value for effort than policy / held
 - **Training episode length**: raise `max_steps` and lower `episodes` (fewer, longer games)
 
+## When to move
+
+- Do not decide x on a moving board. Waiting for it to settle takes priority over lookahead (`src/settle.py`)
+- Wait for creep not only on instantaneous velocity but also on sideways drift while quiet
+
 ## Policy (bootstrap)
 
 - `src/policy.py` is a thin policy before RL. Only merging, dangerous height, burying, light size order and accident prevention for rolling / knock-aways

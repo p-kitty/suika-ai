@@ -11,11 +11,13 @@ from .observe import Observation
 from .vision.state import Fruit
 
 # The settle check looks at raw_fruits (before Tracker smoothing).
-# Do not wait for complete stillness; slow movement is fine to move on.
-# On the normalized board (width 400), 25px/s ≒ about 10px in 0.4 seconds. Above detection noise, below rolling.
+# Waiting is more stable than deciding x on a moving board. Do not compensate with lookahead.
+# Instantaneous speed is set above detection noise (~1px@15fps ≈ 15px/s).
 DEFAULT_STILL_SPEED = 25.0
 # If slow for this long throughout, consider it stopped.
-DEFAULT_STILL_SEC = 0.4
+DEFAULT_STILL_SEC = 0.5
+# Cap on sideways drift during the quiet window. Vibration noise is small, while one-directional creep accumulates.
+DEFAULT_STILL_DRIFT = 3.0
 # Give up if it has not moved by this long after the drop.
 DEFAULT_TIMEOUT_SEC = 12.0
 # Cap on the wait from the waiting fruit disappearing until the next one appears.
@@ -63,17 +65,21 @@ def wait_settled(
     *,
     still_speed: float = DEFAULT_STILL_SPEED,
     still_sec: float = DEFAULT_STILL_SEC,
+    still_drift: float = DEFAULT_STILL_DRIFT,
     timeout_sec: float = DEFAULT_TIMEOUT_SEC,
     abort: Callable[[], bool] | None = None,
     still_px: float | None = None,
 ) -> tuple[Observation, bool]:
     """Return an observation where the board's fruits are slow enough.
 
-    By default judged by speed (px/s). Only when still_px is passed does it use inter-frame displacement
-    (for tests). Returns (observation, stopped). False on timeout or interruption.
+    By default judged by speed (px/s) and sideways drift during the quiet window.
+    Slow one-directional creep is missed by speed alone, so drift makes it wait.
+    Only when still_px is passed does it use inter-frame displacement (for tests).
+    Returns (observation, stopped). False on timeout or interruption.
     """
     deadline = time.monotonic() + timeout_sec
     quiet_since: float | None = None
+    quiet_anchor: tuple[Fruit, ...] | None = None
     noise_streak = 0
     previous = read()
     previous_t = time.monotonic()
@@ -101,8 +107,13 @@ def wait_settled(
 
         if quiet:
             noise_streak = 0
-            if quiet_since is None:
+            if quiet_since is None or quiet_anchor is None:
                 quiet_since = now
+                quiet_anchor = tuple(curr_fruits)
+            elif _max_x_drift(quiet_anchor, curr_fruits) > still_drift:
+                # It keeps shifting in one direction. Start over from the position where it stopped.
+                quiet_since = now
+                quiet_anchor = tuple(curr_fruits)
             elif now - quiet_since >= still_sec:
                 return current, True
         else:
@@ -110,8 +121,22 @@ def wait_settled(
             noise_streak += 1
             if noise_streak >= NOISE_STREAK_RESET:
                 quiet_since = None
+                quiet_anchor = None
 
     return previous, False
+
+
+def _max_x_drift(
+    anchor: list[Fruit] | tuple[Fruit, ...],
+    current: list[Fruit] | tuple[Fruit, ...],
+) -> float:
+    """The max |Δx| from the position at the start of the quiet window.
+
+    Only matched fruits are looked at. Appearances and disappearances are left to the blink tolerance on the speed side,
+    so drift does not keep breaking quiet.
+    """
+    matched, _unmatched = _motion_parts(anchor, current)
+    return max(matched) if matched else 0.0
 
 
 def _motion_parts(
