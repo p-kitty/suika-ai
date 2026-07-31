@@ -281,7 +281,7 @@ def _board_panel(
     cv2.line(img, (ax, 0), (ax, panel_h - 1), (0, 255, 255), 1)
 
     for fruit in fruits:
-        _draw_fruit(img, fruit, fill=True)
+        _draw_fruit(img, fruit)
 
     if land is not None and held_type is not None:
         lx, ly = land
@@ -292,30 +292,22 @@ def _board_panel(
             radius=fruit_radius(held_type),
             confidence=100.0,
         )
-        _draw_fruit(img, ghost, fill=False)
+        _draw_fruit(img, ghost)
 
     put_text(img, title, (8, 22), (230, 230, 230), scale=0.55)
     put_text(img, f"n={len(fruits)}", (8, 44), (180, 180, 180), scale=0.45, thickness=1)
     return img
 
 
-def _draw_fruit(
-    img: np.ndarray,
-    fruit: Fruit,
-    *,
-    fill: bool,
-) -> None:
+def _draw_fruit(img: np.ndarray, fruit: Fruit) -> None:
     cx = int(round(fruit.x * SCALE))
     cy = int(round(fruit.y * SCALE))
     r = max(2, int(round(fruit.radius * SCALE)))
     bgr = FRUIT_BGR[fruit.type]
-    if fill:
-        overlay = img.copy()
-        cv2.circle(overlay, (cx, cy), r, bgr, -1)
-        cv2.addWeighted(overlay, 0.55, img, 0.45, 0, img)
-        cv2.circle(img, (cx, cy), r, bgr, 2)
-    else:
-        cv2.circle(img, (cx, cy), r, bgr, 2)
+    overlay = img.copy()
+    cv2.circle(overlay, (cx, cy), r, bgr, -1)
+    cv2.addWeighted(overlay, 0.55, img, 0.45, 0, img)
+    cv2.circle(img, (cx, cy), r, bgr, 2)
     cv2.circle(img, (cx, cy), 2, (255, 255, 255), -1)
     label = FRUIT_NAMES[fruit.type][:3]
     put_text(
