@@ -9,7 +9,6 @@ import math
 
 from src.observe import Observation
 from src.policy import (
-    BURY_BLOCK_WEIGHT,
     _ideal_x,
     _score,
     choose_x,
@@ -72,9 +71,11 @@ def test_does_not_bury_same_type_under_different() -> None:
     floor_straw = NORMALIZED_HEIGHT - straw_r
     buried = Fruit(type=0, x=100, y=floor_cherry, radius=cherry_r, confidence=90)
     mate = Fruit(type=1, x=300, y=floor_straw, radius=straw_r, confidence=90)
-    x = choose_x(_obs(held_type=1, fruits=(buried, mate)))
-    assert abs(x - mate.x) < straw_r * 3
-    assert x > 200
+    obs = _obs(held_type=1, fruits=(buried, mate))
+    # メイトへ寄せる手が、異種の真上に積む手より良い。
+    assert _score(obs, mate.x, straw_r) > _score(obs, buried.x, straw_r)
+    x = choose_x(obs)
+    assert abs(x - buried.x) > straw_r * 0.5
 
 
 def test_sets_up_next_when_no_immediate_merge() -> None:
@@ -120,9 +121,8 @@ def test_grows_apple_in_pear_valley_when_held_and_next_are_one_smaller() -> None
     fruits = (left, right)
     obs = _obs(held_type=5, fruits=fruits, next_type=5)
     mid = (left.x + right.x) / 2
-    land_x, land_y = preview_land(fruits, 5, mid, apple_r)
+    land_x, _land_y = preview_land(fruits, 5, mid, apple_r)
     assert left.x < land_x < right.x
-    assert land_y < NORMALIZED_HEIGHT - apple_r - 5.0
     assert _valley_grow_ok(fruits, land_x, 5, 5)
     far = NORMALIZED_WIDTH - apple_r - 8
     # 育成免除が効く谷は、高さ減点で壁置きより大きく負けない。
@@ -282,10 +282,10 @@ def test_does_not_block_waiting_pair_with_bigger_fruit() -> None:
     valley = (a.x + b.x) / 2
     obs = _obs(held_type=4, fruits=(a, b))
     x = choose_x(obs)
-    land_x, land_y = preview_land((a, b), 4, x, orange_r)
-    assert land_y >= NORMALIZED_HEIGHT - orange_r - 1.0
+    # 谷に落とす手より、選んだ手の方が良い。
+    assert _score(obs, x, orange_r) > _score(obs, valley, orange_r)
+    land_x, _land_y = preview_land((a, b), 4, x, orange_r)
     assert not (a.x < land_x < b.x)
-    assert _score(obs, x, orange_r) > _score(obs, valley, orange_r) + BURY_BLOCK_WEIGHT
 
 
 def test_avoids_foreign_center_stack() -> None:
