@@ -22,11 +22,11 @@ from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from .vision.state import Fruit
 
 # Spacing of candidate columns (normalized coordinates).
-CANDIDATE_STEP = 8.0
+CANDIDATE_STEP = 12.0
 # The next lookahead is applied only to the top immediate eval (because the physics is heavy).
-NEXT_BEAM = 6
+NEXT_BEAM = 3
 # next candidates at a coarse spacing (held stays at CANDIDATE_STEP).
-NEXT_CANDIDATE_STEP = 24.0
+NEXT_CANDIDATE_STEP = 32.0
 # Tolerance for a contact that could merge (difference between center distance and sum of radii). For candidate evaluation.
 MERGE_SLACK = 18.0
 # The 'toward the center' |dx| / lower radius used in burying checks and the like.
@@ -74,7 +74,7 @@ def choose_x(obs: Observation) -> float:
     ranked: list[tuple[float, float, list[Fruit]]] = []
     for x in _candidates(before, obs.held_type, held_r, extra_type=obs.next_type):
         x = clamp_drop_x(x, obs.held_type)
-        after, score, penalties = _evaluate_drop(
+        after, score, penalties, _merges = _evaluate_drop(
             before, obs.held_type, x, held_r, next_type=obs.next_type
         )
         ranked.append((score - penalties, x, after))
@@ -141,15 +141,16 @@ def drop_scores(
     x: float,
     *,
     next_type: int | None = None,
-) -> tuple[float, float, float]:
-    """(score, penalties, eval) of one move dropped at column x. For sim / training.
+) -> tuple[float, float, float, list[Fruit], int]:
+    """(score, penalties, eval, after, merges) of one move dropped at column x.
 
+    For sim / training. after and merges are the simulate_drop results as is.
     Board penalties are the difference from before the drop. On the same board it is a constant difference, so choose_x's
     choice does not change, and summing it per move does not grow with the size of the board.
     """
     held_r = fruit_radius(drop_type)
     before = list(fruits)
-    _, score, penalties = _evaluate_drop(
+    after, score, penalties, merges = _evaluate_drop(
         before,
         drop_type,
         clamp_drop_x(x, drop_type),
@@ -157,14 +158,14 @@ def drop_scores(
         next_type=next_type,
     )
     penalties -= _board_penalties(before, sign=_order_sign(before))
-    return score, penalties, score - penalties
+    return score, penalties, score - penalties, after, merges
 
 
 def _score(obs: Observation, x: float, held_r: float) -> float:
     """Score the board after dropping held + the hypothetical best move of next."""
     assert obs.held_type is not None
     before = list(obs.fruits)
-    after, score, penalties = _evaluate_drop(
+    after, score, penalties, _merges = _evaluate_drop(
         before, obs.held_type, x, held_r, next_type=obs.next_type
     )
     value = score - penalties
@@ -185,7 +186,7 @@ def _best_next_score(
     for nx in _candidates(fruits, next_type, next_r, step=step):
         nx = clamp_drop_x(nx, next_type)
         # The next after that is unknown. Only same-type fruit in a valley counts for the growing exemption.
-        _, score, penalties = _evaluate_drop(fruits, next_type, nx, next_r)
+        _, score, penalties, _merges = _evaluate_drop(fruits, next_type, nx, next_r)
         if score - penalties > best:
             best = score - penalties
     return 0.0 if best == -math.inf else best
@@ -198,8 +199,8 @@ def _evaluate_drop(
     held_r: float,
     *,
     next_type: int | None = None,
-) -> tuple[list[Fruit], float, float]:
-    """Board, real-game score and penalties after one drop."""
+) -> tuple[list[Fruit], float, float, int]:
+    """Board, real-game score, penalties and merge count after one drop."""
     before = list(fruits)
     sign = _order_sign(before)
     after, merges, merge_types = simulate_drop(before, drop_type, x)
@@ -221,7 +222,7 @@ def _evaluate_drop(
         penalties += _foreign_aim_penalty(before, x, drop_type)
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
     penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
-    return after, score, penalties
+    return after, score, penalties, merges
 
 
 def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
