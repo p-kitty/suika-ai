@@ -184,6 +184,36 @@ def test_merge_result_settles_from_midpoint() -> None:
     assert abs(grown[0].x - mid) < cherry_r * 2
 
 
+def test_fruit_above_deleted_watermelon_falls() -> None:
+    # スイカ同士の合成で支えが消えた実は空中に残さず床へ落とす。
+    from src.vision.colors import MAX_FRUIT_TYPE
+
+    melon_r = fruit_radius(MAX_FRUIT_TYPE)
+    cherry_r = fruit_radius(0)
+    a = Fruit(
+        type=MAX_FRUIT_TYPE,
+        x=200,
+        y=NORMALIZED_HEIGHT - melon_r,
+        radius=melon_r,
+        confidence=90,
+    )
+    b = Fruit(
+        type=MAX_FRUIT_TYPE,
+        x=200 + 2 * melon_r + 4,
+        y=NORMALIZED_HEIGHT - melon_r,
+        radius=melon_r,
+        confidence=90,
+    )
+    dx = melon_r * 0.3
+    cy = a.y - math.sqrt((melon_r + cherry_r) ** 2 - dx * dx)
+    cherry = Fruit(type=0, x=a.x + dx, y=cy, radius=cherry_r, confidence=90)
+    after, merges, _types = simulate_drop((a, b, cherry), MAX_FRUIT_TYPE, a.x)
+    assert merges >= 1
+    cherries = [f for f in after if f.type == 0]
+    assert len(cherries) == 1
+    assert abs(cherries[0].y - (NORMALIZED_HEIGHT - cherry_r)) < 2.0
+
+
 def test_strawberry_does_not_roll_left_of_grape() -> None:
     grape_r = fruit_radius(2)
     straw_r = fruit_radius(1)
@@ -272,8 +302,8 @@ def test_same_type_center_drop_still_merges() -> None:
     assert any(f.type == 1 for f in after)
 
 
-def test_shallow_shoulder_of_high_same_type_does_not_merge() -> None:
-    # 上の大きい同種の浅い肩は合成にしない (壁で止まっても届いてない扱い)。
+def test_shallow_shoulder_of_same_type_still_merges() -> None:
+    # 同種は肩でも触れたら合成する。
     apple_r = fruit_radius(5)
     melon_r = fruit_radius(9)
     apple = Fruit(type=5, x=200, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
@@ -287,12 +317,12 @@ def test_shallow_shoulder_of_high_same_type_does_not_merge() -> None:
     fruits = (apple, melon)
     shallow = melon.x + melon_r * 0.72
     after, merges, _types = simulate_drop(fruits, 9, shallow)
-    assert merges == 0
-    assert sum(1 for f in after if f.type == 9) == 2
+    assert merges >= 1
+    assert sum(1 for f in after if f.type == 9) <= 1
 
 
-def test_does_not_prefer_unreachable_high_same_type_column() -> None:
-    # 真上は塞がれて浅い肩しかない同種より、届く床側の同種を選ぶ。
+def test_blocked_column_misses_but_shoulder_or_open_same_type_merges() -> None:
+    # 真上を異種で塞がれた列は直撃では合成しない。肩や空き側の同種なら合成できる。
     peach_r = fruit_radius(7)
     cover_r = fruit_radius(5)
     left_base = Fruit(
@@ -332,8 +362,8 @@ def test_does_not_prefer_unreachable_high_same_type_column() -> None:
     )
     fruits = (left_base, right_base, left, right, cover)
     assert simulate_drop(fruits, 7, left.x)[1] == 0
+    assert simulate_drop(fruits, 7, right.x)[1] >= 1
     x = choose_x(_obs(held_type=7, fruits=fruits))
-    assert abs(x - right.x) < peach_r
     assert simulate_drop(fruits, 7, x)[1] >= 1
 
 

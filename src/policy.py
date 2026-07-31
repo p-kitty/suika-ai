@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 import statistics
+from dataclasses import replace
 
 from .observe import Observation, clamp_drop_x
 from .reward import merge_score
@@ -25,8 +26,7 @@ CANDIDATE_STEP = 8.0
 MERGE_SLACK = 18.0
 # 仮想合成の接触。観測盤は静止前提なので緩めすぎない。
 CONTACT_SLACK = 2.0
-# 同種の上に乗って合成とみなす |dx| / 下側 radius の上限。
-# これより浅い肩は実機では弾かれて届かないことが多いので、転がして合成にしない。
+# 埋め込み判定などで使う「中央寄り」の |dx| / 下側 radius。
 MERGE_SUPPORT_DX_FRAC = 0.5
 # この y より上に頭が出ると危険 (盤面上辺寄り)。
 DANGER_Y = 90.0
@@ -37,6 +37,8 @@ NEXT_DISCOUNT = 0.55
 # 着地後の転がり。側面に乗ったら谷まで横へずらす。
 SETTLE_STEP = 3.0
 SETTLE_MAX_ITERS = 48
+# 合成後に支えのない実を落とす回数上限。
+BOARD_SETTLE_MAX_ITERS = 32
 # 支持円のほぼ頂点 (不安定) とみなす |dx| / radius。
 APEX_DX_FRAC = 0.2
 # 減点は本家点 (1〜65) と釣り合うスケールにする。加点は本家点だけ。
@@ -480,8 +482,7 @@ def _settle_x(
                 return x
             return _coast_on_floor(fruits, x, held_r, coast_dir)
 
-        # 今の列で同種の中央寄りに乗れるなら、異種斜面で転がして合体を逃さない。
-        # 浅い肩だけの重なりでは止まらない (下で転がす)。
+        # 同種に触れる着地なら止まる (本家: 触れたら合成。肩も含む)。
         if drop_type is not None and _would_merge_at(fruits, x, y, held_r, drop_type):
             return x
 
@@ -532,30 +533,13 @@ def _would_merge_at(
     held_r: float,
     drop_type: int,
 ) -> bool:
-    """列 (x, y) で同種の中央寄りに安定して乗れるか。浅い肩は除外。"""
+    """列 (x, y) で同種に触れるか。肩も含む。"""
     for fruit in fruits:
         if fruit.type != drop_type:
             continue
-        if _resting_merge_support(fruit, x, y, held_r):
+        if math.hypot(x - fruit.x, y - fruit.y) <= fruit.radius + held_r + CONTACT_SLACK:
             return True
     return False
-
-
-def _resting_merge_support(
-    fruit: Fruit,
-    x: float,
-    y: float,
-    held_r: float,
-) -> bool:
-    """fruit が (x, y) の支持円で、合成狙いとして止まってよい乗り方か。"""
-    dx = x - fruit.x
-    gap = fruit.radius + held_r
-    if abs(dx) >= gap - 1e-6:
-        return False
-    dy = math.sqrt(max(0.0, gap * gap - dx * dx))
-    if abs((fruit.y - dy) - y) > 2.0:
-        return False
-    return abs(dx) <= max(fruit.radius * MERGE_SUPPORT_DX_FRAC, 1.0)
 
 
 def _apex_roll_dir(support_x: float) -> float:
@@ -596,7 +580,11 @@ def _coast_on_floor(
 def _resolve_merges(
     fruits: list[Fruit], active: set[int]
 ) -> tuple[list[Fruit], int, list[int]]:
-    """落とした実から始まる同種接触だけを合成する。観測盤は静止前提。"""
+    """落とした実から始まる同種接触を合成する。
+
+    すでに安定している観測盤の実は動かさない。合成で支えが消えた実は
+    落下・転がり、動いた実から続く接触だけ連鎖合成する。
+    """
     fruits = list(fruits)
     merges = 0
     merge_types: list[int] = []
@@ -614,14 +602,57 @@ def _resolve_merges(
 
         merge_types.append(source_type)
         merges += 1
+        # 消えた支えの上に残った実を先に落とす (新実を浮き実の上に載せない)。
+        fruits, moved = _settle_board(fruits)
         if new_type > MAX_FRUIT_TYPE:
-            active = set()
+            active = moved
             continue
 
         fruits, new_i = _place(fruits, new_type, mid_x, allow_coast=False)
-        active = {new_i}
+        fruits, moved2 = _settle_board(fruits)
+        active = {new_i} | moved | moved2
 
     return fruits, merges, merge_types
+
+
+def _settle_board(fruits: list[Fruit]) -> tuple[list[Fruit], set[int]]:
+    """支えのない実を落下させ、落ちた実だけ不安定頂点から転がす。
+
+    index は維持する (合成の active 追跡用)。
+    """
+    fruits = list(fruits)
+    moved_all: set[int] = set()
+    if not fruits:
+        return fruits, moved_all
+
+    for _ in range(BOARD_SETTLE_MAX_ITERS):
+        order = sorted(range(len(fruits)), key=lambda i: (-fruits[i].y, fruits[i].x))
+        settled: list[int] = []
+        fell: set[int] = set()
+        for i in order:
+            f = fruits[i]
+            y = _land_y([fruits[j] for j in settled], f.x, f.radius)
+            if abs(y - f.y) > 0.5:
+                fruits[i] = replace(f, y=y)
+                fell.add(i)
+            settled.append(i)
+
+        rolled: set[int] = set()
+        for i in fell:
+            f = fruits[i]
+            others = [fruits[j] for j in range(len(fruits)) if j != i]
+            x2 = _settle_x(others, f.x, f.radius, allow_coast=True, drop_type=f.type)
+            y2 = _land_y(others, x2, f.radius)
+            if abs(x2 - f.x) > 0.5 or abs(y2 - f.y) > 0.5:
+                fruits[i] = replace(f, x=x2, y=y2)
+                rolled.add(i)
+
+        pass_moved = fell | rolled
+        moved_all |= pass_moved
+        if not pass_moved:
+            break
+
+    return fruits, moved_all
 
 
 def _find_merge_pair(fruits: list[Fruit], active: set[int]) -> tuple[int, int] | None:
@@ -633,53 +664,9 @@ def _find_merge_pair(fruits: list[Fruit], active: set[int]) -> tuple[int, int] |
         for j, b in enumerate(fruits):
             if j == i or b.type != a.type:
                 continue
-            if _mergeable_contact(fruits, a, b):
+            if _touching(a, b):
                 return (i, j) if i < j else (j, i)
     return None
-
-
-def _mergeable_contact(
-    fruits: list[Fruit] | tuple[Fruit, ...],
-    a: Fruit,
-    b: Fruit,
-) -> bool:
-    """合成してよい接触か。
-
-    横並び・中央寄りの積み・谷に挟まった積みは OK。
-    大きい実の浅い肩に一人で乗っているだけは、実機では弾かれるので不可。
-    """
-    if not _touching(a, b):
-        return False
-    if abs(a.y - b.y) <= max(a.radius, b.radius) * 0.55:
-        return True
-    lower, upper = (a, b) if a.y > b.y else (b, a)
-    if abs(upper.x - lower.x) <= max(lower.radius * MERGE_SUPPORT_DX_FRAC, 1.0):
-        return True
-    # 谷など、他の支持もあって落ち着いているときだけ浅い乗りも認める。
-    return _support_count(fruits, upper.x, upper.y, upper.radius, skip=lower) >= 1
-
-
-def _support_count(
-    fruits: list[Fruit] | tuple[Fruit, ...],
-    x: float,
-    y: float,
-    held_r: float,
-    *,
-    skip: Fruit | None = None,
-) -> int:
-    """(x, y) を支えている円の数。skip は除く。"""
-    count = 0
-    for fruit in fruits:
-        if skip is not None and fruit is skip:
-            continue
-        dx = x - fruit.x
-        gap = fruit.radius + held_r
-        if abs(dx) >= gap - 1e-6:
-            continue
-        dy = math.sqrt(max(0.0, gap * gap - dx * dx))
-        if abs((fruit.y - dy) - y) <= 2.0:
-            count += 1
-    return count
 
 
 def _touching(a: Fruit, b: Fruit) -> bool:
