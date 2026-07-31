@@ -29,20 +29,21 @@ LOOK_PAUSE_SEC = 0.09
 
 # Mouse movement per unit of error (board px). Deliberately a little short.
 LOOK_GAIN = 0.55
-LOOK_TOLERANCE = 8.0
+# About 1/3 of the cherry radius (~12) against a board width of 400. At 8 the column wobbles.
+LOOK_TOLERANCE = 4.0
 LOOK_TIMEOUT_SEC = 4.0
 LOOK_MAX_STEP = 48
 # After crossing the target, stop without correcting back if within this width.
-CROSS_STOP = 14.0
+CROSS_STOP = 10.0
 # Near the edges held stops at the wall and detection also wobbles. Avoid the view
 # swinging forever while trying to line up exactly.
 EDGE_BAND = 48.0
 EDGE_TOLERANCE = 18.0
 # After how many moves to give up when only the view advances while held barely moves.
 STALL_MOVES = 2
-# Return after a drop: only pull back inward from the extreme edges. Returning to center every time makes the round trip too large.
-RECENTER_INSET = 80.0
-RECENTER_TOLERANCE = 14.0
+# Return to the board center after every drop. Staying at an edge tends to offset the view for the next move.
+RECENTER_X = NORMALIZED_WIDTH / 2
+RECENTER_TOLERANCE = LOOK_TOLERANCE
 
 
 class MOUSEINPUT(ctypes.Structure):
@@ -83,11 +84,7 @@ def recenter(
     read: Callable[[], tuple[Observation, np.ndarray | None]],
     abort: Callable[[], bool] | None = None,
 ) -> bool:
-    """Before the next move, pull back inward only when at an extreme edge. Does not click.
-
-    It used to return to center every time, but every edge placement became an edge↔center round trip
-    and the view swung wastefully. Pulling in just enough not to start the next move from the edge is enough.
-    """
+    """Return the view to the board center before the next move. Does not click."""
     if abort is not None and abort():
         return False
     obs, _corners = read()
@@ -97,13 +94,9 @@ def recenter(
         return False
 
     held = float(obs.held_x)
-    lo = RECENTER_INSET
-    hi = NORMALIZED_WIDTH - RECENTER_INSET
-    if lo <= held <= hi:
+    if abs(held - RECENTER_X) <= RECENTER_TOLERANCE:
         return True
-
-    target = lo if held < lo else hi
-    return aim(target, read, tolerance=RECENTER_TOLERANCE, abort=abort)
+    return aim(RECENTER_X, read, tolerance=RECENTER_TOLERANCE, abort=abort)
 
 
 def aim(
