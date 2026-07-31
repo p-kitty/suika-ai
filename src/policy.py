@@ -2,6 +2,7 @@
 
 It has no concrete procedures (push-ins, growing priority, cascade gaps and the like).
 It only looks at merging, dangerous height, burying, light size order and rolling accident prevention.
+Moves are scored as eval = score (the real game's merge points) - penalties (penalties for accidents and bad moves).
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import math
 import statistics
 
 from .observe import Observation, clamp_drop_x
+from .reward import merge_score
 from .vision.classify import fruit_radius
 from .vision.colors import MAX_FRUIT_TYPE, SPAWN_MAX_TYPE
 from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
@@ -32,29 +34,33 @@ SETTLE_STEP = 3.0
 SETTLE_MAX_ITERS = 48
 # |dx| / radius considered nearly at the top of the supporting circle (unstable).
 APEX_DX_FRAC = 0.2
-# Penalty for directly above nearly the center of a different type.
-FOREIGN_CENTER_PENALTY = 140.0
+# Penalties are scaled to balance with the real-game score (1-65). The only bonus is the real-game score.
+# Penalty for aiming nearly at the center of a different type (even if it rolls to the floor). It breaks easily on the real machine.
+FOREIGN_AIM_PENALTY = 10.0
+# Penalty per excess fruit when there are 3 or more of the same type. Encourages merging early.
+EXCESS_SAME_WEIGHT = 8.0
 # Penalty per type difference of an inverted size pair.
-SIZE_ORDER_PAIR_WEIGHT = 28.0
+SIZE_ORDER_PAIR_WEIGHT = 1.5
 # Penalty per mean distance from the ideal column (weak; not forcing a layout).
-SIZE_ORDER_IDEAL_WEIGHT = 0.2
+SIZE_ORDER_IDEAL_WEIGHT = 0.004
 # Penalty for stuffing into gaps between fruits 2 or more stages bigger than itself.
-GAP_JUNK_PENALTY = 200.0
+GAP_JUNK_PENALTY = 12.0
 # A weak pull toward the ideal column.
-IDEAL_PULL = 0.25
-# Board score coefficients for merges, cascades and landing.
-MERGE_SCORE = 140.0
-CHAIN_SCORE = 80.0
-LAND_Y_WEIGHT = 0.22
-CROWN_WEIGHT = 0.8
-DANGER_CROWN_WEIGHT = 4.0
-BURY_WEIGHT = 90.0
-VARIANCE_WEIGHT = 1.2
+IDEAL_PULL = 0.015
+# Penalty per height stacked from the floor (the minimum to stop stacking).
+LAND_HEIGHT_WEIGHT = 0.05
+DANGER_CROWN_WEIGHT = 0.5
+BURY_WEIGHT = 20.0
+# Penalty for moves blocking a waiting same-type pair with a bigger fruit of another type (per type difference).
+BURY_BLOCK_WEIGHT = 14.0
+# The ratio when blocking from the shoulder rather than directly above.
+BURY_SHOULDER_SCALE = 0.5
+VARIANCE_WEIGHT = 0.08
 VARIANCE_DANGER_SCALE = 0.15
-WRONG_SIDE_BASE = 180.0
-WRONG_SIDE_TYPE_WEIGHT = 40.0
-COAST_DRIFT_WEIGHT = 1.4
-COAST_FLOOR_BONUS = 120.0
+WRONG_SIDE_BASE = 8.0
+WRONG_SIDE_TYPE_WEIGHT = 2.0
+COAST_DRIFT_WEIGHT = 0.08
+COAST_FLOOR_BONUS = 8.0
 
 
 def choose_x(obs: Observation) -> float:
@@ -110,25 +116,45 @@ def _candidates(
     return [x for x in xs if lo <= x <= hi]
 
 
+def drop_scores(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_type: int,
+    x: float,
+) -> tuple[float, float, float]:
+    """(score, penalties, eval) of one move dropped at column x. For sim / training.
+
+    Board penalties are the difference from before the drop. On the same board it is a constant difference, so choose_x's
+    choice does not change, and summing it per move does not grow with the size of the board.
+    """
+    held_r = fruit_radius(drop_type)
+    before = list(fruits)
+    _, score, penalties = _evaluate_drop(
+        before, drop_type, clamp_drop_x(x, drop_type), held_r
+    )
+    penalties -= _board_penalties(before, sign=_order_sign(before))
+    return score, penalties, score - penalties
+
+
 def _score(obs: Observation, x: float, held_r: float) -> float:
     """Score the board after dropping held + the hypothetical best move of next."""
     assert obs.held_type is not None
     before = list(obs.fruits)
-    after, score = _evaluate_drop(before, obs.held_type, x, held_r)
+    after, score, penalties = _evaluate_drop(before, obs.held_type, x, held_r)
+    value = score - penalties
     if obs.next_type is not None:
-        score += NEXT_DISCOUNT * _best_next_score(after, obs.next_type)
-    return score
+        value += NEXT_DISCOUNT * _best_next_score(after, obs.next_type)
+    return value
 
 
 def _best_next_score(fruits: list[Fruit], next_type: int) -> float:
-    """Board score when next is dropped at its best column."""
+    """eval when next is dropped at its best column."""
     next_r = fruit_radius(next_type)
     best = -math.inf
     for nx in _candidates(fruits, next_type, next_r):
         nx = clamp_drop_x(nx, next_type)
-        _, value = _evaluate_drop(fruits, next_type, nx, next_r)
-        if value > best:
-            best = value
+        _, score, penalties = _evaluate_drop(fruits, next_type, nx, next_r)
+        if score - penalties > best:
+            best = score - penalties
     return 0.0 if best == -math.inf else best
 
 
@@ -137,79 +163,71 @@ def _evaluate_drop(
     drop_type: int,
     x: float,
     held_r: float,
-) -> tuple[list[Fruit], float]:
-    """Board and score after one drop."""
+) -> tuple[list[Fruit], float, float]:
+    """Board, real-game score and penalties after one drop."""
     before = list(fruits)
     sign = _order_sign(before)
     land_x, land_y = _preview_land(before, drop_type, x, held_r)
-    after, merges, _merge_types = simulate_drop(before, drop_type, x)
+    after, merges, merge_types = simulate_drop(before, drop_type, x)
 
-    score = _board_score(after, merges, land_y=land_y, sign=sign)
-    score -= _foreign_center_penalty(before, x, land_x, land_y, drop_type, held_r)
+    score = merge_score(merge_types)
+    penalties = _board_penalties(after, sign=sign)
     if merges == 0:
-        score -= _wrong_side_roll_penalty(
+        # A merged fruit does not remain, so the stacking penalty applies only to moves that stay on the board.
+        floor = NORMALIZED_HEIGHT - held_r
+        penalties += max(0.0, floor - land_y) * LAND_HEIGHT_WEIGHT
+        penalties += _foreign_aim_penalty(before, x, drop_type)
+        penalties += _wrong_side_roll_penalty(
             before, land_x, land_y, drop_type, held_r, sign
         )
-        score -= _gap_junk_penalty(before, land_x, drop_type, held_r)
-        score -= abs(x - _ideal_x(drop_type, sign)) * IDEAL_PULL
-    score -= _coast_away_penalty(before, x, land_x, land_y, held_r)
-    return after, score
+        penalties += _gap_junk_penalty(before, land_x, drop_type, held_r)
+        penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
+        penalties += abs(x - _ideal_x(drop_type, sign)) * IDEAL_PULL
+    penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
+    return after, score, penalties
 
 
-def _board_score(
-    fruits: list[Fruit],
-    merges: int,
-    *,
-    land_y: float,
-    sign: int = 1,
-) -> float:
-    """Board evaluation for one move (merges, height, burying, size order)."""
-    score = 0.0
-    score += MERGE_SCORE * merges
-    if merges >= 2:
-        score += CHAIN_SCORE * (merges - 1)
-
-    score += land_y * LAND_Y_WEIGHT
-
+def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
+    """Board penalties after the drop (danger, burying, excess same type, size order, bumpiness)."""
+    penalty = 0.0
     crown = _top_crown(fruits)
-    score += crown * CROWN_WEIGHT
     if crown < DANGER_Y:
-        score -= (DANGER_Y - crown) * DANGER_CROWN_WEIGHT
+        penalty += (DANGER_Y - crown) * DANGER_CROWN_WEIGHT
 
-    score -= BURY_WEIGHT * _bury_penalty(fruits)
-    score -= _size_order_penalty(fruits, sign)
+    penalty += BURY_WEIGHT * _bury_penalty(fruits)
+    penalty += _excess_same_penalty(fruits)
+    penalty += _size_order_penalty(fruits, sign)
     variance = _height_variance(fruits)
     if crown < DANGER_Y:
         variance *= VARIANCE_DANGER_SCALE
-    score -= VARIANCE_WEIGHT * variance
-    return score
+    penalty += VARIANCE_WEIGHT * variance
+    return penalty
 
 
-def _foreign_center_penalty(
+def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """Penalize the excess when there are 3 or more of the same type. Up to 2 are allowed as waiting to merge."""
+    counts: dict[int, int] = {}
+    for fruit in fruits:
+        counts[fruit.type] = counts.get(fruit.type, 0) + 1
+    penalty = 0.0
+    for count in counts.values():
+        if count >= 3:
+            penalty += (count - 2) * EXCESS_SAME_WEIGHT
+    return penalty
+
+
+def _foreign_aim_penalty(
     fruits: list[Fruit] | tuple[Fruit, ...],
     drop_x: float,
-    land_x: float,
-    land_y: float,
     drop_type: int,
-    held_r: float,
 ) -> float:
-    """Penalty for dropping nearly directly above the center of a non-same type."""
+    """Penalty for aiming nearly at the center of a different type. Unstable on the real machine even if it rolls."""
     for fruit in fruits:
         if fruit.type == drop_type:
             continue
-        if not _is_on_top(fruit, land_x, held_r, land_y):
-            continue
-        if abs(drop_x - fruit.x) <= fruit.radius * 0.25:
-            return FOREIGN_CENTER_PENALTY
+        if abs(drop_x - fruit.x) <= fruit.radius * 0.3:
+            return FOREIGN_AIM_PENALTY
     return 0.0
-
-
-def _is_on_top(support: Fruit, x: float, held_r: float, land_y: float) -> bool:
-    """Whether it lands nearly directly above support."""
-    if abs(x - support.x) > support.radius * 0.85:
-        return False
-    top = support.y - support.radius
-    return abs((land_y + held_r) - top) <= MERGE_SLACK
 
 
 def _wrong_side_roll_penalty(
@@ -561,6 +579,32 @@ def _bury_penalty(fruits: list[Fruit]) -> float:
                     penalty += 1.0
                 else:
                     penalty += 0.35
+    return penalty
+
+
+def _bury_block_penalty(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    land_y: float,
+    drop_type: int,
+    held_r: float,
+) -> float:
+    """Penalty for blocking a fruit waiting for a same-type pair with a bigger fruit of another type, from directly above or the shoulder."""
+    penalty = 0.0
+    for under in fruits:
+        if under.type >= drop_type:
+            continue
+        if not any(f.type == under.type and f is not under for f in fruits):
+            continue
+        dx = abs(land_x - under.x)
+        if dx > under.radius + held_r * 0.5:
+            continue
+        # Whether it sits on the head. Merely side by side does not block.
+        over_top = (land_y + held_r) - (under.y - under.radius)
+        if over_top > under.radius:
+            continue
+        scale = 1.0 if dx <= under.radius * 0.5 else BURY_SHOULDER_SCALE
+        penalty += scale * BURY_BLOCK_WEIGHT * (drop_type - under.type)
     return penalty
 
 

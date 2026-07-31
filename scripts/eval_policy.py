@@ -41,7 +41,8 @@ def run_episode(
 ) -> dict[str, float]:
     env = SimEnv(seed=seed)
     obs = env.reset()
-    total_reward = 0.0
+    total_score = 0.0
+    total_eval = 0.0
     merges = 0
     steps = 0
     max_type = -1
@@ -50,7 +51,8 @@ def run_episode(
     for _ in range(max_steps):
         result = env.step(choose(obs))
         obs = result.observation
-        total_reward += result.reward
+        total_score += result.score
+        total_eval += result.eval_score
         merges += result.merges
         steps += 1
         info = result.info
@@ -61,7 +63,8 @@ def run_episode(
             break
     return {
         "steps": float(steps),
-        "reward": total_reward,
+        "score": total_score,
+        "eval": total_eval,
         "merges": float(merges),
         "max_type": float(max_type),
         "max_wm": float(max_wm),
@@ -155,7 +158,8 @@ def main() -> None:
         workers=workers,
     )
     steps = [r["steps"] for r in rows]
-    rewards = [r["reward"] for r in rows]
+    scores = [r["score"] for r in rows]
+    evals = [r["eval"] for r in rows]
     merges = [r["merges"] for r in rows]
     max_types = [r["max_type"] for r in rows]
     print(
@@ -163,7 +167,8 @@ def main() -> None:
         f"max_steps={args.max_steps}  workers={workers}"
     )
     print(f"steps  mean={statistics.mean(steps):.1f}  median={statistics.median(steps):.1f}")
-    print(f"reward mean={statistics.mean(rewards):.2f}")
+    print(f"score  mean={statistics.mean(scores):.2f}")
+    print(f"eval   mean={statistics.mean(evals):.2f}")
     print(f"merges mean={statistics.mean(merges):.1f}")
     print(f"max_type mean={statistics.mean(max_types):.2f}  best={max(max_types):.0f}")
     print(f"double_wm episodes={sum(1 for r in rows if r['max_wm'] >= 2)}")

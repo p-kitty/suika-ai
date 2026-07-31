@@ -67,18 +67,6 @@ def merge_points(source_type: int) -> int:
     return 0
 
 
-def step_reward(
-    before: Observation,
-    after: Observation,
-    *,
-    merges: int = 0,
-    merge_types: Sequence[int] = (),
-    done: bool = False,
-    win: bool = False,
-) -> float:
-    """The reward for one move = the sum of merge points of that move. No penalties or survival bonus.
-
-    before/after/merges/done/win are for the caller's end-of-game checks and not used for points.
-    """
-    _ = (before, after, merges, done, win)
+def merge_score(merge_types: Sequence[int] = ()) -> float:
+    """The real-game score of one move = the sum of merge points of that move. No penalties or survival bonus."""
     return float(sum(merge_points(t) for t in merge_types))
