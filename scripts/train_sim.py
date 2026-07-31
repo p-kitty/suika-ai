@@ -3,7 +3,7 @@
 既定は bootstrap (`choose_x`) を先生にしたオフライン BC:
   1) 先生の軌道を集める (重みは触らない)
   2) 溜めたデータで何エポックか復習する
-  3) student_r が最良の重みを保存
+  3) eval (= score - penalties) が最良の重みを保存
 
 REINFORCE は match が十分上がってから手動で足す。
 
@@ -182,26 +182,34 @@ def eval_student(
     seed: int,
     episodes: int,
     max_steps: int,
-) -> tuple[float, float]:
-    """生徒 greedy の平均報酬・ステップ。"""
-    rewards: list[float] = []
+) -> tuple[float, float, float]:
+    """生徒 greedy の平均 score・平均 eval・平均ステップ。"""
+    scores: list[float] = []
+    evals: list[float] = []
     steps_list: list[int] = []
     for i in range(episodes):
         env = SimEnv(seed=seed + i)
         obs = env.reset()
-        total = 0.0
+        total_score = 0.0
+        total_eval = 0.0
         steps = 0
         for _ in range(max_steps):
             _, x, _ = policy.act(obs, greedy=True)
             result = env.step(x)
-            total += result.reward
+            total_score += result.score
+            total_eval += result.eval_score
             obs = result.observation
             steps += 1
             if result.done:
                 break
-        rewards.append(total)
+        scores.append(total_score)
+        evals.append(total_eval)
         steps_list.append(steps)
-    return statistics.fmean(rewards), statistics.fmean(steps_list)
+    return (
+        statistics.fmean(scores),
+        statistics.fmean(evals),
+        statistics.fmean(steps_list),
+    )
 
 
 def run_rl_episode(
@@ -212,6 +220,7 @@ def run_rl_episode(
     gamma: float,
     lr: float,
 ) -> tuple[float, int]:
+    """報酬は本家点 (score) のみ。密な減点は報酬にしない。"""
     obs = env.reset()
     obs_list: list[np.ndarray] = []
     actions: list[int] = []
@@ -222,7 +231,7 @@ def run_rl_episode(
         obs_list.append(vec)
         actions.append(action)
         result = env.step(x)
-        rewards.append(result.reward)
+        rewards.append(result.score)
         obs = result.observation
         if result.done:
             break
@@ -300,7 +309,7 @@ def main() -> None:
         )
 
     best_match = -1.0
-    best_r = -float("inf")
+    best_eval = -float("inf")
     best_snap: dict[str, np.ndarray] | None = None
 
     if args.bc_epochs > 0 and obs_buf:
@@ -319,27 +328,28 @@ def main() -> None:
             )
             if epoch % args.log_every == 0 or epoch == 1 or epoch == args.bc_epochs:
                 match = match_rate(policy, obs_buf, act_buf, rng=rng)
-                student_r, student_s = eval_student(
+                student_score, student_eval, student_s = eval_student(
                     policy,
                     seed=args.seed + 9000,
                     episodes=args.eval_episodes,
                     max_steps=eval_max_steps,
                 )
-                # 実力 (student_r) 優先。同点なら match。
-                better = student_r > best_r + 1e-9 or (
-                    abs(student_r - best_r) <= 1e-9 and match > best_match
+                # 実力 (eval) 優先。同点なら match。
+                better = student_eval > best_eval + 1e-9 or (
+                    abs(student_eval - best_eval) <= 1e-9 and match > best_match
                 )
                 if better:
                     best_match = match
-                    best_r = student_r
+                    best_eval = student_eval
                     best_snap = policy.snapshot()
                 print(
                     f"epoch={epoch:4d}  "
                     f"loss={loss:6.3f}  "
                     f"match={match:5.1%}  "
-                    f"student_r={student_r:7.2f}  "
+                    f"score={student_score:7.2f}  "
+                    f"eval={student_eval:8.2f}  "
                     f"student_s={student_s:5.1f}  "
-                    f"best_r={best_r:7.2f}  "
+                    f"best_eval={best_eval:8.2f}  "
                     f"best_match={best_match:5.1%}",
                     flush=True,
                 )
@@ -347,7 +357,7 @@ def main() -> None:
         if best_snap is not None:
             policy.restore(best_snap)
             print(
-                f"restored best_r={best_r:.2f} best_match={best_match:.1%}",
+                f"restored best_eval={best_eval:.2f} best_match={best_match:.1%}",
                 flush=True,
             )
 
@@ -367,25 +377,25 @@ def main() -> None:
             window.append(total)
             window_steps.append(steps)
             if ep % args.log_every == 0 or ep == 1 or ep == args.episodes:
-                train_r = statistics.fmean(window)
+                train_score = statistics.fmean(window)
                 train_s = statistics.fmean(window_steps)
-                student_r, student_s = eval_student(
+                student_score, student_eval, student_s = eval_student(
                     policy,
                     seed=args.seed + 9000,
                     episodes=args.eval_episodes,
                     max_steps=eval_max_steps,
                 )
-                better = student_r > best_r + 1e-9
-                if better:
-                    best_r = student_r
+                if student_eval > best_eval + 1e-9:
+                    best_eval = student_eval
                     best_snap = policy.snapshot()
                 print(
                     f"rl={ep:4d}  "
-                    f"train_r={train_r:7.2f}  "
+                    f"train_score={train_score:7.2f}  "
                     f"train_s={train_s:5.1f}  "
-                    f"student_r={student_r:7.2f}  "
+                    f"score={student_score:7.2f}  "
+                    f"eval={student_eval:8.2f}  "
                     f"student_s={student_s:5.1f}  "
-                    f"best_r={best_r:7.2f}",
+                    f"best_eval={best_eval:8.2f}",
                     flush=True,
                 )
                 window.clear()
@@ -393,7 +403,7 @@ def main() -> None:
 
         if best_snap is not None:
             policy.restore(best_snap)
-            print(f"restored best_r={best_r:.2f}", flush=True)
+            print(f"restored best_eval={best_eval:.2f}", flush=True)
 
     if args.save is not None:
         args.save.parent.mkdir(parents=True, exist_ok=True)

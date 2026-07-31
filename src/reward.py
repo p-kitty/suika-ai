@@ -67,18 +67,6 @@ def merge_points(source_type: int) -> int:
     return 0
 
 
-def step_reward(
-    before: Observation,
-    after: Observation,
-    *,
-    merges: int = 0,
-    merge_types: Sequence[int] = (),
-    done: bool = False,
-    win: bool = False,
-) -> float:
-    """1 手分の報酬 = その手の合成点合計。減点・生存加点なし。
-
-    before/after/merges/done/win は呼び出し側の終了判定用で、点数には使わない。
-    """
-    _ = (before, after, merges, done, win)
+def merge_score(merge_types: Sequence[int] = ()) -> float:
+    """1 手分の本家点 = その手の合成点合計。減点・生存加点なし。"""
     return float(sum(merge_points(t) for t in merge_types))

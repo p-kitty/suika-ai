@@ -6,6 +6,7 @@
 
 from src.observe import Observation
 from src.policy import (
+    BURY_BLOCK_WEIGHT,
     _ideal_x,
     _land_y,
     _preview_land,
@@ -264,6 +265,22 @@ def test_same_type_center_drop_still_merges() -> None:
     assert any(f.type == 1 for f in after)
 
 
+def test_does_not_block_waiting_pair_with_bigger_fruit() -> None:
+    # grape が 2 個で合成待ち。その谷に大きい orange を挟んで塞がない。
+    grape_r = fruit_radius(2)
+    orange_r = fruit_radius(4)
+    floor_y = NORMALIZED_HEIGHT - grape_r
+    a = Fruit(type=2, x=150, y=floor_y, radius=grape_r, confidence=90)
+    b = Fruit(type=2, x=150 + grape_r * 2 + 30, y=floor_y, radius=grape_r, confidence=90)
+    valley = (a.x + b.x) / 2
+    obs = _obs(held_type=4, fruits=(a, b))
+    x = choose_x(obs)
+    land_x, land_y = _preview_land((a, b), 4, x, orange_r)
+    assert land_y >= NORMALIZED_HEIGHT - orange_r - 1.0
+    assert not (a.x < land_x < b.x)
+    assert _score(obs, x, orange_r) > _score(obs, valley, orange_r) + BURY_BLOCK_WEIGHT
+
+
 def test_avoids_foreign_center_stack() -> None:
     # 異種の中央真上より、空き床や隣を選ぶ。
     apple_r = fruit_radius(5)
@@ -271,5 +288,25 @@ def test_avoids_foreign_center_stack() -> None:
     apple = Fruit(type=5, x=200, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
     obs = _obs(held_type=4, fruits=(apple,))
     x = choose_x(obs)
-    assert abs(x - apple.x) > apple_r * 0.25
+    assert abs(x - apple.x) > apple_r * 0.3
     assert _score(obs, x, orange_r) > _score(obs, apple.x, orange_r)
+
+
+def test_merges_when_three_same_type_waiting() -> None:
+    # 同種が 3 個ある盤では、持っている同種で早めに合成する。
+    cherry_r = fruit_radius(0)
+    floor = NORMALIZED_HEIGHT - cherry_r
+    fruits = (
+        Fruit(type=0, x=120, y=floor, radius=cherry_r, confidence=90),
+        Fruit(type=0, x=200, y=floor, radius=cherry_r, confidence=90),
+        Fruit(type=0, x=280, y=floor, radius=cherry_r, confidence=90),
+    )
+    obs = _obs(held_type=0, fruits=fruits)
+    x = choose_x(obs)
+    after, merges, _types = simulate_drop(fruits, 0, x)
+    assert merges >= 1
+    # 3 + 1 → 1 合成で cherry は 2 以下、straw が 1。
+    assert sum(1 for f in after if f.type == 0) <= 2
+    assert any(f.type == 1 for f in after)
+    far = 40.0
+    assert _score(obs, x, cherry_r) > _score(obs, far, cherry_r)

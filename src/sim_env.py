@@ -7,8 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from .observe import Observation, clamp_drop_x
-from .policy import simulate_drop
-from .reward import cleared_double_watermelon, is_game_over, step_reward
+from .policy import drop_scores, simulate_drop
+from .reward import cleared_double_watermelon, is_game_over
 from .vision.colors import SPAWN_MAX_TYPE
 from .vision.normalized import NORMALIZED_WIDTH
 from .vision.state import Fruit
@@ -17,7 +17,10 @@ from .vision.state import Fruit
 @dataclass
 class SimStep:
     observation: Observation
-    reward: float
+    # 本家の合成点。学習の報酬はこちら。
+    score: float
+    # score - penalties。方策の良し悪しの指標 (ログ表示は eval)。
+    eval_score: float
     done: bool
     merges: int
     info: str
@@ -44,7 +47,10 @@ class SimEnv:
 
         before = self._obs()
         target = clamp_drop_x(x, self.held_type)
-        after_fruits, merges, merge_types = simulate_drop(
+        score, _penalties, eval_score = drop_scores(
+            self.fruits, self.held_type, target
+        )
+        after_fruits, merges, _merge_types = simulate_drop(
             self.fruits, self.held_type, target
         )
         self.fruits = after_fruits
@@ -55,21 +61,13 @@ class SimEnv:
         dead = is_game_over(after)
         win = cleared_double_watermelon(before, after, merges=merges)
         done = dead or win
-        reward = step_reward(
-            before,
-            after,
-            merges=merges,
-            merge_types=merge_types,
-            done=done,
-            win=win,
-        )
         if win:
             info = "win"
         elif dead:
             info = "dead"
         else:
             info = "ok"
-        return SimStep(after, reward, done, merges, info)
+        return SimStep(after, score, eval_score, done, merges, info)
 
     def _spawn(self) -> int:
         return int(self.rng.integers(0, SPAWN_MAX_TYPE + 1))
