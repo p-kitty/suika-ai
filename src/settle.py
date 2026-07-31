@@ -11,11 +11,13 @@ from .observe import Observation
 from .vision.state import Fruit
 
 # 静止判定は raw_fruits (Tracker 平滑化前) を見る。
-# 完全静止は待たず、遅い動きなら着手してよい。
-# 正規化盤 (幅400) で 25px/s ≒ 0.4秒で約10px。検出ノイズより上、転がりより下。
+# 動いている盤で x を決めるより待つ方が安定する。先読みで補わない。
+# 瞬間速度は検出ノイズ (~1px@15fps ≈ 15px/s) より上にする。
 DEFAULT_STILL_SPEED = 25.0
 # この長さずっと遅ければ止まったとみなす。
-DEFAULT_STILL_SEC = 0.4
+DEFAULT_STILL_SEC = 0.5
+# 静穏ウィンドウ中の横ずれ上限。振動ノイズは小さく、一方向の creep は積もる。
+DEFAULT_STILL_DRIFT = 3.0
 # 落としてからここまで動かなければ諦める。
 DEFAULT_TIMEOUT_SEC = 12.0
 # 落下待ちが消えてから、次のが出るまでの待ち上限。
@@ -63,17 +65,21 @@ def wait_settled(
     *,
     still_speed: float = DEFAULT_STILL_SPEED,
     still_sec: float = DEFAULT_STILL_SEC,
+    still_drift: float = DEFAULT_STILL_DRIFT,
     timeout_sec: float = DEFAULT_TIMEOUT_SEC,
     abort: Callable[[], bool] | None = None,
     still_px: float | None = None,
 ) -> tuple[Observation, bool]:
     """盤面のフルーツが十分遅くなった観測を返す。
 
-    既定は速度 (px/s) で判定する。still_px を渡したときだけフレーム間変位で見る
-    (テスト用)。戻り値は (観測, 止まったか)。タイムアウトや中断なら False。
+    既定は速度 (px/s) と静穏ウィンドウ中の横ドリフトで判定する。
+    遅い一方向 creep は速度だけでは見逃すので、ドリフトで待つ。
+    still_px を渡したときだけフレーム間変位で見る (テスト用)。
+    戻り値は (観測, 止まったか)。タイムアウトや中断なら False。
     """
     deadline = time.monotonic() + timeout_sec
     quiet_since: float | None = None
+    quiet_anchor: tuple[Fruit, ...] | None = None
     noise_streak = 0
     previous = read()
     previous_t = time.monotonic()
@@ -101,8 +107,13 @@ def wait_settled(
 
         if quiet:
             noise_streak = 0
-            if quiet_since is None:
+            if quiet_since is None or quiet_anchor is None:
                 quiet_since = now
+                quiet_anchor = tuple(curr_fruits)
+            elif _max_x_drift(quiet_anchor, curr_fruits) > still_drift:
+                # 一方向にずれ続けている。止まった位置からやり直し。
+                quiet_since = now
+                quiet_anchor = tuple(curr_fruits)
             elif now - quiet_since >= still_sec:
                 return current, True
         else:
@@ -110,8 +121,22 @@ def wait_settled(
             noise_streak += 1
             if noise_streak >= NOISE_STREAK_RESET:
                 quiet_since = None
+                quiet_anchor = None
 
     return previous, False
+
+
+def _max_x_drift(
+    anchor: list[Fruit] | tuple[Fruit, ...],
+    current: list[Fruit] | tuple[Fruit, ...],
+) -> float:
+    """静穏開始位置からの最大 |Δx|。
+
+    マッチした実だけ見る。出現・消失は速度側の点滅耐性に任せ、
+    ドリフトで quiet を壊し続けない。
+    """
+    matched, _unmatched = _motion_parts(anchor, current)
+    return max(matched) if matched else 0.0
 
 
 def _motion_parts(
