@@ -289,7 +289,7 @@ def _board_panel(
             radius=fruit_radius(held_type),
             confidence=100.0,
         )
-        _draw_fruit(img, ghost, fill=False, color=(0, 255, 255))
+        _draw_fruit(img, ghost, fill=False)
 
     put_text(img, title, (8, 22), (230, 230, 230), scale=0.55)
     put_text(img, f"n={len(fruits)}", (8, 44), (180, 180, 180), scale=0.45, thickness=1)
@@ -301,12 +301,11 @@ def _draw_fruit(
     fruit: Fruit,
     *,
     fill: bool,
-    color: tuple[int, int, int] | None = None,
 ) -> None:
     cx = int(round(fruit.x * SCALE))
     cy = int(round(fruit.y * SCALE))
     r = max(2, int(round(fruit.radius * SCALE)))
-    bgr = color if color is not None else FRUIT_BGR[fruit.type]
+    bgr = FRUIT_BGR[fruit.type]
     if fill:
         overlay = img.copy()
         cv2.circle(overlay, (cx, cy), r, bgr, -1)
