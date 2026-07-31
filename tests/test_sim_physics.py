@@ -46,6 +46,24 @@ def test_foreign_hit_moves_both() -> None:
     ) > 8.0
 
 
+def test_side_contact_merge_pulls_toward_contact() -> None:
+    orange_r = fruit_radius(4)
+    left = Fruit(
+        type=4,
+        x=180,
+        y=NORMALIZED_HEIGHT - orange_r,
+        radius=orange_r,
+        confidence=90,
+    )
+    drop_x = left.x + orange_r * 1.85
+    after, merges, _types = simulate_drop((left,), 4, drop_x)
+    assert merges >= 1
+    apples = [f for f in after if f.type == 5]
+    assert apples
+    # 横から当てた合成は中点より右へ寄る。
+    assert apples[0].x - left.x > orange_r * 0.6
+
+
 def test_preview_land_returns_finite() -> None:
     r = fruit_radius(0)
     x, y = preview_land((), 0, 200, r)
