@@ -70,7 +70,7 @@ src/
   env.py                # drop → wait → read
   observe.py            # observation (ready / held / next / fruits)
   policy.py             # bootstrap policy (merges, danger height, mishap guards)
-  sim_physics.py        # drop / roll / knock / merge shared by policy + sim
+  sim_physics.py        # drop / roll / merge (pymunk)
   agent.py              # linear policy over 20 discrete columns
   encode.py             # fixed-length observation vector
   reward.py             # game-identical merge scores only

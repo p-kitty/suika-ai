@@ -13,7 +13,7 @@
 ## Policy (bootstrap)
 
 - `src/policy.py` is a thin policy before RL. Only merging, dangerous height, burying, light size order and accident prevention for rolling / knock-aways
-- The physics of falling, collision and merging is `src/sim_physics.py` (UT in `tests/test_sim_physics.py`). `choose_x` scores with the same `simulate_drop`
+- The physics of falling, collision and merging is pymunk (`src/sim_physics.py`; UT in `tests/test_sim_physics.py`). `choose_x` scores with the same `simulate_drop`
 - Moves are scored as `eval = score - penalties`. The only bonus is the real game's score; stacking, accidents and burying are penalties
 - Burying is the main penalty. Moves that block a same-type pair waiting to merge with a bigger fruit of another type, directly above or on the shoulder, are heavily penalized
 - Aiming at the center of a different type (`FOREIGN_AIM`) and excess same type (`EXCESS_SAME` = 20 per excess fruit) suppress breaking and delayed merging. Stacking a different type in valleys or on shoulders is not forbidden
