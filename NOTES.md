@@ -16,7 +16,7 @@
 - Moves are scored as `eval = score - penalties`. The only bonus is the real game's score; stacking, accidents and burying are penalties
 - Burying is the main penalty. Moves that block a same-type pair waiting to merge with a bigger fruit of another type, directly above or on the shoulder, are heavily penalized
 - Aiming at the center of a different type (`FOREIGN_AIM`) and excess same type (`EXCESS_SAME` = 20 per excess fruit) suppress breaking and delayed merging. Stacking a different type in valleys or on shoulders is not forbidden
-- Valleys of big fruits are growing slots. `GAP_JUNK` is retired. Valley landings are not crushed by height / wrong_side / ideal / size order
+- Valley growing for big fruits is limited to when the valley has a same type, or held/next are both one smaller than the walls. Other gap filling gets the usual penalties (`GAP_JUNK` stays retired)
 - Not included: push-in merges, restoring pushes, cascade gap opening, forced moves one tier up
 - Do not add UTs for concrete procedures. When something breaks, look at accident prevention or the observation side
 

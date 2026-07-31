@@ -2,7 +2,8 @@
 
 It has no concrete procedures (push-ins, restoring pushes, cascade gap opening and the like).
 It only looks at merging, dangerous height, burying, light size order and rolling accident prevention.
-Growing into valleys of big fruits is judged by the result (merges, danger) rather than crushed by the gap junk penalty.
+Growing into valleys of big fruits is limited to when the valley has a same type, or held and next are both
+one smaller than the walls (other gap filling gets the usual penalties).
 Moves are scored as eval = score (the real game's merge points) - penalties (penalties for accidents and bad moves).
 """
 
@@ -119,6 +120,8 @@ def drop_scores(
     fruits: list[Fruit] | tuple[Fruit, ...],
     drop_type: int,
     x: float,
+    *,
+    next_type: int | None = None,
 ) -> tuple[float, float, float]:
     """(score, penalties, eval) of one move dropped at column x. For sim / training.
 
@@ -128,7 +131,11 @@ def drop_scores(
     held_r = fruit_radius(drop_type)
     before = list(fruits)
     _, score, penalties = _evaluate_drop(
-        before, drop_type, clamp_drop_x(x, drop_type), held_r
+        before,
+        drop_type,
+        clamp_drop_x(x, drop_type),
+        held_r,
+        next_type=next_type,
     )
     penalties -= _board_penalties(before, sign=_order_sign(before))
     return score, penalties, score - penalties
@@ -138,7 +145,9 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
     """Score the board after dropping held + the hypothetical best move of next."""
     assert obs.held_type is not None
     before = list(obs.fruits)
-    after, score, penalties = _evaluate_drop(before, obs.held_type, x, held_r)
+    after, score, penalties = _evaluate_drop(
+        before, obs.held_type, x, held_r, next_type=obs.next_type
+    )
     value = score - penalties
     if obs.next_type is not None:
         value += NEXT_DISCOUNT * _best_next_score(after, obs.next_type)
@@ -151,6 +160,7 @@ def _best_next_score(fruits: list[Fruit], next_type: int) -> float:
     best = -math.inf
     for nx in _candidates(fruits, next_type, next_r):
         nx = clamp_drop_x(nx, next_type)
+        # The next after that is unknown. Only same-type fruit in a valley counts for the growing exemption.
         _, score, penalties = _evaluate_drop(fruits, next_type, nx, next_r)
         if score - penalties > best:
             best = score - penalties
@@ -162,6 +172,8 @@ def _evaluate_drop(
     drop_type: int,
     x: float,
     held_r: float,
+    *,
+    next_type: int | None = None,
 ) -> tuple[list[Fruit], float, float]:
     """Board, real-game score and penalties after one drop."""
     before = list(fruits)
@@ -171,11 +183,11 @@ def _evaluate_drop(
 
     score = merge_score(merge_types)
     penalties = _board_penalties(after, sign=sign)
-    # Valleys of big fruits are growing slots. Not crushed by height, wrong_side or ideal.
-    in_valley = _valley_flanks(before, land_x, drop_type) is not None
+    # Only valley landings meeting the conditions are growing slots. Not crushed by height, wrong_side or ideal.
+    growing = _valley_grow_ok(before, land_x, drop_type, next_type)
     if merges == 0:
         # A merged fruit does not remain, so the stacking penalty applies only to moves that stay on the board.
-        if not in_valley:
+        if not growing:
             floor = NORMALIZED_HEIGHT - held_r
             penalties += max(0.0, floor - land_y) * LAND_HEIGHT_WEIGHT
             penalties += _wrong_side_roll_penalty(
@@ -299,6 +311,32 @@ def _valley_flanks(
     if sep > touch + held_r * 2.8 + MERGE_SLACK:
         return None
     return left_big, right_big
+
+
+def _valley_grow_ok(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    drop_type: int,
+    next_type: int | None,
+) -> bool:
+    """Whether the growing exemption for a valley may apply.
+
+    - there is a same type between the valley walls (cleanup, waiting to merge)
+    - or held and next are both one smaller than the left and right walls
+    """
+    flanks = _valley_flanks(fruits, land_x, drop_type)
+    if flanks is None:
+        return False
+    left, right = flanks
+    for fruit in fruits:
+        if fruit.type == drop_type and left.x < fruit.x < right.x:
+            return True
+    wall = min(left.type, right.type)
+    return (
+        next_type is not None
+        and drop_type == next_type
+        and drop_type == wall - 1
+    )
 
 
 def _is_nestled(
