@@ -36,10 +36,15 @@ WALL_ELASTICITY = 0.08
 SPACE_DAMPING = 1.0
 # 合成判定の重なり余裕 (半径和に対する比率)。
 MERGE_SLOP = 1.02
-# 横ずれがこの倍率×小半径以上のときだけ速度を引き継ぐ (真上連鎖の暴発を避ける)。
-MERGE_VEL_MIN_HORIZ = 0.7
-# 横衝突合成で引き継ぐ水平速度倍率。
-MERGE_VEL_SCALE = 0.90
+# held 合体: 横ずれ比がこれ未満なら真上扱い (横ひっぱなし)。
+MERGE_SIDE_MIN = 0.08
+# held 合体のひっぱり: 中点までの横移動量 (px) あたりの速度。
+# わずかなずれは弱く、ギリギリ側面 (移動量大) ほど強い。
+MERGE_TRAVEL_GAIN = 14.0
+# 速さの補助 (小さめ)。ずれ^2 でギリギリ側だけ少し足す。
+MERGE_SPEED_GAIN = 0.06
+# フルーツ同士の collision_type。壁は 0 のまま。
+FRUIT_COLLISION_TYPE = 1
 # 質量 = 密度 * 面積。大きいほど押しにくい。
 DENSITY = 0.07
 
@@ -49,6 +54,8 @@ class _BodyFruit:
     body: pymunk.Body
     shape: pymunk.Circle
     fruit_type: int
+    # このドロップで投下した実。held 合体のひっぱ向きに使う。
+    is_held_drop: bool = False
 
 
 def land_y(fruits: tuple[Fruit, ...] | list[Fruit], x: float, held_r: float) -> float:
@@ -77,7 +84,8 @@ def iter_simulate_drop(
     r = fruit_radius(fruit_type)
     x = max(r, min(NORMALIZED_WIDTH - r, x))
     # 盤上端より少し上から落とす。
-    _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+    dropped = _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+    dropped.is_held_drop = True
 
     merges = 0
     merge_types: list[int] = []
@@ -117,7 +125,8 @@ def simulate_drop(
     r = fruit_radius(fruit_type)
     x = max(r, min(NORMALIZED_WIDTH - r, x))
     # 盤上端より少し上から落とす。
-    _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+    dropped = _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+    dropped.is_held_drop = True
 
     merges = 0
     merge_types: list[int] = []
@@ -179,6 +188,17 @@ def preview_land(
     return landed_xy(fruits, after, fruit_type, x0, held_r, merges)
 
 
+def _ignore_same_type(
+    arbiter: pymunk.Arbiter, _space: pymunk.Space, _data: object
+) -> None:
+    """同種は物理衝突させず、合成ループだけが扱う (先に弾かれるのを防ぐ)。"""
+    a, b = arbiter.shapes
+    ta = getattr(a, "fruit_type", None)
+    tb = getattr(b, "fruit_type", None)
+    if ta is not None and ta == tb:
+        arbiter.process_collision = False
+
+
 def _build_space(
     fruits: list[Fruit] | tuple[Fruit, ...],
 ) -> tuple[pymunk.Space, list[_BodyFruit]]:
@@ -186,6 +206,12 @@ def _build_space(
     # y 下向き (正規化盤面と同じ)。
     space.gravity = (0.0, GRAVITY)
     space.damping = SPACE_DAMPING
+    # 同種フルーツ同士の衝突応答を無効化 (pymunk 7: process_collision)。
+    space.on_collision(
+        collision_type_a=FRUIT_COLLISION_TYPE,
+        collision_type_b=FRUIT_COLLISION_TYPE,
+        begin=_ignore_same_type,
+    )
 
     static = space.static_body
     floor = pymunk.Segment(
@@ -229,7 +255,8 @@ def _add_fruit(
     shape = pymunk.Circle(body, r)
     shape.friction = FRICTION
     shape.elasticity = ELASTICITY
-    shape.collision_type = 1
+    shape.collision_type = FRUIT_COLLISION_TYPE
+    shape.fruit_type = fruit_type
     space.add(body, shape)
     item = _BodyFruit(body=body, shape=shape, fruit_type=fruit_type)
     bodies.append(item)
@@ -244,6 +271,13 @@ def _remove_fruit(
     if item.body in space.bodies:
         space.remove(item.body)
     bodies.remove(item)
+
+
+def _held_in_merge(a: _BodyFruit, b: _BodyFruit) -> _BodyFruit | None:
+    """held が絡む合体ならその held。盤面どうしは None。"""
+    if a.is_held_drop != b.is_held_drop:
+        return a if a.is_held_drop else b
+    return None
 
 
 def _merge_pair(
@@ -264,17 +298,15 @@ def _merge_pair(
     pb = b.body.position
     va = a.body.velocity
     vb = b.body.velocity
-    ra = a.shape.radius
-    rb = b.shape.radius
-    horiz = abs(pa.x - pb.x)
-
     # 質量や運動エネルギーで寄せず、接触した 2 中心の幾何中点。
     mid_x = 0.5 * (pa.x + pb.x)
     mid_y = 0.5 * (pa.y + pb.y)
-
+    parent_m = ma + mb
+    # 運動量は相殺 (平均)。held 合体だけ後で横ひっぱを足す。
     px = ma * va.x + mb * vb.x
     py = ma * va.y + mb * vb.y
     ang = ma * a.body.angular_velocity + mb * b.body.angular_velocity
+    held = _held_in_merge(a, b)
 
     _remove_fruit(space, bodies, a)
     _remove_fruit(space, bodies, b)
@@ -282,11 +314,26 @@ def _merge_pair(
         return
 
     new = _add_fruit(space, bodies, new_type, mid_x, mid_y)
-    new_m = new.body.mass
-    if horiz > min(ra, rb) * MERGE_VEL_MIN_HORIZ:
-        # 横衝突は運動量を残して転がす。縦は隣へ跳ねやすいので抑える。
-        new.body.velocity = (px / new_m * MERGE_VEL_SCALE, py / new_m * 0.15)
-        new.body.angular_velocity = ang / new_m * MERGE_VEL_SCALE
+    vx = px / parent_m
+    vy = py / parent_m
+    aw = ang / parent_m
+
+    if held is not None:
+        other = b if held is a else a
+        horiz = abs(held.body.position.x - other.body.position.x)
+        touch = max(held.shape.radius + other.shape.radius, 1e-6)
+        side_frac = horiz / touch
+        if side_frac >= MERGE_SIDE_MIN:
+            # held 側へ。勢いの主因は中点までの移動量 (ギリギリほど大きい)。
+            side = 1.0 if held.body.position.x >= other.body.position.x else -1.0
+            travel = horiz * 0.5
+            speed = math.hypot(held.body.velocity.x, held.body.velocity.y)
+            pull = travel * MERGE_TRAVEL_GAIN + speed * MERGE_SPEED_GAIN * side_frac * side_frac
+            vx += side * pull
+            aw += side * pull * 0.02
+
+    new.body.velocity = (vx, vy)
+    new.body.angular_velocity = aw
 
 
 def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] | None:

@@ -321,9 +321,9 @@ def test_merges_when_three_same_type_waiting() -> None:
     x = choose_x(obs)
     after, merges, _types = simulate_drop(fruits, 0, x)
     assert merges >= 1
-    # 3 + 1 → 1 合成で cherry は 2 以下、straw が 1。
+    # 3 + 1 で合成が進み、cherry は減って上位の実が残る。
     assert sum(1 for f in after if f.type == 0) <= 2
-    assert any(f.type == 1 for f in after)
+    assert any(f.type >= 1 for f in after)
     # 端に捨てて 4 個目にする手より、合成する手が明らかに良い。
     far = 40.0
     assert _score(obs, x, cherry_r) > _score(obs, far, cherry_r) + 20.0
