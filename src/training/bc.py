@@ -93,8 +93,25 @@ def run_rl_episode(
     max_steps: int,
     gamma: float,
     lr: float,
+    entropy_coef: float = 0.0,
 ) -> tuple[float, int]:
-    """報酬は本家点 (score) のみ。密な減点は報酬にしない。"""
+    """1 エピソード REINFORCE (互換用)。run_rl_batch を推奨。"""
+    total, steps, obs_list, actions, rewards = _rollout_rl_episode(
+        env, policy, max_steps=max_steps
+    )
+    returns = _discounted_returns(rewards, gamma)
+    baseline = statistics.fmean(returns) if returns else 0.0
+    advantages = [r - baseline for r in returns]
+    policy.update(obs_list, actions, advantages, lr=lr, entropy_coef=entropy_coef)
+    return total, steps
+
+
+def _collect_rl_episode(
+    env: SimEnv,
+    policy: LinearPolicy,
+    *,
+    max_steps: int,
+) -> tuple[list[np.ndarray], list[int], list[float]]:
     obs = env.reset()
     obs_list: list[np.ndarray] = []
     actions: list[int] = []
@@ -109,14 +126,86 @@ def run_rl_episode(
         obs = result.observation
         if result.done:
             break
+    return obs_list, actions, rewards
 
+
+def _discounted_returns(rewards: list[float], gamma: float) -> list[float]:
     returns: list[float] = [0.0] * len(rewards)
     running = 0.0
     for i in range(len(rewards) - 1, -1, -1):
         running = rewards[i] + gamma * running
         returns[i] = running
+    return returns
 
-    baseline = statistics.fmean(returns) if returns else 0.0
-    advantages = [r - baseline for r in returns]
-    policy.update(obs_list, actions, advantages, lr=lr)
-    return float(sum(rewards)), len(rewards)
+
+def _normalize_advantages(values: list[float]) -> list[float]:
+    if not values:
+        return []
+    mean = statistics.fmean(values)
+    if len(values) == 1:
+        return [0.0]
+    std = statistics.pstdev(values)
+    if std < 1e-8:
+        return [0.0 for _ in values]
+    return [(v - mean) / std for v in values]
+
+
+def _rollout_rl_episode(
+    env: SimEnv,
+    policy: LinearPolicy,
+    *,
+    max_steps: int,
+) -> tuple[float, int, list[np.ndarray], list[int], list[float]]:
+    obs_list, actions, rewards = _collect_rl_episode(env, policy, max_steps=max_steps)
+    return float(sum(rewards)), len(rewards), obs_list, actions, rewards
+
+
+def run_rl_batch(
+    policy: LinearPolicy,
+    *,
+    seeds: list[int],
+    max_steps: int,
+    gamma: float,
+    lr: float,
+    entropy_coef: float = 0.0,
+) -> tuple[float, float, float]:
+    """複数エピソードをまとめて REINFORCE 更新 (分散低減)。
+
+    各 step の discounted return をバッチ全体で標準化して advantage にする。
+    """
+    step_chunks: list[tuple[list[np.ndarray], list[int], list[float]]] = []
+    ep_returns: list[float] = []
+    ep_steps: list[int] = []
+    flat_returns: list[float] = []
+
+    for seed in seeds:
+        env = SimEnv(seed=seed)
+        total, steps, obs_list, actions, rewards = _rollout_rl_episode(
+            env, policy, max_steps=max_steps
+        )
+        ep_returns.append(total)
+        ep_steps.append(steps)
+        returns = _discounted_returns(rewards, gamma)
+        step_chunks.append((obs_list, actions, returns))
+        flat_returns.extend(returns)
+
+    norm_returns = _normalize_advantages(flat_returns)
+    batch_obs: list[np.ndarray] = []
+    batch_actions: list[int] = []
+    batch_adv: list[float] = []
+    idx = 0
+    for obs_list, actions, returns in step_chunks:
+        n = len(returns)
+        batch_obs.extend(obs_list)
+        batch_actions.extend(actions)
+        batch_adv.extend(norm_returns[idx : idx + n])
+        idx += n
+
+    loss = policy.update(
+        batch_obs,
+        batch_actions,
+        batch_adv,
+        lr=lr,
+        entropy_coef=entropy_coef,
+    )
+    return statistics.fmean(ep_returns), statistics.fmean(ep_steps), loss

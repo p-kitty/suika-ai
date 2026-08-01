@@ -98,6 +98,7 @@ class LinearPolicy:
         batch_advantages: list[float],
         *,
         lr: float = 0.01,
+        entropy_coef: float = 0.0,
     ) -> float:
         """REINFORCE / BC 共通。平均損失 (負の加重対数尤度) を返す。"""
         if not batch_obs:
@@ -118,6 +119,11 @@ class LinearPolicy:
             dlog = -probs
             dlog[action] += 1.0
             dlogits = adv * dlog
+            if entropy_coef > 0.0:
+                log_p = np.log(probs + 1e-12)
+                entropy = -float(np.sum(probs * log_p))
+                loss -= entropy_coef * entropy
+                dlogits += entropy_coef * probs * (log_p + entropy)
 
             gw2 += np.outer(dlogits, h)
             gb2 += dlogits
