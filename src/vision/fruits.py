@@ -98,7 +98,8 @@ def fruit_mask(board: np.ndarray) -> np.ndarray:
 
     # 枠・影・枠の外の背景はいずれも彩度が高く色では切れないので、
     # 盤面の縁は色を見ずにまとめて落とす。
-    mask[_border_band(mask.shape)] = 0
+    height, width = (int(v) for v in mask.shape[:2])
+    mask[_border_band((height, width))] = 0
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)

@@ -155,9 +155,8 @@ def _without_overhang(mask: np.ndarray) -> np.ndarray:
     if not np.any(clear):
         return severed
 
-    cleaned = severed.copy()
-    cleaned[clear[labels]] = 0
-    return cleaned
+    label_ids = np.asarray(labels, dtype=np.intp)
+    return np.where(clear[label_ids], 0, severed).astype(severed.dtype)
 
 
 def _height_error(y: float) -> float:

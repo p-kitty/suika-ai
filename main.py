@@ -158,6 +158,8 @@ def main() -> None:
         )
 
     def show(now: float) -> None:
+        if frame is None:
+            return
         render_preview(
             frame,
             board=env.board,
@@ -235,6 +237,8 @@ def main() -> None:
                     aim_x = target
                     message = f"aiming x={target:.0f}"
                     message_until = time.monotonic() + MESSAGE_SECONDS
+                    if frame is None:
+                        return
                     frame, obs, board = _refresh(env, frame, obs)
                     show(time.monotonic())
 

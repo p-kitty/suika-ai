@@ -142,9 +142,13 @@ def test_held_fruit(name: str) -> None:
     held = result.held_fruit
     expected_name, expected_x = EXPECTED_HELD[name]
 
-    assert held is not None and held.fruit is not None and held.x is not None, (
-        f"{name}: 落下待ちフルーツを取り逃がした"
-    )
+    assert (
+        held is not None
+        and held.fruit is not None
+        and held.x is not None
+        and held.y is not None
+        and held.radius is not None
+    ), f"{name}: 落下待ちフルーツを取り逃がした"
 
     detail = f"{held.fruit.name} x={held.x:.0f} r={held.radius:.1f} 上辺から {-held.y:.0f}"
     assert held.fruit.name == expected_name, f"{name}: 誤分類 {expected_name} -> {detail}"

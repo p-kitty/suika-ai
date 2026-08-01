@@ -1,0 +1,7 @@
+[tool.basedpyright]
+include = ["src", "scripts", "main.py", "tests"]
+exclude = ["**/__pycache__", ".venv", "venv"]
+typeCheckingMode = "basic"
+pythonVersion = "3.10"
+# OpenCV / numpy の stub ノイズより、注釈つき API の破壊を優先して拾う。
+reportMissingImports = true
