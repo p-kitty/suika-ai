@@ -69,9 +69,9 @@ def iter_simulate_drop(
     fruit_type: int,
     x: float,
 ) -> Iterator[tuple[list[Fruit], int, list[int]]]:
-    """Advance the fall physics one step at a time. Yields (board, merges, merge_types) each time.
+    """Advance the fall physics one step at a time. For view_sim animation.
 
-    The board is not clamped for animation (the fall on screen is visible too).
+    The board is not clamped. Not called from choose_x (it exports every step).
     """
     space, bodies = _build_space(fruits)
     r = fruit_radius(fruit_type)
@@ -109,13 +109,39 @@ def simulate_drop(
     fruit_type: int,
     x: float,
 ) -> tuple[list[Fruit], int, list[int]]:
-    """Board after dropping at column x, merge count and the list of source types merged."""
-    after: list[Fruit] = []
+    """Board after dropping at column x, merge count and the list of source types merged.
+
+    The policy hot path. Only exports the final board (does not use the animation iter).
+    """
+    space, bodies = _build_space(fruits)
+    r = fruit_radius(fruit_type)
+    x = max(r, min(NORMALIZED_WIDTH - r, x))
+    # Drop from slightly above the top of the board.
+    _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+
     merges = 0
     merge_types: list[int] = []
-    for after, merges, merge_types in iter_simulate_drop(fruits, fruit_type, x):
-        pass
-    return _export_fruits_clamped(after), merges, merge_types
+    quiet = 0
+
+    for _ in range(MAX_STEPS):
+        # Merge touching same types (at most 1 pair per step).
+        paired = _find_merge_pair(bodies)
+        if paired is not None:
+            _merge_pair(space, bodies, paired[0], paired[1], merge_types)
+            merges += 1
+            quiet = 0
+            space.step(DT)
+            continue
+
+        space.step(DT)
+        if _all_quiet(bodies):
+            quiet += 1
+            if quiet >= SLEEP_FRAMES:
+                break
+        else:
+            quiet = 0
+
+    return _export_fruits(bodies), merges, merge_types
 
 
 def landed_xy(
