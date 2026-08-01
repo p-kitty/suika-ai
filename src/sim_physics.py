@@ -34,8 +34,6 @@ WALL_FRICTION = 0.10
 WALL_ELASTICITY = 0.08
 # 空間減衰 (1=なし)。
 SPACE_DAMPING = 1.0
-# 合成判定の重なり余裕 (半径和に対する比率)。
-MERGE_SLOP = 1.02
 # held 合体: 横ずれ比がこれ未満なら真上扱い (横ひっぱなし)。
 MERGE_SIDE_MIN = 0.08
 # held 合体のひっぱり: 中点までの横移動量 (px) あたりの速度。
@@ -349,8 +347,7 @@ def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] 
                 a.body.position.x - b.body.position.x,
                 a.body.position.y - b.body.position.y,
             )
-            # スイカ同士も合成する (結果は出さず消える)。
-            if dist <= (ra + rb) * MERGE_SLOP:
+            if dist <= ra + rb:
                 return a, b
     return None
 
