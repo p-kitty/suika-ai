@@ -45,8 +45,8 @@ MERGE_TRAVEL_GAIN = 14.0
 MERGE_SPEED_GAIN = 0.06
 # フルーツ同士の collision_type。壁は 0 のまま。
 FRUIT_COLLISION_TYPE = 1
-# 質量 = 密度 * 面積。大きいほど押しにくい。
-DENSITY = 0.07
+# 本家同様、全サイズ同じ質量 (大きさで重くしない)。
+FRUIT_MASS = 1.0
 
 
 @dataclass
@@ -245,9 +245,8 @@ def _add_fruit(
     wake: bool = True,
 ) -> _BodyFruit:
     r = fruit_radius(fruit_type)
-    mass = max(0.2, DENSITY * math.pi * r * r)
-    moment = pymunk.moment_for_circle(mass, 0.0, r)
-    body = pymunk.Body(mass, moment)
+    moment = pymunk.moment_for_circle(FRUIT_MASS, 0.0, r)
+    body = pymunk.Body(FRUIT_MASS, moment)
     body.position = (x, y)
     if not wake:
         body.velocity = (0.0, 0.0)
