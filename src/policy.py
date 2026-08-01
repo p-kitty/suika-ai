@@ -21,47 +21,11 @@ from .vision.colors import MAX_FRUIT_TYPE, SPAWN_MAX_TYPE
 from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from .vision.state import Fruit
 
-# 候補列の刻み (正規化座標)。
-CANDIDATE_STEP = 12.0
-# next 先読みは、即時 eval 上位だけにかける (物理が重いので)。
-NEXT_BEAM = 3
-# next 候補は粗い刻み (held は CANDIDATE_STEP のまま)。
-NEXT_CANDIDATE_STEP = 32.0
-# 合成できそうな接触の許容 (中心距離と半径和の差)。候補評価用。
+# --- 複数箇所で共有するチューニング ---
+# 合成できそうな接触の許容 (中心距離と半径和の差)。
 MERGE_SLACK = 18.0
-# 埋め込み判定などで使う「中央寄り」の |dx| / 下側 radius。
-MERGE_SUPPORT_DX_FRAC = 0.5
-# この y より上に頭が出ると危険 (盤面上辺寄り)。
-DANGER_Y = 90.0
-# 平坦さ評価用の列幅。
-FLAT_BIN = 40.0
 # next 手の割引。
 NEXT_DISCOUNT = 0.55
-# 減点は本家点 (1〜65) と釣り合うスケールにする。加点は本家点だけ。
-# 異種のほぼ中央を狙う減点 (転がって床に落ちても)。実機では崩れやすい。
-FOREIGN_AIM_PENALTY = 10.0
-# 同種が 3 個以上あるときの超過 1 個あたり減点。2 個までは待ち OK。
-EXCESS_SAME_WEIGHT = 20.0
-# 大小逆転ペアの type 差あたり減点。
-SIZE_ORDER_PAIR_WEIGHT = 1.5
-# ideal 列からの平均距離あたり減点 (弱め。レイアウト強制にしない)。
-SIZE_ORDER_IDEAL_WEIGHT = 0.004
-# ideal 列への弱い引力。
-IDEAL_PULL = 0.015
-# 床から積み上げた高さあたりの減点 (積み上げを止める最低限)。
-LAND_HEIGHT_WEIGHT = 0.05
-DANGER_CROWN_WEIGHT = 0.5
-BURY_WEIGHT = 20.0
-# 同種ペア待ちを、より大きい異種で塞ぐ手の減点 (type 差あたり)。
-BURY_BLOCK_WEIGHT = 14.0
-# 直上でなく肩から塞いだときの割合。
-BURY_SHOULDER_SCALE = 0.5
-VARIANCE_WEIGHT = 0.08
-VARIANCE_DANGER_SCALE = 0.15
-WRONG_SIDE_BASE = 8.0
-WRONG_SIDE_TYPE_WEIGHT = 2.0
-COAST_DRIFT_WEIGHT = 0.08
-COAST_FLOOR_BONUS = 8.0
 
 
 def choose_x(obs: Observation) -> float:
@@ -86,11 +50,14 @@ def choose_x(obs: Observation) -> float:
     if obs.next_type is None:
         return ranked[0][1]
 
+    # next 先読みは即時 eval 上位だけ (物理が重い)。候補は粗い刻み。
+    next_beam = 3
+    next_candidate_step = 32.0
     best_x = ranked[0][1]
     best_score = -math.inf
-    for immediate, x, after in ranked[:NEXT_BEAM]:
+    for immediate, x, after in ranked[:next_beam]:
         value = immediate + NEXT_DISCOUNT * _best_next_score(
-            after, obs.next_type, step=NEXT_CANDIDATE_STEP
+            after, obs.next_type, step=next_candidate_step
         )
         if value > best_score:
             best_score = value
@@ -107,10 +74,11 @@ def _candidates(
     step: float | None = None,
 ) -> list[float]:
     """均等刻みに、同種・近い実の上／横と ideal_x を足す。"""
+    candidate_step = 12.0
     sign = _order_sign(fruits)
     lo = held_r
     hi = NORMALIZED_WIDTH - held_r
-    grid = CANDIDATE_STEP if step is None else step
+    grid = candidate_step if step is None else step
     xs = {round(x / grid) * grid for x in _frange(lo, hi, grid)}
     xs.add(_ideal_x(drop_type, sign))
 
@@ -206,6 +174,9 @@ def _evaluate_drop(
     after, merges, merge_types = simulate_drop(before, drop_type, x)
     land_x, land_y = landed_xy(before, after, drop_type, x, held_r, merges)
 
+    land_height_weight = 0.05
+    ideal_pull = 0.015
+
     score = merge_score(merge_types)
     penalties = _board_penalties(after, sign=sign)
     # 条件を満たす谷着地だけ育成枠。高さ・wrong_side・ideal で潰さない。
@@ -214,11 +185,11 @@ def _evaluate_drop(
         # 合成した実は残らないので、積み上げ減点は盤に残る手にだけかける。
         if not growing:
             floor = NORMALIZED_HEIGHT - held_r
-            penalties += max(0.0, floor - land_y) * LAND_HEIGHT_WEIGHT
+            penalties += max(0.0, floor - land_y) * land_height_weight
             penalties += _wrong_side_roll_penalty(
                 before, land_x, land_y, drop_type, held_r, sign
             )
-            penalties += abs(x - _ideal_x(drop_type, sign)) * IDEAL_PULL
+            penalties += abs(x - _ideal_x(drop_type, sign)) * ideal_pull
         penalties += _foreign_aim_penalty(before, x, drop_type)
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
     penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
@@ -227,30 +198,37 @@ def _evaluate_drop(
 
 def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
     """落としたあとの盤面減点（危険・埋め込み・同種過多・サイズ順・凸凹）。"""
+    danger_y = 90.0
+    danger_crown_weight = 0.5
+    bury_weight = 20.0
+    variance_weight = 0.08
+    variance_danger_scale = 0.15
+
     penalty = 0.0
     crown = _top_crown(fruits)
-    if crown < DANGER_Y:
-        penalty += (DANGER_Y - crown) * DANGER_CROWN_WEIGHT
+    if crown < danger_y:
+        penalty += (danger_y - crown) * danger_crown_weight
 
-    penalty += BURY_WEIGHT * _bury_penalty(fruits)
+    penalty += bury_weight * _bury_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     penalty += _size_order_penalty(fruits, sign)
     variance = _height_variance(fruits)
-    if crown < DANGER_Y:
-        variance *= VARIANCE_DANGER_SCALE
-    penalty += VARIANCE_WEIGHT * variance
+    if crown < danger_y:
+        variance *= variance_danger_scale
+    penalty += variance_weight * variance
     return penalty
 
 
 def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
     """同種が 3 個以上ある超過分を減点。2 個までは合成待ちとして許容。"""
+    excess_same_weight = 20.0
     counts: dict[int, int] = {}
     for fruit in fruits:
         counts[fruit.type] = counts.get(fruit.type, 0) + 1
     penalty = 0.0
     for count in counts.values():
         if count >= 3:
-            penalty += (count - 2) * EXCESS_SAME_WEIGHT
+            penalty += (count - 2) * excess_same_weight
     return penalty
 
 
@@ -260,11 +238,12 @@ def _foreign_aim_penalty(
     drop_type: int,
 ) -> float:
     """異種のほぼ中央を狙う減点。転がっても実機では不安定。"""
+    foreign_aim_penalty = 10.0
     for fruit in fruits:
         if fruit.type == drop_type:
             continue
         if abs(drop_x - fruit.x) <= fruit.radius * 0.3:
-            return FOREIGN_AIM_PENALTY
+            return foreign_aim_penalty
     return 0.0
 
 
@@ -277,6 +256,8 @@ def _wrong_side_roll_penalty(
     sign: int,
 ) -> float:
     """転がって大きい実の大側床に落ちたときの減点。"""
+    wrong_side_base = 8.0
+    wrong_side_type_weight = 2.0
     floor = NORMALIZED_HEIGHT - held_r
     if land_y < floor - 4.0:
         return 0.0
@@ -289,7 +270,7 @@ def _wrong_side_roll_penalty(
             continue
         if abs(land_x - other.x) > other.radius + held_r + MERGE_SLACK * 2:
             continue
-        penalty += WRONG_SIDE_BASE + WRONG_SIDE_TYPE_WEIGHT * (other.type - drop_type)
+        penalty += wrong_side_base + wrong_side_type_weight * (other.type - drop_type)
     return penalty
 
 
@@ -301,13 +282,15 @@ def _coast_away_penalty(
     held_r: float,
 ) -> float:
     """接触で弾かれて落下列から大きく離れた着地を減点する。"""
+    coast_drift_weight = 0.08
+    coast_floor_bonus = 8.0
     floor = NORMALIZED_HEIGHT - held_r
     drifted = abs(land_x - drop_x)
     if drifted < held_r * 2:
         return 0.0
-    penalty = drifted * COAST_DRIFT_WEIGHT
+    penalty = drifted * coast_drift_weight
     if land_y >= floor - 4.0 and drifted > NORMALIZED_WIDTH * 0.25:
-        penalty += COAST_FLOOR_BONUS
+        penalty += coast_floor_bonus
     return penalty
 
 
@@ -417,6 +400,8 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
     """
     if not fruits:
         return 0.0
+    size_order_pair_weight = 1.5
+    size_order_ideal_weight = 0.004
     penalty = 0.0
     open_fruits = [f for f in fruits if not _is_nestled(f, fruits)]
     for i, a in enumerate(fruits):
@@ -427,14 +412,14 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
                 continue
             left, right = (a, b) if a.x <= b.x else (b, a)
             if sign > 0 and left.type < right.type:
-                penalty += (right.type - left.type) * SIZE_ORDER_PAIR_WEIGHT
+                penalty += (right.type - left.type) * size_order_pair_weight
             elif sign < 0 and left.type > right.type:
-                penalty += (left.type - right.type) * SIZE_ORDER_PAIR_WEIGHT
+                penalty += (left.type - right.type) * size_order_pair_weight
     if open_fruits:
         penalty += (
             sum(abs(f.x - _ideal_x(f.type, sign)) for f in open_fruits)
             / len(open_fruits)
-            * SIZE_ORDER_IDEAL_WEIGHT
+            * size_order_ideal_weight
         )
     return penalty
 
@@ -477,6 +462,8 @@ def _bury_block_penalty(
     held_r: float,
 ) -> float:
     """同種ペア待ちの実を、より大きい異種で直上・肩から塞ぐ減点。"""
+    bury_block_weight = 14.0
+    bury_shoulder_scale = 0.5
     penalty = 0.0
     for under in fruits:
         if under.type >= drop_type:
@@ -490,16 +477,17 @@ def _bury_block_penalty(
         over_top = (land_y + held_r) - (under.y - under.radius)
         if over_top > under.radius:
             continue
-        scale = 1.0 if dx <= under.radius * 0.5 else BURY_SHOULDER_SCALE
-        penalty += scale * BURY_BLOCK_WEIGHT * (drop_type - under.type)
+        scale = 1.0 if dx <= under.radius * 0.5 else bury_shoulder_scale
+        penalty += scale * bury_block_weight * (drop_type - under.type)
     return penalty
 
 
 def _height_variance(fruits: list[Fruit]) -> float:
     """列ビンごとの頭頂のばらつき。空なら 0。"""
+    flat_bin = 40.0
     bins: dict[int, float] = {}
     for fruit in fruits:
-        key = int(fruit.x // FLAT_BIN)
+        key = int(fruit.x // flat_bin)
         top = fruit.y - fruit.radius
         bins[key] = min(bins.get(key, float(NORMALIZED_HEIGHT)), top)
     if len(bins) < 2:
