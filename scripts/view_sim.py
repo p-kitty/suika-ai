@@ -35,7 +35,7 @@ from src.draw import put_text
 from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
 from src.sim_env import SimEnv
-from src.sim_physics import land_y, simulate_drop
+from src.sim_physics import land_y
 from src.vision.classify import fruit_radius
 from src.vision.colors import FRUIT_NAMES
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
@@ -156,8 +156,7 @@ def main() -> None:
         if held is not None:
             held_r = fruit_radius(held)
             land = (aim, land_y(obs.fruits, aim, held_r))
-            after, merges, _types = simulate_drop(obs.fruits, held, aim)
-            score, penalties, _eval = drop_scores(
+            score, penalties, _eval, after, merges = drop_scores(
                 obs.fruits, held, aim, next_type=obs.next_type
             )
 

@@ -142,9 +142,13 @@ def test_held_fruit(name: str) -> None:
     held = result.held_fruit
     expected_name, expected_x = EXPECTED_HELD[name]
 
-    assert held is not None and held.fruit is not None and held.x is not None, (
-        f"{name}: missed the waiting fruit"
-    )
+    assert (
+        held is not None
+        and held.fruit is not None
+        and held.x is not None
+        and held.y is not None
+        and held.radius is not None
+    ), f"{name}: missed the waiting fruit"
 
     detail = f"{held.fruit.name} x={held.x:.0f} r={held.radius:.1f} above the top edge {-held.y:.0f}"
     assert held.fruit.name == expected_name, f"{name}: misclassified {expected_name} -> {detail}"

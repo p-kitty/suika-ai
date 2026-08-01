@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from src import control
+from src.observe import Observation
 from src.vision.normalized import NORMALIZED_WIDTH
 
 
@@ -32,11 +31,14 @@ class FakeWorld:
         self.clicks = 0
         self.clicked_at: float | None = None
 
-    def read(self):
-        obs = SimpleNamespace(
-            held_x=None if self.blocked else self.held_x,
-            blocked=self.blocked,
+    def read(self) -> tuple[Observation, None]:
+        obs = Observation(
             ready=not self.blocked,
+            blocked=self.blocked,
+            fruits=(),
+            held_type=None,
+            held_x=None if self.blocked else self.held_x,
+            next_type=None,
         )
         return obs, None
 

@@ -98,7 +98,8 @@ def fruit_mask(board: np.ndarray) -> np.ndarray:
 
     # The frame, shadows and the background outside the frame are all highly saturated and cannot be cut by color,
     # so the board's edges are dropped wholesale without looking at color.
-    mask[_border_band(mask.shape)] = 0
+    height, width = (int(v) for v in mask.shape[:2])
+    mask[_border_band((height, width))] = 0
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)

@@ -95,7 +95,8 @@ def sample_hsv(
     if len(pixels) == 0:
         return None
 
-    return np.median(pixels, axis=0)
+    values = np.asarray(pixels, dtype=np.float64)
+    return np.asarray(np.median(values, axis=0))
 
 
 def _score(radius_ratio: float, center: float) -> float:

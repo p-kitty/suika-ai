@@ -19,4 +19,5 @@ def load() -> Config:
         _cache = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         _cache_mtime = mtime
 
+    assert _cache is not None
     return _cache

@@ -17,7 +17,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-For development (pytest):
+For development (pytest / basedpyright):
 
 ```powershell
 pip install -r requirements-dev.txt
@@ -59,6 +59,7 @@ python scripts/check_detection.py
 
 ```powershell
 pytest
+basedpyright
 ```
 
 ## Layout

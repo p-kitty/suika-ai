@@ -1,0 +1,7 @@
+[tool.basedpyright]
+include = ["src", "scripts", "main.py", "tests"]
+exclude = ["**/__pycache__", ".venv", "venv"]
+typeCheckingMode = "basic"
+pythonVersion = "3.10"
+# Prefer catching breakage of annotated APIs over stub noise from OpenCV / numpy.
+reportMissingImports = true

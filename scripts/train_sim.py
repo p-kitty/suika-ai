@@ -180,7 +180,7 @@ def run_rl(policy: LinearPolicy, cfg: RlConfig) -> None:
         flush=True,
     )
     window: list[float] = []
-    window_steps: list[int] = []
+    window_steps: list[float] = []
     rl_lr = cfg.lr
     entropy = cfg.entropy_coef
     batch_num = 0
