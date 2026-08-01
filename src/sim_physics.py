@@ -386,21 +386,3 @@ def _export_fruits(bodies: list[_BodyFruit], *, clamp: bool = True) -> list[Frui
         )
     out.sort(key=lambda f: (f.y, f.x))
     return out
-
-
-def _export_fruits_clamped(fruits: list[Fruit]) -> list[Fruit]:
-    """アニメ用スナップショットを盤内に収める。"""
-    out: list[Fruit] = []
-    for fruit in fruits:
-        r = fruit.radius
-        out.append(
-            Fruit(
-                type=fruit.type,
-                x=max(r, min(NORMALIZED_WIDTH - r, fruit.x)),
-                y=max(r * 0.1, min(NORMALIZED_HEIGHT - r, fruit.y)),
-                radius=r,
-                confidence=fruit.confidence,
-            )
-        )
-    out.sort(key=lambda f: (f.y, f.x))
-    return out
