@@ -137,7 +137,7 @@ def main() -> None:
             )
             if epoch % args.log_every == 0 or epoch == 1 or epoch == args.bc_epochs:
                 match = match_rate(policy, obs_buf, act_buf, rng=rng)
-                student_score, _student_eval, student_s = eval_student(
+                student_score, student_s = eval_student(
                     policy,
                     seed=args.seed + 9000,
                     episodes=args.eval_episodes,
@@ -185,7 +185,7 @@ def main() -> None:
             if ep % args.log_every == 0 or ep == 1 or ep == args.episodes:
                 train_score = statistics.fmean(window)
                 train_s = statistics.fmean(window_steps)
-                student_score, _student_eval, student_s = eval_student(
+                student_score, student_s = eval_student(
                     policy,
                     seed=args.seed + 9000,
                     episodes=args.eval_episodes,

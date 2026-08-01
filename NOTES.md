@@ -23,12 +23,12 @@
 
 ## Training
 
-- **score / eval**: `score` is the real game's merge score (1-65, no penalties), `penalties` are the penalties for accidents and bad moves, `eval = score - penalties`. Policy move selection and the student's quality use eval; **the RL reward stays score** (dense penalties are not rewards)
+- **score / penalties**: `score` is the real game's merge score (1-65, no penalties), `penalties` are the penalties for accidents and bad moves. `eval = score - penalties` is **only for bootstrap move selection** (`choose_x`). The student's quality, saving and logs use the real game's `score` (moves on ties). **The RL reward is score too** (dense penalties are not rewards)
 - `src/reward.py`: `merge_score(merge_types)` gives only merge points identical to the real game (cherry→0 … watermelon 55, double clear 65). No survival bonus or death penalty. Episodes end as before (losing line / double clear)
 - `src/encode.py`: fixed-length observation vector
-- `src/sim_env.py`: headless drop sim (`sim_physics.simulate_drop`). `SimStep` has `score` and `eval_score`
+- `src/sim_env.py`: headless drop sim (`sim_physics.simulate_drop`). `SimStep` is the real game's `score` only (no cumulative eval)
 - Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`. `--workers` default = logical cores/2)
-- Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=100 is a cap, not the losing line). Logs show score and eval side by side, and best is chosen by eval
+- Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=100 is a cap, not the losing line). best is score → moves → match
 - Teacher collection runs in parallel with `ProcessPool` (default workers=logical cores/2; 8 on a 9700X; `--workers 1` for serial)
 - `src/agent.py`: MLP with 32 discrete column bins / hidden 128 (old 20/64 npz files need retraining)
 - Live play: `python main.py` (defaults to learned if an npz exists. `L` toggles bootstrap, `--policy bootstrap`)
@@ -36,6 +36,6 @@
 ## Planned: RL (REINFORCE)
 
 - Still too early. Plain REINFORCE easily breaks things when BC is shallow (confirmed in the past)
-- Condition for adding it: `match` fairly high (roughly 60–70%+) and the student's `score` / `eval` close to bootstrap
+- Condition for adding it: `match` fairly high (roughly 60–70%+) and the student's `score` close to bootstrap
 - How: only a short fine-tune after BC finishes (e.g. `--episodes 50 --lr 0.002`). Off by default
 - Until then, thickening BC (collection size, epochs) comes first

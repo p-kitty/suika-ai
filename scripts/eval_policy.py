@@ -39,7 +39,6 @@ def run_episode(
     env = SimEnv(seed=seed)
     obs = env.reset()
     total_score = 0.0
-    total_eval = 0.0
     merges = 0
     steps = 0
     max_type = -1
@@ -49,7 +48,6 @@ def run_episode(
         result = env.step(choose(obs))
         obs = result.observation
         total_score += result.score
-        total_eval += result.eval_score
         merges += result.merges
         steps += 1
         info = result.info
@@ -61,7 +59,6 @@ def run_episode(
     return {
         "steps": float(steps),
         "score": total_score,
-        "eval": total_eval,
         "merges": float(merges),
         "max_type": float(max_type),
         "max_wm": float(max_wm),
