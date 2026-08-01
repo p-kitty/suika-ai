@@ -156,7 +156,6 @@ def main() -> None:
     )
     steps = [r["steps"] for r in rows]
     scores = [r["score"] for r in rows]
-    evals = [r["eval"] for r in rows]
     merges = [r["merges"] for r in rows]
     max_types = [r["max_type"] for r in rows]
     print(
@@ -165,7 +164,6 @@ def main() -> None:
     )
     print(f"steps  mean={statistics.mean(steps):.1f}  median={statistics.median(steps):.1f}")
     print(f"score  mean={statistics.mean(scores):.2f}")
-    print(f"eval   mean={statistics.mean(evals):.2f}")
     print(f"merges mean={statistics.mean(merges):.1f}")
     print(f"max_type mean={statistics.mean(max_types):.2f}  best={max(max_types):.0f}")
     print(f"double_wm episodes={sum(1 for r in rows if r['max_wm'] >= 2)}")
