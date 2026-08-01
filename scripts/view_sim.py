@@ -6,13 +6,13 @@ Usage:
 
 Controls:
   mouse    drop column
-  click / Space  drop at that column
+  click / Space  drop at that column (physics animation in the right panel)
   a        drop at bootstrap's best column
   r        reset
   [ / ]    shift the column slightly
-  q / Esc  quit
+  q / Esc  quit (skips during animation)
 
-Left: the current board + held contact preview. Right: the sim result after dropping at that column.
+Left: the current board + held contact preview. Right: drop animation / the result after dropping.
 NEXT circle at the right of the header. Draws are random cherry-orange every time (reproducible when a seed is given).
 """
 
@@ -36,7 +36,8 @@ from src.draw import put_text
 from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
 from src.sim_env import SimEnv
-from src.sim_physics import land_y
+from src.reward import cleared_double_watermelon, is_game_over, merge_score
+from src.sim_physics import DT, iter_simulate_drop, land_y
 from src.vision.classify import fruit_radius
 from src.vision.colors import FRUIT_NAMES
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
@@ -47,6 +48,9 @@ GAP = 20
 HEADER = 72
 FOOTER = 56
 NEXT_PREVIEW_R = 18
+# Display per physics step. 1 is real time, 2 is 2x.
+ANIM_STRIDE = 1
+ANIM_WAIT_MS = max(1, int(round(1000.0 * DT / ANIM_STRIDE)))
 # BGR per stage. Colors sampled near the center of the boards in screenshots.
 FRUIT_BGR = [
     (2, 5, 199),       # cherry — deep red
@@ -127,15 +131,36 @@ def main() -> None:
             return
         target = clamp_drop_x(aim_x if x is None else x, obs.held_type)
         aim_x = target
-        step = env.step(target)
-        obs = step.observation
-        total_score += step.score
-        last_info = step.info
-        message = (
-            f"drop x={target:.0f}  score+{step.score:.0f}  "
-            f"merges={step.merges}  {step.info}"
+        held = obs.held_type
+        before_obs = obs
+        before = list(obs.fruits)
+        after, merges, merge_types = _play_drop_anim(
+            before=before,
+            held_type=held,
+            drop_x=target,
+            next_type=obs.next_type,
+            total_score=total_score,
+            info=last_info,
         )
-        if step.done:
+        score = float(merge_score(merge_types))
+        env.fruits = _clamp_board(after)
+        env.held_type = env.next_type
+        env.next_type = env._spawn()
+        obs = env._obs()
+        total_score += score
+        dead = is_game_over(obs)
+        win = cleared_double_watermelon(before_obs, obs, merges=merges)
+        if win:
+            last_info = "win"
+        elif dead:
+            last_info = "dead"
+        else:
+            last_info = "ok"
+        message = (
+            f"drop x={target:.0f}  score+{score:.0f}  "
+            f"merges={merges}  {last_info}"
+        )
+        if dead or win:
             message += "  (done — r to reset)"
 
     def _reset() -> None:
@@ -202,6 +227,64 @@ def main() -> None:
     cv2.destroyAllWindows()
 
 
+def _play_drop_anim(
+    *,
+    before: list[Fruit],
+    held_type: int,
+    drop_x: float,
+    next_type: int | None,
+    total_score: float,
+    info: str,
+) -> tuple[list[Fruit], int, list[int]]:
+    """Play the drop physics in the right panel. Esc/q skips to the end."""
+    after = list(before)
+    merges = 0
+    merge_types: list[int] = []
+    skip = False
+    frame_i = 0
+    for after, merges, merge_types in iter_simulate_drop(before, held_type, drop_x):
+        show = (not skip) and (frame_i % ANIM_STRIDE == 0)
+        frame_i += 1
+        if not show:
+            continue
+        canvas = _render(
+            before=before,
+            after=after,
+            aim_x=drop_x,
+            land=None,
+            held_type=None,
+            next_type=next_type,
+            merges=merges,
+            score=float(merge_score(merge_types)),
+            penalties=0.0,
+            total_score=total_score,
+            info=info,
+            message=f"animating… merges={merges}  (Esc skip)",
+            right_title="LIVE",
+        )
+        cv2.imshow(WINDOW, canvas)
+        key = cv2.waitKey(ANIM_WAIT_MS) & 0xFF
+        if key in (27, ord("q")):
+            skip = True
+    return after, merges, merge_types
+
+
+def _clamp_board(fruits: list[Fruit]) -> list[Fruit]:
+    out: list[Fruit] = []
+    for fruit in fruits:
+        r = fruit.radius
+        out.append(
+            Fruit(
+                type=fruit.type,
+                x=max(r, min(NORMALIZED_WIDTH - r, fruit.x)),
+                y=max(r * 0.1, min(NORMALIZED_HEIGHT - r, fruit.y)),
+                radius=r,
+                confidence=100.0,
+            )
+        )
+    return out
+
+
 def _render(
     *,
     before: list[Fruit],
@@ -216,6 +299,7 @@ def _render(
     total_score: float,
     info: str,
     message: str,
+    right_title: str = "AFTER DROP",
 ) -> np.ndarray:
     panel_w = int(round(NORMALIZED_WIDTH * SCALE))
     panel_h = int(round(NORMALIZED_HEIGHT * SCALE))
@@ -224,7 +308,7 @@ def _render(
     canvas = np.full((height, width, 3), 36, dtype=np.uint8)
 
     left = _board_panel(before, aim_x, land, held_type, title="NOW")
-    right = _board_panel(after, aim_x, None, None, title="AFTER DROP")
+    right = _board_panel(after, aim_x, None, None, title=right_title)
     y0 = PAD + HEADER
     canvas[y0 : y0 + panel_h, PAD : PAD + panel_w] = left
     x1 = PAD + panel_w + GAP

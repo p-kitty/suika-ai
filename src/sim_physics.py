@@ -6,6 +6,7 @@ Shared by policy scoring and SimEnv.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import pymunk
@@ -63,12 +64,15 @@ def land_y(fruits: tuple[Fruit, ...] | list[Fruit], x: float, held_r: float) -> 
     return best
 
 
-def simulate_drop(
+def iter_simulate_drop(
     fruits: list[Fruit] | tuple[Fruit, ...],
     fruit_type: int,
     x: float,
-) -> tuple[list[Fruit], int, list[int]]:
-    """Board after dropping at column x, merge count and the list of source types merged."""
+) -> Iterator[tuple[list[Fruit], int, list[int]]]:
+    """Advance the fall physics one step at a time. Yields (board, merges, merge_types) each time.
+
+    The board is not clamped for animation (the fall on screen is visible too).
+    """
     space, bodies = _build_space(fruits)
     r = fruit_radius(fruit_type)
     x = max(r, min(NORMALIZED_WIDTH - r, x))
@@ -78,6 +82,7 @@ def simulate_drop(
     merges = 0
     merge_types: list[int] = []
     quiet = 0
+    yield _export_fruits(bodies, clamp=False), merges, list(merge_types)
 
     for _ in range(MAX_STEPS):
         # Merge touching same types (at most 1 pair per step).
@@ -87,18 +92,30 @@ def simulate_drop(
             merges += 1
             quiet = 0
             space.step(DT)
-            continue
-
-        space.step(DT)
-        if _all_quiet(bodies):
-            quiet += 1
-            if quiet >= SLEEP_FRAMES:
-                break
         else:
-            quiet = 0
+            space.step(DT)
+            if _all_quiet(bodies):
+                quiet += 1
+            else:
+                quiet = 0
 
-    after = _export_fruits(bodies)
-    return after, merges, merge_types
+        yield _export_fruits(bodies, clamp=False), merges, list(merge_types)
+        if quiet >= SLEEP_FRAMES:
+            break
+
+
+def simulate_drop(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    fruit_type: int,
+    x: float,
+) -> tuple[list[Fruit], int, list[int]]:
+    """Board after dropping at column x, merge count and the list of source types merged."""
+    after: list[Fruit] = []
+    merges = 0
+    merge_types: list[int] = []
+    for after, merges, merge_types in iter_simulate_drop(fruits, fruit_type, x):
+        pass
+    return _export_fruits_clamped(after), merges, merge_types
 
 
 def landed_xy(
@@ -279,15 +296,16 @@ def _all_quiet(bodies: list[_BodyFruit]) -> bool:
     return True
 
 
-def _export_fruits(bodies: list[_BodyFruit]) -> list[Fruit]:
+def _export_fruits(bodies: list[_BodyFruit], *, clamp: bool = True) -> list[Fruit]:
     out: list[Fruit] = []
     for item in bodies:
         x = float(item.body.position.x)
         y = float(item.body.position.y)
         r = float(item.shape.radius)
-        # It sinks slightly into the floor and walls, so clamp lightly.
-        x = max(r, min(NORMALIZED_WIDTH - r, x))
-        y = max(r * 0.1, min(NORMALIZED_HEIGHT - r, y))
+        if clamp:
+            # It sinks slightly into the floor and walls, so clamp lightly.
+            x = max(r, min(NORMALIZED_WIDTH - r, x))
+            y = max(r * 0.1, min(NORMALIZED_HEIGHT - r, y))
         out.append(
             Fruit(
                 type=item.fruit_type,
@@ -295,6 +313,24 @@ def _export_fruits(bodies: list[_BodyFruit]) -> list[Fruit]:
                 y=y,
                 radius=r,
                 confidence=100.0,
+            )
+        )
+    out.sort(key=lambda f: (f.y, f.x))
+    return out
+
+
+def _export_fruits_clamped(fruits: list[Fruit]) -> list[Fruit]:
+    """Clamp animation snapshots within the board."""
+    out: list[Fruit] = []
+    for fruit in fruits:
+        r = fruit.radius
+        out.append(
+            Fruit(
+                type=fruit.type,
+                x=max(r, min(NORMALIZED_WIDTH - r, fruit.x)),
+                y=max(r * 0.1, min(NORMALIZED_HEIGHT - r, fruit.y)),
+                radius=r,
+                confidence=fruit.confidence,
             )
         )
     out.sort(key=lambda f: (f.y, f.x))
