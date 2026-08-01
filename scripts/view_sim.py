@@ -13,6 +13,7 @@ Controls:
   q / Esc  quit
 
 Left: the current board + held contact preview. Right: the sim result after dropping at that column.
+NEXT circle at the right of the header. Draws are random cherry-orange every time (reproducible when a seed is given).
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ PAD = 16
 GAP = 20
 HEADER = 72
 FOOTER = 56
+NEXT_PREVIEW_R = 18
 # BGR per stage. Colors sampled near the center of the boards in screenshots.
 FRUIT_BGR = [
     (2, 5, 199),       # cherry — deep red
@@ -85,7 +87,12 @@ def _fit_scale(max_scale: float = 2.0) -> float:
 def main() -> None:
     global SCALE
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="random seed of the draw sequence (random every time when omitted)",
+    )
     parser.add_argument(
         "--scale",
         type=float,
@@ -239,6 +246,7 @@ def _render(
         (180, 255, 180),
         scale=0.55,
     )
+    _draw_next_preview(canvas, next_type, width)
     put_text(
         canvas,
         f"episode  score={total_score:.0f}  info={info}",
@@ -286,6 +294,32 @@ def _board_panel(
     put_text(img, title, (8, 22), (230, 230, 230), scale=0.55)
     put_text(img, f"n={len(fruits)}", (8, 44), (180, 180, 180), scale=0.45, thickness=1)
     return img
+
+
+def _draw_next_preview(
+    canvas: np.ndarray, next_type: int | None, width: int
+) -> None:
+    """NEXT circle at the right end of the header. It is just not placed on the board; the value is not hidden."""
+    cx = width - PAD - NEXT_PREVIEW_R - 8
+    cy = HEADER // 2 + PAD // 2
+    put_text(canvas, "NEXT", (cx - 28, cy - NEXT_PREVIEW_R - 6), (200, 200, 200), scale=0.45)
+    if next_type is None:
+        cv2.circle(canvas, (cx, cy), NEXT_PREVIEW_R, (90, 90, 90), 2)
+        return
+    bgr = FRUIT_BGR[next_type]
+    overlay = canvas.copy()
+    cv2.circle(overlay, (cx, cy), NEXT_PREVIEW_R, bgr, -1)
+    cv2.addWeighted(overlay, 0.7, canvas, 0.3, 0, canvas)
+    cv2.circle(canvas, (cx, cy), NEXT_PREVIEW_R, bgr, 2)
+    label = FRUIT_NAMES[next_type][:3]
+    put_text(
+        canvas,
+        label,
+        (cx - NEXT_PREVIEW_R, cy + NEXT_PREVIEW_R + 14),
+        (240, 240, 240),
+        scale=0.4,
+        thickness=1,
+    )
 
 
 def _draw_fruit(img: np.ndarray, fruit: Fruit) -> None:
