@@ -15,31 +15,32 @@ from .vision.colors import MAX_FRUIT_TYPE
 from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from .vision.state import Fruit
 
-# --- Tuning (leaning toward looks; stability and speed over precision) ---
+# --- Tuning (leaning toward the real game's rolling; pymunk uses the product of frictions) ---
 GRAVITY = 2800.0
 DT = 1.0 / 60.0
 # Max simulated time per drop.
 MAX_SIM_SECONDS = 4.0
 MAX_STEPS = int(MAX_SIM_SECONDS / DT)
 # How many consecutive quiet frames count as still.
-SLEEP_FRAMES = 18
-VEL_SLEEP = 12.0
-ANG_SLEEP = 0.8
-FRICTION = 0.35
-ELASTICITY = 0.12
+SLEEP_FRAMES = 22
+VEL_SLEEP = 8.0
+ANG_SLEEP = 0.45
+# Chipmunk multiplies the friction of both shapes (effective ≈ product).
+FRICTION = 0.08
+ELASTICITY = 0.20
 # Walls and floor
-WALL_FRICTION = 0.4
-WALL_ELASTICITY = 0.05
+WALL_FRICTION = 0.10
+WALL_ELASTICITY = 0.08
+# Space damping (1 = none).
+SPACE_DAMPING = 1.0
 # Overlap margin for the merge check (ratio to the sum of radii).
 MERGE_SLOP = 1.02
-# Shift the merge position toward the one with more kinetic energy (0 = center of mass, 1 = up to that fruit's position).
-MERGE_PULL_BIAS = 0.35
-# Shift only when the sideways offset is at least this multiple × the smaller radius (avoids cascades on straight-down drops).
-MERGE_PULL_MIN_HORIZ = 0.7
-# Velocity multiplier inherited in merges where only one side is moving.
-MERGE_VEL_SCALE = 0.55
+# Inherit velocity only when the sideways offset is at least this multiple × the smaller radius (avoids straight-down cascade blowups).
+MERGE_VEL_MIN_HORIZ = 0.7
+# Horizontal velocity multiplier inherited in sideways collision merges.
+MERGE_VEL_SCALE = 0.90
 # Mass = density * area. Bigger is harder to push.
-DENSITY = 0.08
+DENSITY = 0.07
 
 
 @dataclass
@@ -141,7 +142,7 @@ def _build_space(
     space = pymunk.Space()
     # y points down (same as the normalized board).
     space.gravity = (0.0, GRAVITY)
-    space.damping = 0.98
+    space.damping = SPACE_DAMPING
 
     static = space.static_body
     floor = pymunk.Segment(
@@ -209,36 +210,24 @@ def _merge_pair(
     b: _BodyFruit,
     merge_types: list[int],
 ) -> None:
-    """Merge two of the same type. Reproduces the pull after merging with momentum and a slight position shift."""
+    """Merge two of the same type. The new fruit appears at the midpoint of the two centers (same as the real game)."""
     source = a.fruit_type
     new_type = source + 1
     merge_types.append(source)
 
     ma = a.body.mass
     mb = b.body.mass
-    total_m = ma + mb
     pa = a.body.position
     pb = b.body.position
     va = a.body.velocity
     vb = b.body.velocity
-
-    base_x = (ma * pa.x + mb * pb.x) / total_m
-    base_y = (ma * pa.y + mb * pb.y) / total_m
-    ke_a = ma * (va.x * va.x + va.y * va.y)
-    ke_b = mb * (vb.x * vb.x + vb.y * vb.y)
-    ke_sum = ke_a + ke_b
     ra = a.shape.radius
     rb = b.shape.radius
     horiz = abs(pa.x - pb.x)
-    if ke_sum > 1e-6 and horiz > min(ra, rb) * MERGE_PULL_MIN_HORIZ:
-        bias = ke_b / ke_sum
-        pull_x = pa.x * (1.0 - bias) + pb.x * bias
-        pull_y = pa.y * (1.0 - bias) + pb.y * bias
-        mid_x = base_x + MERGE_PULL_BIAS * (pull_x - base_x)
-        mid_y = base_y + MERGE_PULL_BIAS * (pull_y - base_y)
-    else:
-        mid_x = base_x
-        mid_y = base_y
+
+    # Not weighted by mass or kinetic energy; the geometric midpoint of the two touching centers.
+    mid_x = 0.5 * (pa.x + pb.x)
+    mid_y = 0.5 * (pa.y + pb.y)
 
     px = ma * va.x + mb * vb.x
     py = ma * va.y + mb * vb.y
@@ -251,15 +240,10 @@ def _merge_pair(
 
     new = _add_fruit(space, bodies, new_type, mid_x, mid_y)
     new_m = new.body.mass
-    if (
-        ke_sum > 1e-6
-        and horiz > min(ra, rb) * MERGE_PULL_MIN_HORIZ
-    ):
-        ke_bias = abs(ke_b - ke_a) / ke_sum
-        scale = MERGE_VEL_SCALE * ke_bias
-        # Initial vertical velocity tends to bounce into neighbors, so inherit only horizontal.
-        new.body.velocity = (px / new_m * scale, 0.0)
-        new.body.angular_velocity = ang / new_m * scale
+    if horiz > min(ra, rb) * MERGE_VEL_MIN_HORIZ:
+        # Sideways collisions keep momentum and roll. Vertical tends to bounce into neighbors, so it is suppressed.
+        new.body.velocity = (px / new_m * MERGE_VEL_SCALE, py / new_m * 0.15)
+        new.body.angular_velocity = ang / new_m * MERGE_VEL_SCALE
 
 
 def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] | None:
