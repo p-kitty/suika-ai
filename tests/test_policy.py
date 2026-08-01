@@ -321,9 +321,9 @@ def test_merges_when_three_same_type_waiting() -> None:
     x = choose_x(obs)
     after, merges, _types = simulate_drop(fruits, 0, x)
     assert merges >= 1
-    # 3 + 1 → 1 merge leaves 2 or fewer cherries and 1 straw.
+    # 3 + 1 advances merging; cherries decrease and higher fruits remain.
     assert sum(1 for f in after if f.type == 0) <= 2
-    assert any(f.type == 1 for f in after)
+    assert any(f.type >= 1 for f in after)
     # Merging is clearly better than dumping it at the edge as a fourth.
     far = 40.0
     assert _score(obs, x, cherry_r) > _score(obs, far, cherry_r) + 20.0

@@ -36,10 +36,15 @@ WALL_ELASTICITY = 0.08
 SPACE_DAMPING = 1.0
 # Overlap margin for the merge check (ratio to the sum of radii).
 MERGE_SLOP = 1.02
-# Inherit velocity only when the sideways offset is at least this multiple × the smaller radius (avoids straight-down cascade blowups).
-MERGE_VEL_MIN_HORIZ = 0.7
-# Horizontal velocity multiplier inherited in sideways collision merges.
-MERGE_VEL_SCALE = 0.90
+# Held merge: below this sideways offset ratio it counts as directly above (no sideways pull).
+MERGE_SIDE_MIN = 0.08
+# Held merge pull: velocity per px of sideways movement to the midpoint.
+# Weak for small offsets, strong for narrow side grazes (large movement).
+MERGE_TRAVEL_GAIN = 14.0
+# Speed helper (small). Adds a little only at narrow sides with offset^2.
+MERGE_SPEED_GAIN = 0.06
+# collision_type between fruits. Walls stay 0.
+FRUIT_COLLISION_TYPE = 1
 # Mass = density * area. Bigger is harder to push.
 DENSITY = 0.07
 
@@ -49,6 +54,8 @@ class _BodyFruit:
     body: pymunk.Body
     shape: pymunk.Circle
     fruit_type: int
+    # The fruit dropped this drop. Used for the direction of the held merge pull.
+    is_held_drop: bool = False
 
 
 def land_y(fruits: tuple[Fruit, ...] | list[Fruit], x: float, held_r: float) -> float:
@@ -77,7 +84,8 @@ def iter_simulate_drop(
     r = fruit_radius(fruit_type)
     x = max(r, min(NORMALIZED_WIDTH - r, x))
     # Drop from slightly above the top of the board.
-    _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+    dropped = _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+    dropped.is_held_drop = True
 
     merges = 0
     merge_types: list[int] = []
@@ -117,7 +125,8 @@ def simulate_drop(
     r = fruit_radius(fruit_type)
     x = max(r, min(NORMALIZED_WIDTH - r, x))
     # Drop from slightly above the top of the board.
-    _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+    dropped = _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+    dropped.is_held_drop = True
 
     merges = 0
     merge_types: list[int] = []
@@ -179,6 +188,17 @@ def preview_land(
     return landed_xy(fruits, after, fruit_type, x0, held_r, merges)
 
 
+def _ignore_same_type(
+    arbiter: pymunk.Arbiter, _space: pymunk.Space, _data: object
+) -> None:
+    """Same types do not collide physically; only the merge loop handles them (prevents being knocked away first)."""
+    a, b = arbiter.shapes
+    ta = getattr(a, "fruit_type", None)
+    tb = getattr(b, "fruit_type", None)
+    if ta is not None and ta == tb:
+        arbiter.process_collision = False
+
+
 def _build_space(
     fruits: list[Fruit] | tuple[Fruit, ...],
 ) -> tuple[pymunk.Space, list[_BodyFruit]]:
@@ -186,6 +206,12 @@ def _build_space(
     # y points down (same as the normalized board).
     space.gravity = (0.0, GRAVITY)
     space.damping = SPACE_DAMPING
+    # Disable collision response between same-type fruits (pymunk 7: process_collision).
+    space.on_collision(
+        collision_type_a=FRUIT_COLLISION_TYPE,
+        collision_type_b=FRUIT_COLLISION_TYPE,
+        begin=_ignore_same_type,
+    )
 
     static = space.static_body
     floor = pymunk.Segment(
@@ -229,7 +255,8 @@ def _add_fruit(
     shape = pymunk.Circle(body, r)
     shape.friction = FRICTION
     shape.elasticity = ELASTICITY
-    shape.collision_type = 1
+    shape.collision_type = FRUIT_COLLISION_TYPE
+    shape.fruit_type = fruit_type
     space.add(body, shape)
     item = _BodyFruit(body=body, shape=shape, fruit_type=fruit_type)
     bodies.append(item)
@@ -244,6 +271,13 @@ def _remove_fruit(
     if item.body in space.bodies:
         space.remove(item.body)
     bodies.remove(item)
+
+
+def _held_in_merge(a: _BodyFruit, b: _BodyFruit) -> _BodyFruit | None:
+    """That held if the merge involves held. None for board-to-board."""
+    if a.is_held_drop != b.is_held_drop:
+        return a if a.is_held_drop else b
+    return None
 
 
 def _merge_pair(
@@ -264,17 +298,15 @@ def _merge_pair(
     pb = b.body.position
     va = a.body.velocity
     vb = b.body.velocity
-    ra = a.shape.radius
-    rb = b.shape.radius
-    horiz = abs(pa.x - pb.x)
-
     # Not weighted by mass or kinetic energy; the geometric midpoint of the two touching centers.
     mid_x = 0.5 * (pa.x + pb.x)
     mid_y = 0.5 * (pa.y + pb.y)
-
+    parent_m = ma + mb
+    # Momentum cancels (averaged). Only held merges add the sideways pull afterwards.
     px = ma * va.x + mb * vb.x
     py = ma * va.y + mb * vb.y
     ang = ma * a.body.angular_velocity + mb * b.body.angular_velocity
+    held = _held_in_merge(a, b)
 
     _remove_fruit(space, bodies, a)
     _remove_fruit(space, bodies, b)
@@ -282,11 +314,26 @@ def _merge_pair(
         return
 
     new = _add_fruit(space, bodies, new_type, mid_x, mid_y)
-    new_m = new.body.mass
-    if horiz > min(ra, rb) * MERGE_VEL_MIN_HORIZ:
-        # Sideways collisions keep momentum and roll. Vertical tends to bounce into neighbors, so it is suppressed.
-        new.body.velocity = (px / new_m * MERGE_VEL_SCALE, py / new_m * 0.15)
-        new.body.angular_velocity = ang / new_m * MERGE_VEL_SCALE
+    vx = px / parent_m
+    vy = py / parent_m
+    aw = ang / parent_m
+
+    if held is not None:
+        other = b if held is a else a
+        horiz = abs(held.body.position.x - other.body.position.x)
+        touch = max(held.shape.radius + other.shape.radius, 1e-6)
+        side_frac = horiz / touch
+        if side_frac >= MERGE_SIDE_MIN:
+            # Toward held. The main source of momentum is the movement to the midpoint (larger for narrow grazes).
+            side = 1.0 if held.body.position.x >= other.body.position.x else -1.0
+            travel = horiz * 0.5
+            speed = math.hypot(held.body.velocity.x, held.body.velocity.y)
+            pull = travel * MERGE_TRAVEL_GAIN + speed * MERGE_SPEED_GAIN * side_frac * side_frac
+            vx += side * pull
+            aw += side * pull * 0.02
+
+    new.body.velocity = (vx, vy)
+    new.body.angular_velocity = aw
 
 
 def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] | None:
