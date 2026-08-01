@@ -15,31 +15,32 @@ from .vision.colors import MAX_FRUIT_TYPE
 from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from .vision.state import Fruit
 
-# --- チューニング (見た目寄り。精度より安定・速度) ---
+# --- チューニング (実機の転がり寄り。pymunk は摩擦を積で使う) ---
 GRAVITY = 2800.0
 DT = 1.0 / 60.0
 # 1 ドロップあたりの最大シミュレーション時間。
 MAX_SIM_SECONDS = 4.0
 MAX_STEPS = int(MAX_SIM_SECONDS / DT)
 # 連続何フレーム静かなら静止とみなす。
-SLEEP_FRAMES = 18
-VEL_SLEEP = 12.0
-ANG_SLEEP = 0.8
-FRICTION = 0.35
-ELASTICITY = 0.12
+SLEEP_FRAMES = 22
+VEL_SLEEP = 8.0
+ANG_SLEEP = 0.45
+# Chipmunk は両 shape の friction を掛け算する (実効 ≈ 積)。
+FRICTION = 0.08
+ELASTICITY = 0.20
 # 壁・床
-WALL_FRICTION = 0.4
-WALL_ELASTICITY = 0.05
+WALL_FRICTION = 0.10
+WALL_ELASTICITY = 0.08
+# 空間減衰 (1=なし)。
+SPACE_DAMPING = 1.0
 # 合成判定の重なり余裕 (半径和に対する比率)。
 MERGE_SLOP = 1.02
-# 合成位置を運動エネルギー大きい方へ寄せる (0=質量中心, 1=その実の位置まで)。
-MERGE_PULL_BIAS = 0.35
-# 横ずれがこの倍率×小半径以上のときだけ寄せる (真上落下の連鎖合成を避ける)。
-MERGE_PULL_MIN_HORIZ = 0.7
-# 片方だけ動いている合成で引き継ぐ速度倍率。
-MERGE_VEL_SCALE = 0.55
+# 横ずれがこの倍率×小半径以上のときだけ速度を引き継ぐ (真上連鎖の暴発を避ける)。
+MERGE_VEL_MIN_HORIZ = 0.7
+# 横衝突合成で引き継ぐ水平速度倍率。
+MERGE_VEL_SCALE = 0.90
 # 質量 = 密度 * 面積。大きいほど押しにくい。
-DENSITY = 0.08
+DENSITY = 0.07
 
 
 @dataclass
@@ -141,7 +142,7 @@ def _build_space(
     space = pymunk.Space()
     # y 下向き (正規化盤面と同じ)。
     space.gravity = (0.0, GRAVITY)
-    space.damping = 0.98
+    space.damping = SPACE_DAMPING
 
     static = space.static_body
     floor = pymunk.Segment(
@@ -209,36 +210,24 @@ def _merge_pair(
     b: _BodyFruit,
     merge_types: list[int],
 ) -> None:
-    """同種 2 個を合成。運動量と少しの位置寄せで合体後のひっぱりを再現。"""
+    """同種 2 個を合成。新実は両中心の中点に出す (実機と同じ)。"""
     source = a.fruit_type
     new_type = source + 1
     merge_types.append(source)
 
     ma = a.body.mass
     mb = b.body.mass
-    total_m = ma + mb
     pa = a.body.position
     pb = b.body.position
     va = a.body.velocity
     vb = b.body.velocity
-
-    base_x = (ma * pa.x + mb * pb.x) / total_m
-    base_y = (ma * pa.y + mb * pb.y) / total_m
-    ke_a = ma * (va.x * va.x + va.y * va.y)
-    ke_b = mb * (vb.x * vb.x + vb.y * vb.y)
-    ke_sum = ke_a + ke_b
     ra = a.shape.radius
     rb = b.shape.radius
     horiz = abs(pa.x - pb.x)
-    if ke_sum > 1e-6 and horiz > min(ra, rb) * MERGE_PULL_MIN_HORIZ:
-        bias = ke_b / ke_sum
-        pull_x = pa.x * (1.0 - bias) + pb.x * bias
-        pull_y = pa.y * (1.0 - bias) + pb.y * bias
-        mid_x = base_x + MERGE_PULL_BIAS * (pull_x - base_x)
-        mid_y = base_y + MERGE_PULL_BIAS * (pull_y - base_y)
-    else:
-        mid_x = base_x
-        mid_y = base_y
+
+    # 質量や運動エネルギーで寄せず、接触した 2 中心の幾何中点。
+    mid_x = 0.5 * (pa.x + pb.x)
+    mid_y = 0.5 * (pa.y + pb.y)
 
     px = ma * va.x + mb * vb.x
     py = ma * va.y + mb * vb.y
@@ -251,15 +240,10 @@ def _merge_pair(
 
     new = _add_fruit(space, bodies, new_type, mid_x, mid_y)
     new_m = new.body.mass
-    if (
-        ke_sum > 1e-6
-        and horiz > min(ra, rb) * MERGE_PULL_MIN_HORIZ
-    ):
-        ke_bias = abs(ke_b - ke_a) / ke_sum
-        scale = MERGE_VEL_SCALE * ke_bias
-        # 縦方向の初速は隣へ跳ねやすいので横だけ引き継ぐ。
-        new.body.velocity = (px / new_m * scale, 0.0)
-        new.body.angular_velocity = ang / new_m * scale
+    if horiz > min(ra, rb) * MERGE_VEL_MIN_HORIZ:
+        # 横衝突は運動量を残して転がす。縦は隣へ跳ねやすいので抑える。
+        new.body.velocity = (px / new_m * MERGE_VEL_SCALE, py / new_m * 0.15)
+        new.body.angular_velocity = ang / new_m * MERGE_VEL_SCALE
 
 
 def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] | None:

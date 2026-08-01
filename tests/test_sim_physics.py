@@ -46,7 +46,18 @@ def test_foreign_hit_moves_both() -> None:
     ) > 8.0
 
 
-def test_side_contact_merge_pulls_toward_contact() -> None:
+def test_center_drop_merge_stays_near_midpoint_column() -> None:
+    r = fruit_radius(0)
+    a = Fruit(type=0, x=200, y=NORMALIZED_HEIGHT - r, radius=r, confidence=90)
+    after, merges, _types = simulate_drop((a,), 0, a.x)
+    assert merges >= 1
+    nxt = [f for f in after if f.type == 1]
+    assert nxt
+    # 真上合成は両中心の中点なので、列 x から大きくずれない。
+    assert abs(nxt[0].x - a.x) < r
+
+
+def test_side_contact_merge_happens() -> None:
     orange_r = fruit_radius(4)
     left = Fruit(
         type=4,
@@ -58,10 +69,7 @@ def test_side_contact_merge_pulls_toward_contact() -> None:
     drop_x = left.x + orange_r * 1.85
     after, merges, _types = simulate_drop((left,), 4, drop_x)
     assert merges >= 1
-    apples = [f for f in after if f.type == 5]
-    assert apples
-    # 横から当てた合成は中点より右へ寄る。
-    assert apples[0].x - left.x > orange_r * 0.6
+    assert any(f.type == 5 for f in after)
 
 
 def test_preview_land_returns_finite() -> None:

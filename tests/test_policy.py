@@ -75,7 +75,15 @@ def test_does_not_bury_same_type_under_different() -> None:
     # メイトへ寄せる手が、異種の真上に積む手より良い。
     assert _score(obs, mate.x, straw_r) > _score(obs, buried.x, straw_r)
     x = choose_x(obs)
-    assert abs(x - buried.x) > straw_r * 0.5
+    after, merges, _types = simulate_drop((buried, mate), 1, x)
+    # 真上埋め込みは選ばない。かすりで転がってメイト合成するのは可。
+    stacked = [
+        f
+        for f in after
+        if f.type == 1 and abs(f.x - buried.x) < straw_r * 0.5
+    ]
+    assert not stacked
+    assert merges >= 1 or abs(x - buried.x) > straw_r * 0.5
 
 
 def test_sets_up_next_when_no_immediate_merge() -> None:
@@ -179,7 +187,8 @@ def test_grape_stays_beside_right_edge_strawberry() -> None:
     obs = _obs(held_type=2, fruits=(straw,))
     x = choose_x(obs)
     land_x, land_y = preview_land((straw,), 2, x, grape_r)
-    assert land_y >= NORMALIZED_HEIGHT - grape_r - 1.0
+    # 接触のめり込みで床より数 px 沈むことがある。真上積み (~441) ではないことだけ見る。
+    assert land_y >= NORMALIZED_HEIGHT - grape_r - 4.0
     assert land_x > NORMALIZED_WIDTH * 0.5
     assert abs(land_x - (straw.x - straw_r - grape_r)) < grape_r * 2
     shoulder = straw.x - straw_r * 0.4
