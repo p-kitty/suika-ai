@@ -34,8 +34,6 @@ WALL_FRICTION = 0.10
 WALL_ELASTICITY = 0.08
 # Space damping (1 = none).
 SPACE_DAMPING = 1.0
-# Overlap margin for the merge check (ratio to the sum of radii).
-MERGE_SLOP = 1.02
 # Held merge: below this sideways offset ratio it counts as directly above (no sideways pull).
 MERGE_SIDE_MIN = 0.08
 # Held merge pull: velocity per px of sideways movement to the midpoint.
@@ -349,8 +347,7 @@ def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] 
                 a.body.position.x - b.body.position.x,
                 a.body.position.y - b.body.position.y,
             )
-            # Watermelons merge with each other too (no result, they disappear).
-            if dist <= (ra + rb) * MERGE_SLOP:
+            if dist <= ra + rb:
                 return a, b
     return None
 
