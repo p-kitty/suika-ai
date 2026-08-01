@@ -16,35 +16,12 @@ from .vision.colors import MAX_FRUIT_TYPE
 from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from .vision.state import Fruit
 
-# --- Tuning (leaning toward the real game's rolling; pymunk uses the product of frictions) ---
-GRAVITY = 2800.0
+# --- Tuning shared across several places ---
 DT = 1.0 / 60.0
-# Max simulated time per drop.
-MAX_SIM_SECONDS = 4.0
-MAX_STEPS = int(MAX_SIM_SECONDS / DT)
-# How many consecutive quiet frames count as still.
+MAX_STEPS = int(4.0 / DT)
 SLEEP_FRAMES = 22
-VEL_SLEEP = 8.0
-ANG_SLEEP = 0.45
-# Chipmunk multiplies the friction of both shapes (effective ≈ product).
-FRICTION = 0.08
-ELASTICITY = 0.20
-# Walls and floor
-WALL_FRICTION = 0.10
-WALL_ELASTICITY = 0.08
-# Space damping (1 = none).
-SPACE_DAMPING = 1.0
-# Held merge: below this sideways offset ratio it counts as directly above (no sideways pull).
-MERGE_SIDE_MIN = 0.08
-# Held merge pull: velocity per px of sideways movement to the midpoint.
-# Weak for small offsets, strong for narrow side grazes (large movement).
-MERGE_TRAVEL_GAIN = 14.0
-# Speed helper (small). Adds a little only at narrow sides with offset^2.
-MERGE_SPEED_GAIN = 0.06
 # collision_type between fruits. Walls stay 0.
 FRUIT_COLLISION_TYPE = 1
-# Like the real game, every size has the same mass (bigger is not heavier).
-FRUIT_MASS = 1.0
 
 
 @dataclass
@@ -200,10 +177,15 @@ def _ignore_same_type(
 def _build_space(
     fruits: list[Fruit] | tuple[Fruit, ...],
 ) -> tuple[pymunk.Space, list[_BodyFruit]]:
+    gravity = 2800.0
+    space_damping = 1.0
+    wall_friction = 0.10
+    wall_elasticity = 0.08
+
     space = pymunk.Space()
     # y points down (same as the normalized board).
-    space.gravity = (0.0, GRAVITY)
-    space.damping = SPACE_DAMPING
+    space.gravity = (0.0, gravity)
+    space.damping = space_damping
     # Disable collision response between same-type fruits (pymunk 7: process_collision).
     space.on_collision(
         collision_type_a=FRUIT_COLLISION_TYPE,
@@ -223,8 +205,8 @@ def _build_space(
         2.0,
     )
     for seg in (floor, left, right):
-        seg.friction = WALL_FRICTION
-        seg.elasticity = WALL_ELASTICITY
+        seg.friction = wall_friction
+        seg.elasticity = wall_elasticity
         space.add(seg)
 
     bodies: list[_BodyFruit] = []
@@ -242,16 +224,21 @@ def _add_fruit(
     *,
     wake: bool = True,
 ) -> _BodyFruit:
+    # Like the real game, every size has the same mass. Chipmunk friction is the product.
+    fruit_mass = 1.0
+    friction = 0.08
+    elasticity = 0.20
+
     r = fruit_radius(fruit_type)
-    moment = pymunk.moment_for_circle(FRUIT_MASS, 0.0, r)
-    body = pymunk.Body(FRUIT_MASS, moment)
+    moment = pymunk.moment_for_circle(fruit_mass, 0.0, r)
+    body = pymunk.Body(fruit_mass, moment)
     body.position = (x, y)
     if not wake:
         body.velocity = (0.0, 0.0)
         body.angular_velocity = 0.0
     shape = pymunk.Circle(body, r)
-    shape.friction = FRICTION
-    shape.elasticity = ELASTICITY
+    shape.friction = friction
+    shape.elasticity = elasticity
     shape.collision_type = FRUIT_COLLISION_TYPE
     shape.fruit_type = fruit_type
     space.add(body, shape)
@@ -285,6 +272,11 @@ def _merge_pair(
     merge_types: list[int],
 ) -> None:
     """Merge two of the same type. The new fruit appears at the midpoint of the two centers (same as the real game)."""
+    # Sideways pull of held merges. Stronger the larger the movement (a narrow side graze).
+    side_min = 0.08
+    travel_gain = 14.0
+    speed_gain = 0.06
+
     source = a.fruit_type
     new_type = source + 1
     merge_types.append(source)
@@ -320,12 +312,12 @@ def _merge_pair(
         horiz = abs(held.body.position.x - other.body.position.x)
         touch = max(held.shape.radius + other.shape.radius, 1e-6)
         side_frac = horiz / touch
-        if side_frac >= MERGE_SIDE_MIN:
+        if side_frac >= side_min:
             # Toward held. The main source of momentum is the movement to the midpoint (larger for narrow grazes).
             side = 1.0 if held.body.position.x >= other.body.position.x else -1.0
             travel = horiz * 0.5
             speed = math.hypot(held.body.velocity.x, held.body.velocity.y)
-            pull = travel * MERGE_TRAVEL_GAIN + speed * MERGE_SPEED_GAIN * side_frac * side_frac
+            pull = travel * travel_gain + speed * speed_gain * side_frac * side_frac
             vx += side * pull
             aw += side * pull * 0.02
 
@@ -353,14 +345,16 @@ def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] 
 
 
 def _all_quiet(bodies: list[_BodyFruit]) -> bool:
+    vel_sleep = 8.0
+    ang_sleep = 0.45
     if not bodies:
         return True
     for item in bodies:
         v = item.body.velocity
         speed = math.hypot(v.x, v.y)
-        if speed > VEL_SLEEP:
+        if speed > vel_sleep:
             return False
-        if abs(item.body.angular_velocity) > ANG_SLEEP:
+        if abs(item.body.angular_velocity) > ang_sleep:
             return False
     return True
 
