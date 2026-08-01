@@ -21,47 +21,11 @@ from .vision.colors import MAX_FRUIT_TYPE, SPAWN_MAX_TYPE
 from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from .vision.state import Fruit
 
-# Spacing of candidate columns (normalized coordinates).
-CANDIDATE_STEP = 12.0
-# The next lookahead is applied only to the top immediate eval (because the physics is heavy).
-NEXT_BEAM = 3
-# next candidates at a coarse spacing (held stays at CANDIDATE_STEP).
-NEXT_CANDIDATE_STEP = 32.0
-# Tolerance for a contact that could merge (difference between center distance and sum of radii). For candidate evaluation.
+# --- Tuning shared across several places ---
+# Tolerance for a contact that could merge (difference between center distance and sum of radii).
 MERGE_SLACK = 18.0
-# The 'toward the center' |dx| / lower radius used in burying checks and the like.
-MERGE_SUPPORT_DX_FRAC = 0.5
-# Dangerous if the head rises above this y (near the top edge of the board).
-DANGER_Y = 90.0
-# Column width for evaluating flatness.
-FLAT_BIN = 40.0
 # Discount for the next move.
 NEXT_DISCOUNT = 0.55
-# Penalties are scaled to balance with the real-game score (1-65). The only bonus is the real-game score.
-# Penalty for aiming nearly at the center of a different type (even if it rolls to the floor). It breaks easily on the real machine.
-FOREIGN_AIM_PENALTY = 10.0
-# Penalty per excess fruit when there are 3 or more of the same type. Up to 2 waiting is OK.
-EXCESS_SAME_WEIGHT = 20.0
-# Penalty per type difference of an inverted size pair.
-SIZE_ORDER_PAIR_WEIGHT = 1.5
-# Penalty per mean distance from the ideal column (weak; not forcing a layout).
-SIZE_ORDER_IDEAL_WEIGHT = 0.004
-# A weak pull toward the ideal column.
-IDEAL_PULL = 0.015
-# Penalty per height stacked from the floor (the minimum to stop stacking).
-LAND_HEIGHT_WEIGHT = 0.05
-DANGER_CROWN_WEIGHT = 0.5
-BURY_WEIGHT = 20.0
-# Penalty for moves blocking a waiting same-type pair with a bigger fruit of another type (per type difference).
-BURY_BLOCK_WEIGHT = 14.0
-# The ratio when blocking from the shoulder rather than directly above.
-BURY_SHOULDER_SCALE = 0.5
-VARIANCE_WEIGHT = 0.08
-VARIANCE_DANGER_SCALE = 0.15
-WRONG_SIDE_BASE = 8.0
-WRONG_SIDE_TYPE_WEIGHT = 2.0
-COAST_DRIFT_WEIGHT = 0.08
-COAST_FLOOR_BONUS = 8.0
 
 
 def choose_x(obs: Observation) -> float:
@@ -86,11 +50,14 @@ def choose_x(obs: Observation) -> float:
     if obs.next_type is None:
         return ranked[0][1]
 
+    # The next lookahead covers only the top immediate eval (the physics is heavy). Candidates at a coarse spacing.
+    next_beam = 3
+    next_candidate_step = 32.0
     best_x = ranked[0][1]
     best_score = -math.inf
-    for immediate, x, after in ranked[:NEXT_BEAM]:
+    for immediate, x, after in ranked[:next_beam]:
         value = immediate + NEXT_DISCOUNT * _best_next_score(
-            after, obs.next_type, step=NEXT_CANDIDATE_STEP
+            after, obs.next_type, step=next_candidate_step
         )
         if value > best_score:
             best_score = value
@@ -107,10 +74,11 @@ def _candidates(
     step: float | None = None,
 ) -> list[float]:
     """Uniform spacing plus spots above / beside same-type and nearby fruits, and ideal_x."""
+    candidate_step = 12.0
     sign = _order_sign(fruits)
     lo = held_r
     hi = NORMALIZED_WIDTH - held_r
-    grid = CANDIDATE_STEP if step is None else step
+    grid = candidate_step if step is None else step
     xs = {round(x / grid) * grid for x in _frange(lo, hi, grid)}
     xs.add(_ideal_x(drop_type, sign))
 
@@ -206,6 +174,9 @@ def _evaluate_drop(
     after, merges, merge_types = simulate_drop(before, drop_type, x)
     land_x, land_y = landed_xy(before, after, drop_type, x, held_r, merges)
 
+    land_height_weight = 0.05
+    ideal_pull = 0.015
+
     score = merge_score(merge_types)
     penalties = _board_penalties(after, sign=sign)
     # Only valley landings meeting the conditions are growing slots. Not crushed by height, wrong_side or ideal.
@@ -214,11 +185,11 @@ def _evaluate_drop(
         # A merged fruit does not remain, so the stacking penalty applies only to moves that stay on the board.
         if not growing:
             floor = NORMALIZED_HEIGHT - held_r
-            penalties += max(0.0, floor - land_y) * LAND_HEIGHT_WEIGHT
+            penalties += max(0.0, floor - land_y) * land_height_weight
             penalties += _wrong_side_roll_penalty(
                 before, land_x, land_y, drop_type, held_r, sign
             )
-            penalties += abs(x - _ideal_x(drop_type, sign)) * IDEAL_PULL
+            penalties += abs(x - _ideal_x(drop_type, sign)) * ideal_pull
         penalties += _foreign_aim_penalty(before, x, drop_type)
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
     penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
@@ -227,30 +198,37 @@ def _evaluate_drop(
 
 def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
     """Board penalties after the drop (danger, burying, excess same type, size order, bumpiness)."""
+    danger_y = 90.0
+    danger_crown_weight = 0.5
+    bury_weight = 20.0
+    variance_weight = 0.08
+    variance_danger_scale = 0.15
+
     penalty = 0.0
     crown = _top_crown(fruits)
-    if crown < DANGER_Y:
-        penalty += (DANGER_Y - crown) * DANGER_CROWN_WEIGHT
+    if crown < danger_y:
+        penalty += (danger_y - crown) * danger_crown_weight
 
-    penalty += BURY_WEIGHT * _bury_penalty(fruits)
+    penalty += bury_weight * _bury_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     penalty += _size_order_penalty(fruits, sign)
     variance = _height_variance(fruits)
-    if crown < DANGER_Y:
-        variance *= VARIANCE_DANGER_SCALE
-    penalty += VARIANCE_WEIGHT * variance
+    if crown < danger_y:
+        variance *= variance_danger_scale
+    penalty += variance_weight * variance
     return penalty
 
 
 def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
     """Penalize the excess when there are 3 or more of the same type. Up to 2 are allowed as waiting to merge."""
+    excess_same_weight = 20.0
     counts: dict[int, int] = {}
     for fruit in fruits:
         counts[fruit.type] = counts.get(fruit.type, 0) + 1
     penalty = 0.0
     for count in counts.values():
         if count >= 3:
-            penalty += (count - 2) * EXCESS_SAME_WEIGHT
+            penalty += (count - 2) * excess_same_weight
     return penalty
 
 
@@ -260,11 +238,12 @@ def _foreign_aim_penalty(
     drop_type: int,
 ) -> float:
     """Penalty for aiming nearly at the center of a different type. Unstable on the real machine even if it rolls."""
+    foreign_aim_penalty = 10.0
     for fruit in fruits:
         if fruit.type == drop_type:
             continue
         if abs(drop_x - fruit.x) <= fruit.radius * 0.3:
-            return FOREIGN_AIM_PENALTY
+            return foreign_aim_penalty
     return 0.0
 
 
@@ -277,6 +256,8 @@ def _wrong_side_roll_penalty(
     sign: int,
 ) -> float:
     """Penalty for rolling onto the big-side floor of a big fruit."""
+    wrong_side_base = 8.0
+    wrong_side_type_weight = 2.0
     floor = NORMALIZED_HEIGHT - held_r
     if land_y < floor - 4.0:
         return 0.0
@@ -289,7 +270,7 @@ def _wrong_side_roll_penalty(
             continue
         if abs(land_x - other.x) > other.radius + held_r + MERGE_SLACK * 2:
             continue
-        penalty += WRONG_SIDE_BASE + WRONG_SIDE_TYPE_WEIGHT * (other.type - drop_type)
+        penalty += wrong_side_base + wrong_side_type_weight * (other.type - drop_type)
     return penalty
 
 
@@ -301,13 +282,15 @@ def _coast_away_penalty(
     held_r: float,
 ) -> float:
     """Penalize landings knocked far from the drop column by contact."""
+    coast_drift_weight = 0.08
+    coast_floor_bonus = 8.0
     floor = NORMALIZED_HEIGHT - held_r
     drifted = abs(land_x - drop_x)
     if drifted < held_r * 2:
         return 0.0
-    penalty = drifted * COAST_DRIFT_WEIGHT
+    penalty = drifted * coast_drift_weight
     if land_y >= floor - 4.0 and drifted > NORMALIZED_WIDTH * 0.25:
-        penalty += COAST_FLOOR_BONUS
+        penalty += coast_floor_bonus
     return penalty
 
 
@@ -417,6 +400,8 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
     """
     if not fruits:
         return 0.0
+    size_order_pair_weight = 1.5
+    size_order_ideal_weight = 0.004
     penalty = 0.0
     open_fruits = [f for f in fruits if not _is_nestled(f, fruits)]
     for i, a in enumerate(fruits):
@@ -427,14 +412,14 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
                 continue
             left, right = (a, b) if a.x <= b.x else (b, a)
             if sign > 0 and left.type < right.type:
-                penalty += (right.type - left.type) * SIZE_ORDER_PAIR_WEIGHT
+                penalty += (right.type - left.type) * size_order_pair_weight
             elif sign < 0 and left.type > right.type:
-                penalty += (left.type - right.type) * SIZE_ORDER_PAIR_WEIGHT
+                penalty += (left.type - right.type) * size_order_pair_weight
     if open_fruits:
         penalty += (
             sum(abs(f.x - _ideal_x(f.type, sign)) for f in open_fruits)
             / len(open_fruits)
-            * SIZE_ORDER_IDEAL_WEIGHT
+            * size_order_ideal_weight
         )
     return penalty
 
@@ -477,6 +462,8 @@ def _bury_block_penalty(
     held_r: float,
 ) -> float:
     """Penalty for blocking a fruit waiting for a same-type pair with a bigger fruit of another type, from directly above or the shoulder."""
+    bury_block_weight = 14.0
+    bury_shoulder_scale = 0.5
     penalty = 0.0
     for under in fruits:
         if under.type >= drop_type:
@@ -490,16 +477,17 @@ def _bury_block_penalty(
         over_top = (land_y + held_r) - (under.y - under.radius)
         if over_top > under.radius:
             continue
-        scale = 1.0 if dx <= under.radius * 0.5 else BURY_SHOULDER_SCALE
-        penalty += scale * BURY_BLOCK_WEIGHT * (drop_type - under.type)
+        scale = 1.0 if dx <= under.radius * 0.5 else bury_shoulder_scale
+        penalty += scale * bury_block_weight * (drop_type - under.type)
     return penalty
 
 
 def _height_variance(fruits: list[Fruit]) -> float:
     """Spread of crowns per column bin. 0 if empty."""
+    flat_bin = 40.0
     bins: dict[int, float] = {}
     for fruit in fruits:
-        key = int(fruit.x // FLAT_BIN)
+        key = int(fruit.x // flat_bin)
         top = fruit.y - fruit.radius
         bins[key] = min(bins.get(key, float(NORMALIZED_HEIGHT)), top)
     if len(bins) < 2:
