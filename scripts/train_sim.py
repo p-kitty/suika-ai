@@ -3,7 +3,8 @@
 既定は bootstrap (`choose_x`) を先生にしたオフライン BC:
   1) 先生の軌道を集める (重みは触らない)
   2) 溜めたデータで何エポックか復習する
-  3) eval (= score - penalties) が最良の重みを保存
+  3) 本家点 score が最良の重みを保存
+     (累積 eval は手数バイアスで「すぐ死ぬ」が勝つので使わない)
 
 REINFORCE は match が十分上がってから手動で足す。
 
@@ -103,9 +104,22 @@ def main() -> None:
             log_every=args.log_every,
         )
 
+    best_score = -float("inf")
+    best_steps = -1.0
     best_match = -1.0
-    best_eval = -float("inf")
     best_snap: dict[str, np.ndarray] | None = None
+
+    def _is_better(score: float, steps: float, match: float) -> bool:
+        # 本家点優先。同点なら生存手数、それも同点なら match。
+        if score > best_score + 1e-9:
+            return True
+        if abs(score - best_score) > 1e-9:
+            return False
+        if steps > best_steps + 1e-9:
+            return True
+        if abs(steps - best_steps) > 1e-9:
+            return False
+        return match > best_match
 
     if args.bc_epochs > 0 and obs_buf:
         print(
@@ -123,28 +137,24 @@ def main() -> None:
             )
             if epoch % args.log_every == 0 or epoch == 1 or epoch == args.bc_epochs:
                 match = match_rate(policy, obs_buf, act_buf, rng=rng)
-                student_score, student_eval, student_s = eval_student(
+                student_score, _student_eval, student_s = eval_student(
                     policy,
                     seed=args.seed + 9000,
                     episodes=args.eval_episodes,
                     max_steps=eval_max_steps,
                 )
-                # 実力 (eval) 優先。同点なら match。
-                better = student_eval > best_eval + 1e-9 or (
-                    abs(student_eval - best_eval) <= 1e-9 and match > best_match
-                )
-                if better:
+                if _is_better(student_score, student_s, match):
+                    best_score = student_score
+                    best_steps = student_s
                     best_match = match
-                    best_eval = student_eval
                     best_snap = policy.snapshot()
                 print(
                     f"epoch={epoch:4d}  "
                     f"loss={loss:6.3f}  "
                     f"match={match:5.1%}  "
                     f"score={student_score:7.2f}  "
-                    f"eval={student_eval:8.2f}  "
                     f"student_s={student_s:5.1f}  "
-                    f"best_eval={best_eval:8.2f}  "
+                    f"best_score={best_score:7.2f}  "
                     f"best_match={best_match:5.1%}",
                     flush=True,
                 )
@@ -152,7 +162,8 @@ def main() -> None:
         if best_snap is not None:
             policy.restore(best_snap)
             print(
-                f"restored best_eval={best_eval:.2f} best_match={best_match:.1%}",
+                f"restored best_score={best_score:.2f} "
+                f"best_s={best_steps:.1f} best_match={best_match:.1%}",
                 flush=True,
             )
 
@@ -174,23 +185,23 @@ def main() -> None:
             if ep % args.log_every == 0 or ep == 1 or ep == args.episodes:
                 train_score = statistics.fmean(window)
                 train_s = statistics.fmean(window_steps)
-                student_score, student_eval, student_s = eval_student(
+                student_score, _student_eval, student_s = eval_student(
                     policy,
                     seed=args.seed + 9000,
                     episodes=args.eval_episodes,
                     max_steps=eval_max_steps,
                 )
-                if student_eval > best_eval + 1e-9:
-                    best_eval = student_eval
+                if _is_better(student_score, student_s, 0.0):
+                    best_score = student_score
+                    best_steps = student_s
                     best_snap = policy.snapshot()
                 print(
                     f"rl={ep:4d}  "
                     f"train_score={train_score:7.2f}  "
                     f"train_s={train_s:5.1f}  "
                     f"score={student_score:7.2f}  "
-                    f"eval={student_eval:8.2f}  "
                     f"student_s={student_s:5.1f}  "
-                    f"best_eval={best_eval:8.2f}",
+                    f"best_score={best_score:7.2f}",
                     flush=True,
                 )
                 window.clear()
@@ -198,7 +209,10 @@ def main() -> None:
 
         if best_snap is not None:
             policy.restore(best_snap)
-            print(f"restored best_eval={best_eval:.2f}", flush=True)
+            print(
+                f"restored best_score={best_score:.2f} best_s={best_steps:.1f}",
+                flush=True,
+            )
 
     if args.save is not None:
         args.save.parent.mkdir(parents=True, exist_ok=True)
