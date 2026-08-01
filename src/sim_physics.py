@@ -69,9 +69,9 @@ def iter_simulate_drop(
     fruit_type: int,
     x: float,
 ) -> Iterator[tuple[list[Fruit], int, list[int]]]:
-    """落下物理を 1 ステップずつ進める。各回 (盤面, merges, merge_types) を yield。
+    """落下物理を 1 ステップずつ進める。view_sim アニメ用。
 
-    盤面はアニメ用にクランプしない (画面上の落下も見える)。
+    盤面はクランプしない。choose_x からは呼ばない (毎ステップ export する)。
     """
     space, bodies = _build_space(fruits)
     r = fruit_radius(fruit_type)
@@ -109,13 +109,39 @@ def simulate_drop(
     fruit_type: int,
     x: float,
 ) -> tuple[list[Fruit], int, list[int]]:
-    """列 x に落としたあとの盤面・合成回数・合成元 type 列。"""
-    after: list[Fruit] = []
+    """列 x に落としたあとの盤面・合成回数・合成元 type 列。
+
+    方策ホットパス。最終盤面だけ export する (アニメ用 iter は使わない)。
+    """
+    space, bodies = _build_space(fruits)
+    r = fruit_radius(fruit_type)
+    x = max(r, min(NORMALIZED_WIDTH - r, x))
+    # 盤上端より少し上から落とす。
+    _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+
     merges = 0
     merge_types: list[int] = []
-    for after, merges, merge_types in iter_simulate_drop(fruits, fruit_type, x):
-        pass
-    return _export_fruits_clamped(after), merges, merge_types
+    quiet = 0
+
+    for _ in range(MAX_STEPS):
+        # 接触中の同種を合成 (1 ステップ 1 ペアまで)。
+        paired = _find_merge_pair(bodies)
+        if paired is not None:
+            _merge_pair(space, bodies, paired[0], paired[1], merge_types)
+            merges += 1
+            quiet = 0
+            space.step(DT)
+            continue
+
+        space.step(DT)
+        if _all_quiet(bodies):
+            quiet += 1
+            if quiet >= SLEEP_FRAMES:
+                break
+        else:
+            quiet = 0
+
+    return _export_fruits(bodies), merges, merge_types
 
 
 def landed_xy(
