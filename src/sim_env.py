@@ -19,8 +19,6 @@ class SimStep:
     observation: Observation
     # 本家の合成点。学習の報酬はこちら。
     score: float
-    # score - penalties。方策の良し悪しの指標 (ログ表示は eval)。
-    eval_score: float
     done: bool
     merges: int
     info: str
@@ -47,7 +45,7 @@ class SimEnv:
 
         before = self._obs()
         target = clamp_drop_x(x, self.held_type)
-        score, _penalties, eval_score, after_fruits, merges = drop_scores(
+        score, _penalties, _eval, after_fruits, merges = drop_scores(
             self.fruits, self.held_type, target
         )
         self.fruits = after_fruits
@@ -64,7 +62,7 @@ class SimEnv:
             info = "dead"
         else:
             info = "ok"
-        return SimStep(after, score, eval_score, done, merges, info)
+        return SimStep(after, score, done, merges, info)
 
     def _spawn(self) -> int:
         return int(self.rng.integers(0, SPAWN_MAX_TYPE + 1))

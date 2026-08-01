@@ -64,34 +64,26 @@ def eval_student(
     seed: int,
     episodes: int,
     max_steps: int,
-) -> tuple[float, float, float]:
-    """生徒 greedy の平均 score・平均 eval・平均ステップ。"""
+) -> tuple[float, float]:
+    """生徒 greedy の平均 score・平均ステップ。"""
     scores: list[float] = []
-    evals: list[float] = []
     steps_list: list[int] = []
     for i in range(episodes):
         env = SimEnv(seed=seed + i)
         obs = env.reset()
         total_score = 0.0
-        total_eval = 0.0
         steps = 0
         for _ in range(max_steps):
             _, x, _ = policy.act(obs, greedy=True)
             result = env.step(x)
             total_score += result.score
-            total_eval += result.eval_score
             obs = result.observation
             steps += 1
             if result.done:
                 break
         scores.append(total_score)
-        evals.append(total_eval)
         steps_list.append(steps)
-    return (
-        statistics.fmean(scores),
-        statistics.fmean(evals),
-        statistics.fmean(steps_list),
-    )
+    return statistics.fmean(scores), statistics.fmean(steps_list)
 
 
 def run_rl_episode(

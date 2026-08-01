@@ -23,12 +23,12 @@
 
 ## 学習まわり
 
-- **score / eval**: `score` は本家の合成点 (1〜65、減点なし)、`penalties` は事故・悪手の減点、`eval = score - penalties`。方策の手選びと生徒の良し悪しは eval、**RL の報酬は score のまま**（密な減点は報酬にしない）
+- **score / penalties**: `score` は本家の合成点 (1〜65、減点なし)、`penalties` は事故・悪手の減点。`eval = score - penalties` は **bootstrap の手選び専用**（`choose_x`）。生徒の良し悪し・保存・ログは本家点 `score`（同点なら手数）。**RL の報酬も score**（密な減点は報酬にしない）
 - `src/reward.py`: `merge_score(merge_types)` が本家と同じ合成点のみ (cherry→0 … watermelon 55、ダブル消去 65)。生存加点・死亡減点なし。エピソード終了は従来どおり (負けライン / ダブル消去)
 - `src/encode.py`: 固定長観測ベクトル
-- `src/sim_env.py`: 画面なし落下 sim (`sim_physics.simulate_drop`)。`SimStep` は `score` と `eval_score` を持つ
+- `src/sim_env.py`: 画面なし落下 sim (`sim_physics.simulate_drop`)。`SimStep` は本家点 `score` のみ（累積 eval は持たない）
 - 評価: `python scripts/eval_policy.py` (`--policy bootstrap|learned`。`--workers` 既定=論理コア/2)
-- 学習: `python scripts/train_sim.py` (収集 → オフライン BC。既定 max-steps=100 は打ち切りであり負けラインではない)。ログは score と eval を併記し、best は eval で選ぶ
+- 学習: `python scripts/train_sim.py` (収集 → オフライン BC。既定 max-steps=100 は打ち切りであり負けラインではない)。best は score → 手数 → match
 - 教師収集は `ProcessPool` 並列 (既定 workers=論理コア/2。9700X なら 8。`--workers 1` で直列)
 - `src/agent.py`: 離散列 32 ビン / hidden 128 の MLP (旧 20/64 の npz は再学習が必要)
 - 実プレイ: `python main.py` (npz があれば既定 learned。`L` で bootstrap 切替、`--policy bootstrap`)
@@ -36,6 +36,6 @@
 ## 予定: RL (REINFORCE)
 
 - いまはまだ早い。BC が浅いと素の REINFORCE は壊しやすい（過去に確認済み）
-- 足す条件: `match` が高め（目安 60–70%+）かつ生徒の `score` / `eval` が bootstrap に近い
+- 足す条件: `match` が高め（目安 60–70%+）かつ生徒の `score` が bootstrap に近い
 - やり方: BC 完了後に短い微調整だけ（例: `--episodes 50 --lr 0.002`）。既定はオフのまま
 - それまでは BC（収集量・epoch）を厚くする方が先

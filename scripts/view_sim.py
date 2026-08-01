@@ -99,7 +99,6 @@ def main() -> None:
     obs = env.reset()
     aim_x = NORMALIZED_WIDTH / 2
     total_score = 0.0
-    total_eval = 0.0
     last_info = "ok"
     message = "mouse: aim  space: drop  a: bootstrap  r: reset"
 
@@ -115,7 +114,7 @@ def main() -> None:
             _drop()
 
     def _drop(x: float | None = None) -> None:
-        nonlocal obs, total_score, total_eval, last_info, message, aim_x
+        nonlocal obs, total_score, last_info, message, aim_x
         if obs.held_type is None or not obs.ready:
             message = "not ready"
             return
@@ -124,20 +123,18 @@ def main() -> None:
         step = env.step(target)
         obs = step.observation
         total_score += step.score
-        total_eval += step.eval_score
         last_info = step.info
         message = (
             f"drop x={target:.0f}  score+{step.score:.0f}  "
-            f"eval+{step.eval_score:.1f}  merges={step.merges}  {step.info}"
+            f"merges={step.merges}  {step.info}"
         )
         if step.done:
             message += "  (done — r to reset)"
 
     def _reset() -> None:
-        nonlocal obs, total_score, total_eval, last_info, message, aim_x
+        nonlocal obs, total_score, last_info, message, aim_x
         obs = env.reset()
         total_score = 0.0
-        total_eval = 0.0
         last_info = "ok"
         aim_x = NORMALIZED_WIDTH / 2
         message = "reset"
@@ -155,12 +152,12 @@ def main() -> None:
         after: list[Fruit] = list(obs.fruits)
         merges = 0
         land: tuple[float, float] | None = None
-        score = penalties = eval_score = 0.0
+        score = penalties = 0.0
         if held is not None:
             held_r = fruit_radius(held)
             land = (aim, land_y(obs.fruits, aim, held_r))
             after, merges, _types = simulate_drop(obs.fruits, held, aim)
-            score, penalties, eval_score = drop_scores(
+            score, penalties, _eval = drop_scores(
                 obs.fruits, held, aim, next_type=obs.next_type
             )
 
@@ -174,9 +171,7 @@ def main() -> None:
             merges=merges,
             score=score,
             penalties=penalties,
-            eval_score=eval_score,
             total_score=total_score,
-            total_eval=total_eval,
             info=last_info,
             message=message,
         )
@@ -212,9 +207,7 @@ def _render(
     merges: int,
     score: float,
     penalties: float,
-    eval_score: float,
     total_score: float,
-    total_eval: float,
     info: str,
     message: str,
 ) -> np.ndarray:
@@ -242,17 +235,14 @@ def _render(
     )
     put_text(
         canvas,
-        (
-            f"preview  score={score:.0f}  penalties={penalties:.1f}  "
-            f"eval={eval_score:.1f}  merges={merges}"
-        ),
+        f"preview  score={score:.0f}  penalties={penalties:.1f}  merges={merges}",
         (PAD, 52),
         (180, 255, 180),
         scale=0.55,
     )
     put_text(
         canvas,
-        f"episode  score={total_score:.0f}  eval={total_eval:.1f}  info={info}",
+        f"episode  score={total_score:.0f}  info={info}",
         (PAD, height - 28),
         (200, 200, 255),
         scale=0.55,
