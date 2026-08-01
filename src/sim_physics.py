@@ -16,35 +16,12 @@ from .vision.colors import MAX_FRUIT_TYPE
 from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from .vision.state import Fruit
 
-# --- チューニング (実機の転がり寄り。pymunk は摩擦を積で使う) ---
-GRAVITY = 2800.0
+# --- 複数箇所で共有するチューニング ---
 DT = 1.0 / 60.0
-# 1 ドロップあたりの最大シミュレーション時間。
-MAX_SIM_SECONDS = 4.0
-MAX_STEPS = int(MAX_SIM_SECONDS / DT)
-# 連続何フレーム静かなら静止とみなす。
+MAX_STEPS = int(4.0 / DT)
 SLEEP_FRAMES = 22
-VEL_SLEEP = 8.0
-ANG_SLEEP = 0.45
-# Chipmunk は両 shape の friction を掛け算する (実効 ≈ 積)。
-FRICTION = 0.08
-ELASTICITY = 0.20
-# 壁・床
-WALL_FRICTION = 0.10
-WALL_ELASTICITY = 0.08
-# 空間減衰 (1=なし)。
-SPACE_DAMPING = 1.0
-# held 合体: 横ずれ比がこれ未満なら真上扱い (横ひっぱなし)。
-MERGE_SIDE_MIN = 0.08
-# held 合体のひっぱり: 中点までの横移動量 (px) あたりの速度。
-# わずかなずれは弱く、ギリギリ側面 (移動量大) ほど強い。
-MERGE_TRAVEL_GAIN = 14.0
-# 速さの補助 (小さめ)。ずれ^2 でギリギリ側だけ少し足す。
-MERGE_SPEED_GAIN = 0.06
 # フルーツ同士の collision_type。壁は 0 のまま。
 FRUIT_COLLISION_TYPE = 1
-# 本家同様、全サイズ同じ質量 (大きさで重くしない)。
-FRUIT_MASS = 1.0
 
 
 @dataclass
@@ -200,10 +177,15 @@ def _ignore_same_type(
 def _build_space(
     fruits: list[Fruit] | tuple[Fruit, ...],
 ) -> tuple[pymunk.Space, list[_BodyFruit]]:
+    gravity = 2800.0
+    space_damping = 1.0
+    wall_friction = 0.10
+    wall_elasticity = 0.08
+
     space = pymunk.Space()
     # y 下向き (正規化盤面と同じ)。
-    space.gravity = (0.0, GRAVITY)
-    space.damping = SPACE_DAMPING
+    space.gravity = (0.0, gravity)
+    space.damping = space_damping
     # 同種フルーツ同士の衝突応答を無効化 (pymunk 7: process_collision)。
     space.on_collision(
         collision_type_a=FRUIT_COLLISION_TYPE,
@@ -223,8 +205,8 @@ def _build_space(
         2.0,
     )
     for seg in (floor, left, right):
-        seg.friction = WALL_FRICTION
-        seg.elasticity = WALL_ELASTICITY
+        seg.friction = wall_friction
+        seg.elasticity = wall_elasticity
         space.add(seg)
 
     bodies: list[_BodyFruit] = []
@@ -242,16 +224,21 @@ def _add_fruit(
     *,
     wake: bool = True,
 ) -> _BodyFruit:
+    # 本家同様、全サイズ同じ質量。Chipmunk の摩擦は積。
+    fruit_mass = 1.0
+    friction = 0.08
+    elasticity = 0.20
+
     r = fruit_radius(fruit_type)
-    moment = pymunk.moment_for_circle(FRUIT_MASS, 0.0, r)
-    body = pymunk.Body(FRUIT_MASS, moment)
+    moment = pymunk.moment_for_circle(fruit_mass, 0.0, r)
+    body = pymunk.Body(fruit_mass, moment)
     body.position = (x, y)
     if not wake:
         body.velocity = (0.0, 0.0)
         body.angular_velocity = 0.0
     shape = pymunk.Circle(body, r)
-    shape.friction = FRICTION
-    shape.elasticity = ELASTICITY
+    shape.friction = friction
+    shape.elasticity = elasticity
     shape.collision_type = FRUIT_COLLISION_TYPE
     shape.fruit_type = fruit_type
     space.add(body, shape)
@@ -285,6 +272,11 @@ def _merge_pair(
     merge_types: list[int],
 ) -> None:
     """同種 2 個を合成。新実は両中心の中点に出す (実機と同じ)。"""
+    # held 合体の横ひっぱ。移動量大 (ギリギリ側面) ほど強い。
+    side_min = 0.08
+    travel_gain = 14.0
+    speed_gain = 0.06
+
     source = a.fruit_type
     new_type = source + 1
     merge_types.append(source)
@@ -320,12 +312,12 @@ def _merge_pair(
         horiz = abs(held.body.position.x - other.body.position.x)
         touch = max(held.shape.radius + other.shape.radius, 1e-6)
         side_frac = horiz / touch
-        if side_frac >= MERGE_SIDE_MIN:
+        if side_frac >= side_min:
             # held 側へ。勢いの主因は中点までの移動量 (ギリギリほど大きい)。
             side = 1.0 if held.body.position.x >= other.body.position.x else -1.0
             travel = horiz * 0.5
             speed = math.hypot(held.body.velocity.x, held.body.velocity.y)
-            pull = travel * MERGE_TRAVEL_GAIN + speed * MERGE_SPEED_GAIN * side_frac * side_frac
+            pull = travel * travel_gain + speed * speed_gain * side_frac * side_frac
             vx += side * pull
             aw += side * pull * 0.02
 
@@ -353,14 +345,16 @@ def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] 
 
 
 def _all_quiet(bodies: list[_BodyFruit]) -> bool:
+    vel_sleep = 8.0
+    ang_sleep = 0.45
     if not bodies:
         return True
     for item in bodies:
         v = item.body.velocity
         speed = math.hypot(v.x, v.y)
-        if speed > VEL_SLEEP:
+        if speed > vel_sleep:
             return False
-        if abs(item.body.angular_velocity) > ANG_SLEEP:
+        if abs(item.body.angular_velocity) > ang_sleep:
             return False
     return True
 
