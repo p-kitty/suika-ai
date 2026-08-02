@@ -279,9 +279,8 @@ def _add_fruit(
 ) -> _BodyFruit:
     # 本家同様、全サイズ同じ質量。Chipmunk の摩擦は積。
     fruit_mass = 1.0
-    # 異種かすり: 弾性で弾き、摩擦で接線方向のキックを伝える。
     friction = 0.22
-    elasticity = 0.42
+    elasticity = 0.0
 
     r = fruit_radius(fruit_type)
     moment = pymunk.moment_for_circle(fruit_mass, 0.0, r)
