@@ -26,6 +26,8 @@ from .vision.state import Fruit
 MERGE_SLACK = 18.0
 # next 手の割引。
 NEXT_DISCOUNT = 0.55
+# 異種真上とみなす着地の横ずれ (下実半径に対する割合)。
+FOREIGN_AIM_CENTER_FRAC = 0.05
 
 
 def choose_x(obs: Observation) -> float:
@@ -243,14 +245,13 @@ def _foreign_aim_penalty(
 ) -> float:
     """異種のガチ真上に着地する減点。下に埋まった異種ではかけない。"""
     penalty = 30.0
-    # 実機ではわずかにずれても真上に載ることがあるので半径の数 %。
-    center_frac = 0.02
+    # 実機ではわずかにずれても真上に載ることがある。
     land_slack = 6.0
     for fruit in fruits:
         if fruit.type == drop_type:
             continue
         # 中心がずれていれば真上ではない。肩着地は対象外。
-        if abs(land_x - fruit.x) > fruit.radius * center_frac:
+        if abs(land_x - fruit.x) > fruit.radius * FOREIGN_AIM_CENTER_FRAC:
             continue
         gap = fruit.radius + held_r
         expected_y = fruit.y - gap
