@@ -26,6 +26,8 @@ from .vision.state import Fruit
 MERGE_SLACK = 18.0
 # Discount for the next move.
 NEXT_DISCOUNT = 0.55
+# Sideways offset of a landing counted as directly above a different type (ratio to the lower fruit's radius).
+FOREIGN_AIM_CENTER_FRAC = 0.05
 
 
 def choose_x(obs: Observation) -> float:
@@ -243,14 +245,13 @@ def _foreign_aim_penalty(
 ) -> float:
     """Penalty for landing directly above a different type. Not applied to a different type buried below."""
     penalty = 30.0
-    # On the real machine it can land on top even when slightly off, so a few % of the radius.
-    center_frac = 0.02
+    # On the real machine it can land on top even when slightly off.
     land_slack = 6.0
     for fruit in fruits:
         if fruit.type == drop_type:
             continue
         # If the center is off, it is not directly above. Shoulder landings are out of scope.
-        if abs(land_x - fruit.x) > fruit.radius * center_frac:
+        if abs(land_x - fruit.x) > fruit.radius * FOREIGN_AIM_CENTER_FRAC:
             continue
         gap = fruit.radius + held_r
         expected_y = fruit.y - gap
