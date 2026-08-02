@@ -138,6 +138,62 @@ def test_held_merge_pull_grows_with_side_offset() -> None:
     assert speeds[1] > speeds[0] * 1.5
 
 
+def test_foreign_hit_clears_held_drop_flag() -> None:
+    # 異種に触れた瞬間、held の横ひっぱ資格を失う。
+    from src.sim_physics import _advance
+
+    orange_r = fruit_radius(4)
+    cherry_r = fruit_radius(0)
+    ox = 220.0
+    space, bodies = _build_space(
+        (
+            Fruit(
+                type=4,
+                x=ox,
+                y=NORMALIZED_HEIGHT - orange_r,
+                radius=orange_r,
+                confidence=90,
+            ),
+        )
+    )
+    held = _add_fruit(space, bodies, 0, ox, -cherry_r * 1.5)
+    held.is_held_drop = True
+    for _ in range(120):
+        _advance(space, bodies, [])
+        if not held.is_held_drop:
+            break
+    assert not held.is_held_drop
+
+
+def test_merge_without_held_flag_skips_side_pull() -> None:
+    # is_held_drop が落ちたあとの合体は、同じ幾何でも横ひっぱが乗らない。
+    from src.sim_physics import _find_merge_pair
+
+    r = fruit_radius(4)
+    y = NORMALIZED_HEIGHT - r
+    space, bodies = _build_space(())
+    board = _add_fruit(space, bodies, 4, 180.0, y, wake=False)
+    held = _add_fruit(space, bodies, 4, 180.0 + r * 1.4, y - r * 0.2)
+    held.body.velocity = (0.0, 400.0)
+    held.is_held_drop = True
+    pair = _find_merge_pair(bodies)
+    assert pair is not None
+    _merge_pair(space, bodies, pair[0], pair[1], [])
+    vx_held = bodies[0].body.velocity.x
+
+    space, bodies = _build_space(())
+    _add_fruit(space, bodies, 4, 180.0, y, wake=False)
+    other = _add_fruit(space, bodies, 4, 180.0 + r * 1.4, y - r * 0.2)
+    other.body.velocity = (0.0, 400.0)
+    other.is_held_drop = False
+    pair = _find_merge_pair(bodies)
+    assert pair is not None
+    _merge_pair(space, bodies, pair[0], pair[1], [])
+    vx_board = bodies[0].body.velocity.x
+
+    assert abs(vx_held) > abs(vx_board) + 50.0
+
+
 def test_board_merge_cancels_opposing_velocity() -> None:
     # held 以外は運動量相殺のみ (反対速度ならほぼ止まる)。
     r = fruit_radius(4)

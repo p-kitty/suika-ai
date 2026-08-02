@@ -206,15 +206,24 @@ def preview_land(
     return landed_xy(fruits, after, fruit_type, x0, held_r, merges)
 
 
-def _ignore_same_type(
+def _on_fruit_begin(
     arbiter: pymunk.Arbiter, _space: pymunk.Space, _data: object
 ) -> None:
-    """同種は物理衝突させず、合成ループだけが扱う (先に弾かれるのを防ぐ)。"""
+    """同種は物理衝突オフ。異種に触れた held は特別扱いを外す。"""
     a, b = arbiter.shapes
     ta = getattr(a, "fruit_type", None)
     tb = getattr(b, "fruit_type", None)
-    if ta is not None and ta == tb:
+    if ta is None or tb is None:
+        return
+    if ta == tb:
+        # 合成ループだけが扱う (先に弾かれるのを防ぐ)。
         arbiter.process_collision = False
+        return
+    # 異種接触: 以降の合体は盤面どうしと同じ (横ひっぱなし)。
+    for shape in (a, b):
+        item = getattr(shape, "fruit_item", None)
+        if item is not None and item.is_held_drop:
+            item.is_held_drop = False
 
 
 def _build_space(
@@ -230,11 +239,11 @@ def _build_space(
     # y 下向き (正規化盤面と同じ)。
     space.gravity = (0.0, gravity)
     space.damping = space_damping
-    # 同種フルーツ同士の衝突応答を無効化 (pymunk 7: process_collision)。
+    # 同種は衝突オフ、異種接触で held フラグを落とす。
     space.on_collision(
         collision_type_a=FRUIT_COLLISION_TYPE,
         collision_type_b=FRUIT_COLLISION_TYPE,
-        begin=_ignore_same_type,
+        begin=_on_fruit_begin,
     )
 
     static = space.static_body
@@ -288,6 +297,7 @@ def _add_fruit(
     shape.fruit_type = fruit_type
     space.add(body, shape)
     item = _BodyFruit(body=body, shape=shape, fruit_type=fruit_type)
+    shape.fruit_item = item
     bodies.append(item)
     return item
 
