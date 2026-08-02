@@ -2,9 +2,8 @@
 
 具体手順 (押し込み・復元押し・連鎖隙間空け・梯子発火など) は持たない。
 合成・危険高さ・埋め込み・薄い大小順・転がり事故防止だけ見る。
-大きい実どうしは近接、最大実は左右どちらでも端寄せ。最大より端の小実は
-L 中心より下へ落とさない。谷育成は同種待ちか held/next が両方とも
-壁よりひとつ小さいときに限る。
+大きい実どうしは近接、大側端の角ポケット (L 中心より下) は避ける。
+谷育成は同種待ちか held/next が両方とも壁よりひとつ小さいときに限る。
 手の採点は eval = score (本家の合成点) - penalties (事故・悪手の減点)。
 """
 
@@ -221,47 +220,38 @@ def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
 
 
 def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) -> float:
-    """最大実の端寄せと、大実どうしの近接。左右の向きは見ない。
+    """大実どうしの近接と、大側端の角ポケット減点。
 
-    最大実 L より端側に小実を置くのはよいが、L の中心より下 (y 大) に
-    落ちると角ポケットで詰むので強く減点する。
-    apple 未満の盤では効かせない。
+    sign=+1 なら左が大側、-1 なら右が大側。角ポケットはその側だけ見る。
+    最大実 L が大側壁に付いているとき、L より外側かつ L.y より下の小実を強く減点。
     """
-    del sign  # 左右差は使わない。
     if not fruits:
         return 0.0
     max_t = max(fruit.type for fruit in fruits)
-    if max_t < 5:
-        return 0.0
 
-    edge_weight = 0.55
     cluster_weight = 0.025
-    # 角ポケット (L より端かつ L.y より下) は救済不能なので重く。
     under_l_weight = 50.0
-    big_min = max(5, max_t - 2)
+    big_min = max(0, max_t - 2)
+    large_left = sign > 0
 
     penalty = 0.0
     max_fruits = [fruit for fruit in fruits if fruit.type == max_t]
-    # 最大実のいずれかが端に付いていればよい (左右どちらでも可)。
-    best_edge = min(
-        min(fruit.x - fruit.radius, NORMALIZED_WIDTH - fruit.radius - fruit.x)
-        for fruit in max_fruits
-    )
-    penalty += edge_weight * max(0.0, best_edge)
 
     for big in max_fruits:
-        left_gap = big.x - big.radius
-        right_gap = NORMALIZED_WIDTH - big.radius - big.x
-        # 端に付いている L の外側だけが角ポケット。中央の大実の外側床は対象外。
+        if large_left:
+            wall_gap = big.x - big.radius
+        else:
+            wall_gap = NORMALIZED_WIDTH - big.radius - big.x
         edge_anchored = max(24.0, big.radius * 0.35)
+        if wall_gap > edge_anchored:
+            continue
         for fruit in fruits:
             if fruit.type >= max_t:
                 continue
             if fruit.y <= big.y:
                 continue
-            left_pocket = left_gap <= edge_anchored and fruit.x < big.x
-            right_pocket = right_gap <= edge_anchored and fruit.x > big.x
-            if not left_pocket and not right_pocket:
+            on_outer = fruit.x < big.x if large_left else fruit.x > big.x
+            if not on_outer:
                 continue
             depth = fruit.y - big.y
             penalty += under_l_weight * (1.0 + 0.05 * (max_t - fruit.type))
