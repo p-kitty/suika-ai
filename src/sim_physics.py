@@ -380,6 +380,12 @@ def _merge_pair(
 
 
 def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] | None:
+    """接触中の同種ペアを 1 組選ぶ。
+
+    上側 (小さい y) を何があっても最優先。同高さなら進行方向 (vx) 側。
+    """
+    best: tuple[_BodyFruit, _BodyFruit] | None = None
+    best_key: tuple[float, int, float] | None = None
     n = len(bodies)
     for i in range(n):
         a = bodies[i]
@@ -389,13 +395,26 @@ def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] 
                 continue
             ra = a.shape.radius
             rb = b.shape.radius
+            touch = ra + rb
             dist = math.hypot(
                 a.body.position.x - b.body.position.x,
                 a.body.position.y - b.body.position.y,
             )
-            if dist <= ra + rb:
-                return a, b
-    return None
+            if dist > touch:
+                continue
+            # 上 (小さい y) を最優先。同高さなら動いている側の進行方向。
+            sa = math.hypot(a.body.velocity.x, a.body.velocity.y)
+            sb = math.hypot(b.body.velocity.x, b.body.velocity.y)
+            ref, other = (a, b) if sa >= sb else (b, a)
+            vx = ref.body.velocity.x
+            dx = other.body.position.x - ref.body.position.x
+            in_dir = 0 if abs(vx) >= 1.0 and dx * vx > 0.0 else 1
+            upper_y = min(a.body.position.y, b.body.position.y)
+            key = (upper_y, in_dir, dist / max(touch, 1e-6))
+            if best_key is None or key < best_key:
+                best_key = key
+                best = (a, b)
+    return best
 
 
 def _max_pos_drift(

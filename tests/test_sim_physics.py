@@ -194,6 +194,40 @@ def test_merge_without_held_flag_skips_side_pull() -> None:
     assert abs(vx_held) > abs(vx_board) + 50.0
 
 
+def test_merge_prefers_upper_over_velocity_direction() -> None:
+    # 上があれば進行方向より上を優先。
+    from src.sim_physics import _find_merge_pair
+
+    r = fruit_radius(4)
+    y = 300.0
+    space, bodies = _build_space(())
+    mid = _add_fruit(space, bodies, 4, 200.0, y, wake=False)
+    up = _add_fruit(space, bodies, 4, 200.0, y - r * 1.9, wake=False)
+    right = _add_fruit(space, bodies, 4, 200.0 + r * 1.9, y, wake=False)
+    mid.body.velocity = (300.0, 0.0)
+    pair = _find_merge_pair(bodies)
+    assert pair is not None
+    assert mid in pair and up in pair
+    assert right not in pair
+
+
+def test_merge_prefers_velocity_direction_when_same_height() -> None:
+    # 同じ高さなら vx 方向の相手を優先。
+    from src.sim_physics import _find_merge_pair
+
+    r = fruit_radius(4)
+    y = 300.0
+    space, bodies = _build_space(())
+    mid = _add_fruit(space, bodies, 4, 200.0, y, wake=False)
+    left = _add_fruit(space, bodies, 4, 200.0 - r * 1.9, y, wake=False)
+    right = _add_fruit(space, bodies, 4, 200.0 + r * 1.9, y, wake=False)
+    mid.body.velocity = (300.0, 0.0)
+    pair = _find_merge_pair(bodies)
+    assert pair is not None
+    assert mid in pair and right in pair
+    assert left not in pair
+
+
 def test_board_merge_cancels_opposing_velocity() -> None:
     # held 以外は運動量相殺のみ (反対速度ならほぼ止まる)。
     r = fruit_radius(4)
