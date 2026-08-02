@@ -27,7 +27,7 @@ MERGE_SLACK = 18.0
 # next 手の割引。
 NEXT_DISCOUNT = 0.55
 # 異種真上とみなす着地の横ずれ (下実半径に対する割合)。
-FOREIGN_AIM_CENTER_FRAC = 0.05
+FOREIGN_AIM_CENTER_FRAC = 0.20
 
 
 def choose_x(obs: Observation) -> float:
