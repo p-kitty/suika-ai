@@ -190,7 +190,9 @@ def _evaluate_drop(
                 before, land_x, land_y, drop_type, held_r, sign
             )
             penalties += abs(x - _ideal_x(drop_type, sign)) * ideal_pull
-        penalties += _foreign_aim_penalty(before, x, drop_type)
+        penalties += _foreign_aim_penalty(
+            before, land_x, land_y, drop_type, held_r
+        )
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
     penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
     return after, score, penalties, merges
@@ -234,16 +236,24 @@ def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
 
 def _foreign_aim_penalty(
     fruits: list[Fruit] | tuple[Fruit, ...],
-    drop_x: float,
+    land_x: float,
+    land_y: float,
     drop_type: int,
+    held_r: float,
 ) -> float:
-    """Penalty for aiming nearly at the center of a different type. Unstable on the real machine even if it rolls."""
-    foreign_aim_penalty = 10.0
+    """Penalty for landing directly above a different type. Not applied to a different type buried below."""
+    penalty = 30.0
+    land_slack = 6.0
     for fruit in fruits:
         if fruit.type == drop_type:
             continue
-        if abs(drop_x - fruit.x) <= fruit.radius * 0.3:
-            return foreign_aim_penalty
+        # If the center is off, it is not directly above. Shoulder landings are out of scope.
+        if abs(land_x - fruit.x) > land_slack:
+            continue
+        gap = fruit.radius + held_r
+        expected_y = fruit.y - gap
+        if abs(land_y - expected_y) <= land_slack:
+            return penalty
     return 0.0
 
 
