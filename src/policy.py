@@ -329,7 +329,7 @@ def _foreign_aim_penalty(
     0 if the fruit below is the same type (waiting to merge). Shoulder and floor landings are 0 too.
     merges is not looked at (rolling off a different type and merging on the floor is still penalized).
     """
-    penalty = 30.0
+    penalty = 100.0
     under = _fruit_below(fruits, land_x, land_y, held_r)
     if under is None or under.type == drop_type:
         return 0.0
