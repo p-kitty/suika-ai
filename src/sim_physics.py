@@ -18,6 +18,8 @@ from .vision.state import Fruit
 
 # --- Tuning shared across several places ---
 DT = 1.0 / 60.0
+# Physics subdivision per displayed frame. Too coarse and a fast fall passes through a 1px graze.
+SUBSTEPS = 4
 MAX_STEPS = int(4.0 / DT)
 # Speed alone misses slow creep. Like settle.py, displacement during quiet is checked too.
 SLEEP_FRAMES = 45
@@ -105,16 +107,10 @@ def iter_simulate_drop(
     yield _export_fruits(bodies, clamp=False), merges, list(merge_types)
 
     for _ in range(MAX_STEPS):
-        # Merge touching same types (at most 1 pair per step).
-        paired = _find_merge_pair(bodies)
-        if paired is not None:
-            _merge_pair(space, bodies, paired[0], paired[1], merge_types)
-            merges += 1
+        stepped = _advance(space, bodies, merge_types)
+        merges += stepped
+        if stepped:
             quiet.reset()
-            space.step(DT)
-        else:
-            space.step(DT)
-
         yield _export_fruits(bodies, clamp=False), merges, list(merge_types)
         if quiet.update(bodies):
             break
@@ -141,20 +137,38 @@ def simulate_drop(
     quiet = _QuietGate()
 
     for _ in range(MAX_STEPS):
-        # Merge touching same types (at most 1 pair per step).
-        paired = _find_merge_pair(bodies)
-        if paired is not None:
-            _merge_pair(space, bodies, paired[0], paired[1], merge_types)
-            merges += 1
+        stepped = _advance(space, bodies, merge_types)
+        merges += stepped
+        if stepped:
             quiet.reset()
-            space.step(DT)
-            continue
-
-        space.step(DT)
         if quiet.update(bodies):
             break
 
     return _export_fruits(bodies), merges, merge_types
+
+
+def _advance(
+    space: pymunk.Space,
+    bodies: list[_BodyFruit],
+    merge_types: list[int],
+) -> int:
+    """Physics for one displayed frame (= DT). Advanced in SUBSTEPS pieces.
+
+    A coarse step lets a fast fall pass through a 1px graze with impulse 0.
+    Returns the merge count within that frame.
+    """
+    merges = 0
+    sub_dt = DT / SUBSTEPS
+    for _ in range(SUBSTEPS):
+        # Merge touching same types (at most 1 pair per substep).
+        paired = _find_merge_pair(bodies)
+        if paired is not None:
+            _merge_pair(space, bodies, paired[0], paired[1], merge_types)
+            merges += 1
+            space.step(sub_dt)
+        else:
+            space.step(sub_dt)
+    return merges
 
 
 def landed_xy(
@@ -208,7 +222,8 @@ def _build_space(
 ) -> tuple[pymunk.Space, list[_BodyFruit]]:
     gravity = 2800.0
     space_damping = 1.0
-    wall_friction = 0.10
+    # Floor friction slightly higher than between fruits. Suppresses sliding on ice after a knock.
+    wall_friction = 0.28
     wall_elasticity = 0.08
 
     space = pymunk.Space()
@@ -255,8 +270,9 @@ def _add_fruit(
 ) -> _BodyFruit:
     # Like the real game, every size has the same mass. Chipmunk friction is the product.
     fruit_mass = 1.0
-    friction = 0.08
-    elasticity = 0.20
+    # A graze with a different type: bounce by elasticity, pass the tangential kick by friction.
+    friction = 0.22
+    elasticity = 0.42
 
     r = fruit_radius(fruit_type)
     moment = pymunk.moment_for_circle(fruit_mass, 0.0, r)
