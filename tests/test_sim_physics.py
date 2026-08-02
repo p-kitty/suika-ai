@@ -135,6 +135,56 @@ def test_board_merge_cancels_opposing_velocity() -> None:
     assert abs(bodies[0].body.velocity.x) < 15.0
 
 
+def test_quiet_gate_rejects_slow_drift() -> None:
+    # 速度閾値未満でも一方向にずれ続けると settled にしない。
+    from src.sim_physics import (
+        DT,
+        SLEEP_DRIFT,
+        SLEEP_FRAMES,
+        SLEEP_VEL,
+        _QuietGate,
+        _add_fruit,
+        _build_space,
+    )
+
+    space, bodies = _build_space(())
+    space.gravity = (0.0, 0.0)
+    r = fruit_radius(1)
+    item = _add_fruit(space, bodies, 1, 200.0, NORMALIZED_HEIGHT - r, wake=False)
+    # 閾値ギリギリ未満。旧判定 (速度だけ) だと SLEEP_FRAMES で止まる。
+    creep = max(SLEEP_VEL * 0.9, 0.5)
+    gate = _QuietGate()
+    slept_at: int | None = None
+    for step in range(SLEEP_FRAMES * 3):
+        item.body.velocity = (creep, 0.0)
+        space.step(DT)
+        if gate.update(bodies):
+            slept_at = step + 1
+            break
+    assert slept_at is None
+    # ウィンドウ内の想定ずれがドリフト上限を超えること (係数の健全性)。
+    assert creep * SLEEP_FRAMES * DT > SLEEP_DRIFT
+
+
+def test_quiet_gate_accepts_true_rest() -> None:
+    from src.sim_physics import DT, SLEEP_FRAMES, _QuietGate, _add_fruit, _build_space
+
+    space, bodies = _build_space(())
+    space.gravity = (0.0, 0.0)
+    # 床接触の微小反発でドリフトしないよう、空中に静止させる。
+    item = _add_fruit(space, bodies, 1, 200.0, 200.0, wake=False)
+    item.body.velocity = (0.0, 0.0)
+    item.body.angular_velocity = 0.0
+    gate = _QuietGate()
+    slept_at: int | None = None
+    for step in range(SLEEP_FRAMES + 5):
+        space.step(DT)
+        if gate.update(bodies):
+            slept_at = step + 1
+            break
+    assert slept_at == SLEEP_FRAMES
+
+
 def test_preview_land_returns_finite() -> None:
     r = fruit_radius(0)
     x, y = preview_land((), 0, 200, r)

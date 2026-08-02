@@ -19,7 +19,12 @@ from .vision.state import Fruit
 # --- 複数箇所で共有するチューニング ---
 DT = 1.0 / 60.0
 MAX_STEPS = int(4.0 / DT)
-SLEEP_FRAMES = 22
+# 速度だけだと遅い creep を見逃す。settle.py と同様、静穏中の変位も見る。
+SLEEP_FRAMES = 45
+SLEEP_VEL = 2.0
+SLEEP_ANG = 0.12
+# 静穏ウィンドウ中にこれだけ動いたらやり直し (SLEEP_VEL 未満の一方向ずれ用)。
+SLEEP_DRIFT = 1.0
 # フルーツ同士の collision_type。壁は 0 のまま。
 FRUIT_COLLISION_TYPE = 1
 
@@ -31,6 +36,38 @@ class _BodyFruit:
     fruit_type: int
     # このドロップで投下した実。held 合体のひっぱ向きに使う。
     is_held_drop: bool = False
+
+
+class _QuietGate:
+    """全実が遅く、かつ静穏中の位置ずれが小さいときだけ settled。"""
+
+    __slots__ = ("frames", "anchor")
+
+    def __init__(self) -> None:
+        self.frames = 0
+        self.anchor: tuple[tuple[float, float], ...] | None = None
+
+    def reset(self) -> None:
+        self.frames = 0
+        self.anchor = None
+
+    def update(self, bodies: list[_BodyFruit]) -> bool:
+        """1 ステップ後の状態を見て、SLEEP_FRAMES 続いたら True。"""
+        if not _all_quiet(bodies):
+            self.reset()
+            return False
+        snap = tuple(
+            (float(item.body.position.x), float(item.body.position.y)) for item in bodies
+        )
+        if self.anchor is None:
+            self.anchor = snap
+            self.frames = 1
+        elif _max_pos_drift(self.anchor, snap) > SLEEP_DRIFT:
+            self.anchor = snap
+            self.frames = 1
+        else:
+            self.frames += 1
+        return self.frames >= SLEEP_FRAMES
 
 
 def land_y(fruits: tuple[Fruit, ...] | list[Fruit], x: float, held_r: float) -> float:
@@ -64,7 +101,7 @@ def iter_simulate_drop(
 
     merges = 0
     merge_types: list[int] = []
-    quiet = 0
+    quiet = _QuietGate()
     yield _export_fruits(bodies, clamp=False), merges, list(merge_types)
 
     for _ in range(MAX_STEPS):
@@ -73,17 +110,13 @@ def iter_simulate_drop(
         if paired is not None:
             _merge_pair(space, bodies, paired[0], paired[1], merge_types)
             merges += 1
-            quiet = 0
+            quiet.reset()
             space.step(DT)
         else:
             space.step(DT)
-            if _all_quiet(bodies):
-                quiet += 1
-            else:
-                quiet = 0
 
         yield _export_fruits(bodies, clamp=False), merges, list(merge_types)
-        if quiet >= SLEEP_FRAMES:
+        if quiet.update(bodies):
             break
 
 
@@ -105,7 +138,7 @@ def simulate_drop(
 
     merges = 0
     merge_types: list[int] = []
-    quiet = 0
+    quiet = _QuietGate()
 
     for _ in range(MAX_STEPS):
         # 接触中の同種を合成 (1 ステップ 1 ペアまで)。
@@ -113,17 +146,13 @@ def simulate_drop(
         if paired is not None:
             _merge_pair(space, bodies, paired[0], paired[1], merge_types)
             merges += 1
-            quiet = 0
+            quiet.reset()
             space.step(DT)
             continue
 
         space.step(DT)
-        if _all_quiet(bodies):
-            quiet += 1
-            if quiet >= SLEEP_FRAMES:
-                break
-        else:
-            quiet = 0
+        if quiet.update(bodies):
+            break
 
     return _export_fruits(bodies), merges, merge_types
 
@@ -344,17 +373,28 @@ def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] 
     return None
 
 
+def _max_pos_drift(
+    anchor: tuple[tuple[float, float], ...],
+    current: tuple[tuple[float, float], ...],
+) -> float:
+    """静穏開始位置からの最大変位。個数が変わったら無限大 (やり直し)。"""
+    if len(anchor) != len(current):
+        return math.inf
+    best = 0.0
+    for (ax, ay), (bx, by) in zip(anchor, current):
+        best = max(best, math.hypot(ax - bx, ay - by))
+    return best
+
+
 def _all_quiet(bodies: list[_BodyFruit]) -> bool:
-    vel_sleep = 8.0
-    ang_sleep = 0.45
     if not bodies:
         return True
     for item in bodies:
         v = item.body.velocity
         speed = math.hypot(v.x, v.y)
-        if speed > vel_sleep:
+        if speed > SLEEP_VEL:
             return False
-        if abs(item.body.angular_velocity) > ang_sleep:
+        if abs(item.body.angular_velocity) > SLEEP_ANG:
             return False
     return True
 
