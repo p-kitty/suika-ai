@@ -279,9 +279,8 @@ def _add_fruit(
 ) -> _BodyFruit:
     # Like the real game, every size has the same mass. Chipmunk friction is the product.
     fruit_mass = 1.0
-    # A graze with a different type: bounce by elasticity, pass the tangential kick by friction.
     friction = 0.22
-    elasticity = 0.42
+    elasticity = 0.0
 
     r = fruit_radius(fruit_type)
     moment = pymunk.moment_for_circle(fruit_mass, 0.0, r)
