@@ -134,7 +134,7 @@ def test_grows_apple_in_pear_valley_when_held_and_next_are_one_smaller() -> None
     assert left.x < land_x < right.x
     assert _valley_grow_ok(fruits, land_x, 5, 5)
     far = NORMALIZED_WIDTH - apple_r - 8
-    # 育成免除が効く谷は、wrong_side / ideal で壁置きより大きく負けない。
+    # 育成免除が効く谷は、wrong_side で壁置きより大きく負けない。
     assert _score(obs, mid, apple_r) > _score(obs, far, apple_r) - 20.0
 
 

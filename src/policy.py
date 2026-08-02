@@ -176,18 +176,15 @@ def _evaluate_drop(
     after, merges, merge_types = simulate_drop(before, drop_type, x)
     land_x, land_y = landed_xy(before, after, drop_type, x, held_r, merges)
 
-    ideal_pull = 0.015
-
     score = merge_score(merge_types)
     penalties = _board_penalties(after, sign=sign)
-    # 条件を満たす谷着地だけ育成枠。wrong_side・ideal で潰さない。
+    # 条件を満たす谷着地だけ育成枠。wrong_side で潰さない。
     growing = _valley_grow_ok(before, land_x, drop_type, next_type)
     if merges == 0:
         if not growing:
             penalties += _wrong_side_roll_penalty(
                 before, land_x, land_y, drop_type, held_r, sign
             )
-            penalties += abs(x - _ideal_x(drop_type, sign)) * ideal_pull
         penalties += _foreign_aim_penalty(
             before, land_x, land_y, drop_type, held_r
         )
