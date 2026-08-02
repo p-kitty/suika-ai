@@ -1,9 +1,10 @@
 """落とす列を決める。薄い bootstrap 方策 (RL の土台)。
 
-具体手順 (押し込み・復元押し・連鎖隙間空けなど) は持たない。
+具体手順 (押し込み・復元押し・連鎖隙間空け・梯子発火など) は持たない。
 合成・危険高さ・埋め込み・薄い大小順・転がり事故防止だけ見る。
-大きい実の谷への育成は、谷に同種があるときか、held と next が両方とも
-壁よりひとつ小さいときに限る (それ以外の隙間埋めは通常減点)。
+大きい実どうしは近接、最大実は左右どちらでも端寄せ。最大より端の小実は
+L 中心より下へ落とさない。谷育成は同種待ちか held/next が両方とも
+壁よりひとつ小さいときに限る。
 手の採点は eval = score (本家の合成点) - penalties (事故・悪手の減点)。
 """
 
@@ -180,21 +181,21 @@ def _evaluate_drop(
     penalties = _board_penalties(after, sign=sign)
     # 条件を満たす谷着地だけ育成枠。wrong_side で潰さない。
     growing = _valley_grow_ok(before, land_x, drop_type, next_type)
+    # FOREIGN_AIM は merges ではなく「真下の実が異種か」で見る。
+    # 同種が真下なら合体待ちで OK。異種真上から転がって床で合体しても減点。
+    penalties += _foreign_aim_penalty(before, land_x, land_y, drop_type, held_r)
     if merges == 0:
         if not growing:
             penalties += _wrong_side_roll_penalty(
                 before, land_x, land_y, drop_type, held_r, sign
             )
-        penalties += _foreign_aim_penalty(
-            before, land_x, land_y, drop_type, held_r
-        )
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
     penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
     return after, score, penalties, merges
 
 
 def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
-    """落としたあとの盤面減点（危険・埋め込み・同種過多・サイズ順・凸凹）。"""
+    """落としたあとの盤面減点（危険・埋め込み・同種過多・サイズ順・大寄せ・凸凹）。"""
     danger_y = 90.0
     danger_crown_weight = 0.5
     bury_weight = 20.0
@@ -209,10 +210,73 @@ def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
     penalty += bury_weight * _bury_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     penalty += _size_order_penalty(fruits, sign)
+    penalty += _big_layout_penalty(fruits, sign)
     variance = _height_variance(fruits)
     if crown < danger_y:
         variance *= variance_danger_scale
     penalty += variance_weight * variance
+    return penalty
+
+
+def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) -> float:
+    """最大実の端寄せと、大実どうしの近接。左右の向きは見ない。
+
+    最大実 L より端側に小実を置くのはよいが、L の中心より下 (y 大) に
+    落ちると角ポケットで詰むので強く減点する。
+    apple 未満の盤では効かせない。
+    """
+    del sign  # 左右差は使わない。
+    if not fruits:
+        return 0.0
+    max_t = max(fruit.type for fruit in fruits)
+    if max_t < 5:
+        return 0.0
+
+    edge_weight = 0.55
+    cluster_weight = 0.025
+    # 角ポケット (L より端かつ L.y より下) は救済不能なので重く。
+    under_l_weight = 50.0
+    big_min = max(5, max_t - 2)
+
+    penalty = 0.0
+    max_fruits = [fruit for fruit in fruits if fruit.type == max_t]
+    # 最大実のいずれかが端に付いていればよい (左右どちらでも可)。
+    best_edge = min(
+        min(fruit.x - fruit.radius, NORMALIZED_WIDTH - fruit.radius - fruit.x)
+        for fruit in max_fruits
+    )
+    penalty += edge_weight * max(0.0, best_edge)
+
+    for big in max_fruits:
+        left_gap = big.x - big.radius
+        right_gap = NORMALIZED_WIDTH - big.radius - big.x
+        # 端に付いている L の外側だけが角ポケット。中央の大実の外側床は対象外。
+        edge_anchored = max(24.0, big.radius * 0.35)
+        for fruit in fruits:
+            if fruit.type >= max_t:
+                continue
+            if fruit.y <= big.y:
+                continue
+            left_pocket = left_gap <= edge_anchored and fruit.x < big.x
+            right_pocket = right_gap <= edge_anchored and fruit.x > big.x
+            if not left_pocket and not right_pocket:
+                continue
+            depth = fruit.y - big.y
+            penalty += under_l_weight * (1.0 + 0.05 * (max_t - fruit.type))
+            penalty += 0.15 * depth
+
+    bigs = sorted(
+        (fruit for fruit in fruits if fruit.type >= big_min),
+        key=lambda fruit: fruit.x,
+    )
+    for i in range(len(bigs) - 1):
+        left, right = bigs[i], bigs[i + 1]
+        gap = (right.x - left.x) - left.radius - right.radius
+        if gap <= 0:
+            continue
+        gap = min(gap, left.radius + right.radius)
+        size = 0.5 + 0.05 * (left.type + right.type)
+        penalty += cluster_weight * gap * size
     return penalty
 
 
@@ -229,6 +293,30 @@ def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
     return penalty
 
 
+def _fruit_below(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    land_y: float,
+    held_r: float,
+) -> Fruit | None:
+    """着地の真下で支えている実。床だけなら None。"""
+    best: Fruit | None = None
+    best_err = math.inf
+    for fruit in fruits:
+        # 支点は着地より下 (y 大)。
+        if fruit.y <= land_y - 1.0:
+            continue
+        dist = math.hypot(land_x - fruit.x, land_y - fruit.y)
+        touch = fruit.radius + held_r
+        if dist > touch + MERGE_SLACK:
+            continue
+        err = abs(dist - touch)
+        if err < best_err:
+            best_err = err
+            best = fruit
+    return best
+
+
 def _foreign_aim_penalty(
     fruits: list[Fruit] | tuple[Fruit, ...],
     land_x: float,
@@ -236,21 +324,19 @@ def _foreign_aim_penalty(
     drop_type: int,
     held_r: float,
 ) -> float:
-    """異種のガチ真上に着地する減点。下に埋まった異種ではかけない。"""
+    """真下の異種のガチ真上に着地する減点。
+
+    真下が同種なら合体待ちで 0。肩着地や床着地も 0。
+    merges は見ない (異種真上から転がって床で合体しても減点する)。
+    """
     penalty = 30.0
-    # 実機ではわずかにずれても真上に載ることがある。
-    land_slack = 6.0
-    for fruit in fruits:
-        if fruit.type == drop_type:
-            continue
-        # 中心がずれていれば真上ではない。肩着地は対象外。
-        if abs(land_x - fruit.x) > fruit.radius * FOREIGN_AIM_CENTER_FRAC:
-            continue
-        gap = fruit.radius + held_r
-        expected_y = fruit.y - gap
-        if abs(land_y - expected_y) <= land_slack:
-            return penalty
-    return 0.0
+    under = _fruit_below(fruits, land_x, land_y, held_r)
+    if under is None or under.type == drop_type:
+        return 0.0
+    # 中心がずれていれば真上ではない。肩着地は対象外。
+    if abs(land_x - under.x) > under.radius * FOREIGN_AIM_CENTER_FRAC:
+        return 0.0
+    return penalty
 
 
 def _wrong_side_roll_penalty(

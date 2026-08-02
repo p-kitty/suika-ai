@@ -329,6 +329,31 @@ def test_foreign_aim_ignores_buried_foreign() -> None:
     assert _foreign_aim_penalty((apple,), apple.x, on_apple_y, 4, orange_r) == 30.0
 
 
+def test_foreign_aim_ok_when_same_type_below() -> None:
+    # 真下が同種なら合体待ちなので FOREIGN_AIM しない (merges 条件ではない)。
+    orange_r = fruit_radius(4)
+    floor = NORMALIZED_HEIGHT - orange_r
+    mate = Fruit(type=4, x=200, y=floor, radius=orange_r, confidence=90)
+    land_y = mate.y - 2 * orange_r
+    assert _foreign_aim_penalty((mate,), mate.x, land_y, 4, orange_r) == 0.0
+
+
+def test_foreign_aim_penalizes_foreign_below_even_if_near_same_type() -> None:
+    # 真下は異種。横に同種がいても真上狙いは減点 (転がって合体する抜け道)。
+    apple_r = fruit_radius(5)
+    orange_r = fruit_radius(4)
+    apple = Fruit(type=5, x=200, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
+    mate = Fruit(
+        type=4,
+        x=200 + apple_r + orange_r - 4,
+        y=NORMALIZED_HEIGHT - orange_r,
+        radius=orange_r,
+        confidence=90,
+    )
+    on_apple_y = apple.y - (apple_r + orange_r)
+    assert _foreign_aim_penalty((apple, mate), apple.x, on_apple_y, 4, orange_r) == 30.0
+
+
 def test_merges_when_three_same_type_waiting() -> None:
     # 同種が 3 個ある盤では、持っている同種で早めに合成する。
     cherry_r = fruit_radius(0)
@@ -348,3 +373,76 @@ def test_merges_when_three_same_type_waiting() -> None:
     # 端に捨てて 4 個目にする手より、合成する手が明らかに良い。
     far = 40.0
     assert _score(obs, x, cherry_r) > _score(obs, far, cherry_r) + 20.0
+
+
+def test_biggest_prefers_edge_over_center() -> None:
+    # 最大実は端寄せ (左右どちらでも可)。空盤の桃は中央より端側。
+    peach_r = fruit_radius(7)
+    obs = _obs(held_type=7)
+    x = choose_x(obs)
+    assert x < NORMALIZED_WIDTH * 0.35 or x > NORMALIZED_WIDTH * 0.65
+    center = NORMALIZED_WIDTH / 2
+    assert _score(obs, x, peach_r) > _score(obs, center, peach_r)
+
+
+def test_large_fruits_prefer_clustering() -> None:
+    # 大きい実どうしは近接。左端の桃に対し、梨は遠方より隣を選ぶ。
+    peach_r = fruit_radius(7)
+    pear_r = fruit_radius(6)
+    peach = Fruit(
+        type=7,
+        x=peach_r + 4,
+        y=NORMALIZED_HEIGHT - peach_r,
+        radius=peach_r,
+        confidence=90,
+    )
+    obs = _obs(held_type=6, fruits=(peach,))
+    x = choose_x(obs)
+    land_x, _land_y = preview_land((peach,), 6, x, pear_r)
+    assert abs(land_x - peach.x) < peach_r + pear_r + 40
+    far = NORMALIZED_WIDTH - pear_r - 8
+    assert _score(obs, x, pear_r) > _score(obs, far, pear_r)
+
+
+def test_avoids_under_max_center_on_outer_edge() -> None:
+    # 最大より端に小実を置くのは可だが、L 中心より下の角ポケットは避ける。
+    from src.policy import _big_layout_penalty
+
+    peach_r = fruit_radius(7)
+    orange_r = fruit_radius(4)
+    peach = Fruit(
+        type=7,
+        x=peach_r + 8,
+        y=NORMALIZED_HEIGHT - peach_r,
+        radius=peach_r,
+        confidence=90,
+    )
+    # 桃より左・床置き (y > peach.y) = 角ポケット。
+    pocket = Fruit(
+        type=4,
+        x=orange_r + 2,
+        y=NORMALIZED_HEIGHT - orange_r,
+        radius=orange_r,
+        confidence=90,
+    )
+    assert pocket.x < peach.x
+    assert pocket.y > peach.y
+    # 桃の肩 (端側だが y <= peach.y)。
+    shoulder_x = peach.x - peach_r * 0.4
+    dx = abs(shoulder_x - peach.x)
+    shoulder_y = peach.y - math.sqrt((peach_r + orange_r) ** 2 - dx * dx)
+    shoulder = Fruit(
+        type=4,
+        x=shoulder_x,
+        y=shoulder_y,
+        radius=orange_r,
+        confidence=90,
+    )
+    assert shoulder.y <= peach.y
+    assert _big_layout_penalty((peach, pocket)) > _big_layout_penalty((peach, shoulder)) + 30
+
+    obs = _obs(held_type=4, fruits=(peach,))
+    x = choose_x(obs)
+    land_x, land_y = preview_land((peach,), 4, x, orange_r)
+    # 角の床ポケットへ落とさない。
+    assert not (land_x < peach.x and land_y > peach.y)
