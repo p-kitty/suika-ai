@@ -7,7 +7,7 @@
 操作:
   マウス   落とす列
   クリック / Space  その列に落とす (右パネルで物理アニメ)
-  a        bootstrap の最善列で落とす
+  g        auto トグル (bootstrap の最善列で連続落下)
   r        リセット
   [ / ]    列を少しずらす
   q / Esc  終了 (アニメ中はスキップ)
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import cv2
@@ -32,7 +33,7 @@ from scripts._bootstrap import ensure_import_path
 
 ensure_import_path()
 
-from src.draw import put_text
+from src.draw import mode_badge, put_text
 from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
 from src.sim_env import SimEnv
@@ -111,7 +112,8 @@ def main() -> None:
     aim_x = NORMALIZED_WIDTH / 2
     total_score = 0.0
     last_info = "ok"
-    message = "mouse: aim  space: drop  a: bootstrap  r: reset"
+    auto_play = False
+    message = "mouse: aim  space: drop  g: auto  r: reset"
 
     def on_mouse(event: int, x: int, y: int, _flags: int, _userdata: object) -> None:
         nonlocal aim_x
@@ -124,8 +126,13 @@ def main() -> None:
         if event == cv2.EVENT_LBUTTONDOWN and obs.held_type is not None:
             _drop()
 
+    def _toggle_auto() -> None:
+        nonlocal auto_play, message
+        auto_play = not auto_play
+        message = f"auto={'ON' if auto_play else 'off'}"
+
     def _drop(x: float | None = None) -> None:
-        nonlocal obs, total_score, last_info, message, aim_x
+        nonlocal obs, total_score, last_info, message, aim_x, auto_play
         if obs.held_type is None or not obs.ready:
             message = "not ready"
             return
@@ -141,6 +148,8 @@ def main() -> None:
             next_type=obs.next_type,
             total_score=total_score,
             info=last_info,
+            auto_play=auto_play,
+            on_toggle_auto=_toggle_auto,
         )
         score = float(merge_score(merge_types))
         env.fruits = _clamp_board(after)
@@ -161,7 +170,11 @@ def main() -> None:
             f"merges={merges}  {last_info}"
         )
         if dead or win:
-            message += "  (done — r to reset)"
+            if auto_play:
+                auto_play = False
+                message += "  (auto off — r to reset)"
+            else:
+                message += "  (done — r to reset)"
 
     def _reset() -> None:
         nonlocal obs, total_score, last_info, message, aim_x
@@ -205,6 +218,7 @@ def main() -> None:
             total_score=total_score,
             info=last_info,
             message=message,
+            auto_play=auto_play,
         )
         cv2.imshow(WINDOW, frame)
         key = cv2.waitKey(30) & 0xFF
@@ -214,15 +228,18 @@ def main() -> None:
             _reset()
         elif key in (ord(" "), 13):
             _drop()
-        elif key == ord("a"):
-            if obs.held_type is not None and obs.ready:
-                x = choose_x(obs)
-                aim_x = x
-                _drop(x)
+        elif key == ord("g"):
+            _toggle_auto()
         elif key == ord("["):
             aim_x = max(0.0, aim_x - 8.0)
         elif key == ord("]"):
             aim_x = min(float(NORMALIZED_WIDTH), aim_x + 8.0)
+
+        done = last_info in ("dead", "win")
+        if auto_play and not done and obs.held_type is not None and obs.ready:
+            x = choose_x(obs)
+            aim_x = x
+            _drop(x)
 
     cv2.destroyAllWindows()
 
@@ -235,13 +252,16 @@ def _play_drop_anim(
     next_type: int | None,
     total_score: float,
     info: str,
+    auto_play: bool = False,
+    on_toggle_auto: Callable[[], None] | None = None,
 ) -> tuple[list[Fruit], int, list[int]]:
-    """右パネルに落下物理を再生する。Esc/q で最後まで飛ばす。"""
+    """右パネルに落下物理を再生する。Esc/q で最後まで飛ばす。g で auto トグル。"""
     after = list(before)
     merges = 0
     merge_types: list[int] = []
     skip = False
     frame_i = 0
+    auto_on = auto_play
     for after, merges, merge_types in iter_simulate_drop(before, held_type, drop_x):
         show = (not skip) and (frame_i % ANIM_STRIDE == 0)
         frame_i += 1
@@ -259,13 +279,17 @@ def _play_drop_anim(
             penalties=0.0,
             total_score=total_score,
             info=info,
-            message=f"animating… merges={merges}  (Esc skip)",
+            message=f"animating… merges={merges}  (Esc skip / g auto)",
             right_title="LIVE",
+            auto_play=auto_on,
         )
         cv2.imshow(WINDOW, canvas)
         key = cv2.waitKey(ANIM_WAIT_MS) & 0xFF
         if key in (27, ord("q")):
             skip = True
+        elif key == ord("g") and on_toggle_auto is not None:
+            on_toggle_auto()
+            auto_on = not auto_on
     return after, merges, merge_types
 
 
@@ -300,6 +324,7 @@ def _render(
     info: str,
     message: str,
     right_title: str = "AFTER DROP",
+    auto_play: bool = False,
 ) -> np.ndarray:
     panel_w = int(round(NORMALIZED_WIDTH * SCALE))
     panel_h = int(round(NORMALIZED_HEIGHT * SCALE))
@@ -331,6 +356,7 @@ def _render(
         scale=0.55,
     )
     _draw_next_preview(canvas, next_type, width)
+    mode_badge(canvas, auto_play)
     put_text(
         canvas,
         f"episode  score={total_score:.0f}  info={info}",
@@ -383,8 +409,9 @@ def _board_panel(
 def _draw_next_preview(
     canvas: np.ndarray, next_type: int | None, width: int
 ) -> None:
-    """ヘッダ右端に NEXT の円。盤には載せていないだけで、値は隠していない。"""
-    cx = width - PAD - NEXT_PREVIEW_R - 8
+    """ヘッダ右端付近に NEXT の円。右端は AUTO/LIVE バッジ用に空ける。"""
+    badge_reserve = 110
+    cx = width - PAD - NEXT_PREVIEW_R - 8 - badge_reserve
     cy = HEADER // 2 + PAD // 2
     put_text(canvas, "NEXT", (cx - 28, cy - NEXT_PREVIEW_R - 6), (200, 200, 200), scale=0.45)
     if next_type is None:
