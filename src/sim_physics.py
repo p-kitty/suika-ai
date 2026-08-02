@@ -233,7 +233,7 @@ def _build_space(
     space_damping = 1.0
     # 床摩擦は実どうしより少し高め。ノック後の氷上滑走を抑える。
     wall_friction = 0.28
-    wall_elasticity = 0.08
+    wall_elasticity = 0.0
 
     space = pymunk.Space()
     # y 下向き (正規化盤面と同じ)。
@@ -277,10 +277,8 @@ def _add_fruit(
     *,
     wake: bool = True,
 ) -> _BodyFruit:
-    # 本家同様、全サイズ同じ質量。Chipmunk の摩擦は積。
+    # 本家同様、全サイズ同じ質量。
     fruit_mass = 1.0
-    friction = 0.22
-    elasticity = 0.0
 
     r = fruit_radius(fruit_type)
     moment = pymunk.moment_for_circle(fruit_mass, 0.0, r)
@@ -290,8 +288,8 @@ def _add_fruit(
         body.velocity = (0.0, 0.0)
         body.angular_velocity = 0.0
     shape = pymunk.Circle(body, r)
-    shape.friction = friction
-    shape.elasticity = elasticity
+    shape.friction = 0.4
+    shape.elasticity = 0.0
     shape.collision_type = FRUIT_COLLISION_TYPE
     shape.fruit_type = fruit_type
     space.add(body, shape)
