@@ -14,9 +14,8 @@ from src.policy import (
     _ideal_x,
     _score,
     choose_x,
-    simulate_drop,
 )
-from src.sim_physics import preview_land
+from src.sim_physics import preview_land, simulate_drop
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
@@ -61,7 +60,7 @@ def test_prefers_merge_that_lowers_stack() -> None:
     b = Fruit(type=0, x=250 + 2 * cherry_r + 8, y=floor_y, radius=cherry_r, confidence=90)
     x = choose_x(_obs(held_type=0, fruits=(a, b)))
     assert x > 200
-    after, merges, _types = simulate_drop((a, b), 0, x)
+    _after, merges, _types = simulate_drop((a, b), 0, x)
     assert merges >= 1
     assert abs(x - (a.x + b.x) / 2) < cherry_r * 4
 

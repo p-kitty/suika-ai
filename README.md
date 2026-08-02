@@ -17,7 +17,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-For development (pytest / basedpyright):
+For development (pytest / basedpyright / ruff / vulture):
 
 ```powershell
 pip install -r requirements-dev.txt
@@ -60,6 +60,10 @@ python scripts/check_detection.py
 ```powershell
 pytest
 basedpyright
+# 未使用 import を自動削除
+ruff check --fix
+# 未参照の関数・定数（誤検知あり。消す前に確認）
+vulture
 ```
 
 ## Layout

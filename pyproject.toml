@@ -5,3 +5,19 @@ typeCheckingMode = "basic"
 pythonVersion = "3.10"
 # OpenCV / numpy の stub ノイズより、注釈つき API の破壊を優先して拾う。
 reportMissingImports = true
+reportUnusedImport = true
+reportUnusedVariable = true
+
+[tool.ruff]
+target-version = "py310"
+src = ["src", "scripts", "tests"]
+include = ["src/**/*.py", "scripts/**/*.py", "tests/**/*.py", "main.py"]
+
+[tool.ruff.lint]
+# 未使用 import / 変数を中心に。autofix は F401。
+select = ["F401", "F841"]
+
+[tool.vulture]
+paths = ["src", "scripts", "main.py", "tests"]
+min_confidence = 80
+exclude = [".venv/", "venv/", "**/__pycache__/"]

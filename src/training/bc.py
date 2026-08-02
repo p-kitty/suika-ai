@@ -86,26 +86,6 @@ def eval_student(
     return statistics.fmean(scores), statistics.fmean(steps_list)
 
 
-def run_rl_episode(
-    env: SimEnv,
-    policy: LinearPolicy,
-    *,
-    max_steps: int,
-    gamma: float,
-    lr: float,
-    entropy_coef: float = 0.0,
-) -> tuple[float, int]:
-    """1 エピソード REINFORCE (互換用)。run_rl_batch を推奨。"""
-    total, steps, obs_list, actions, rewards = _rollout_rl_episode(
-        env, policy, max_steps=max_steps
-    )
-    returns = _discounted_returns(rewards, gamma)
-    baseline = statistics.fmean(returns) if returns else 0.0
-    advantages = [r - baseline for r in returns]
-    policy.update(obs_list, actions, advantages, lr=lr, entropy_coef=entropy_coef)
-    return total, steps
-
-
 def _collect_rl_episode(
     env: SimEnv,
     policy: LinearPolicy,

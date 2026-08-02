@@ -24,8 +24,6 @@ DEFAULT_TIMEOUT_SEC = 12.0
 DEFAULT_HELD_TIMEOUT_SEC = 4.0
 # ready 待ちを含めた「次の一手ができる」までの上限。
 DEFAULT_PLAYABLE_TIMEOUT_SEC = 20.0
-# 旧 API / テスト用。フレーム間 px。指定時は速度換算せずこの閾値を使う。
-DEFAULT_STILL_PX = 1.5
 # 出現・消失 1 個あたりの速度ペナルティ。フレーム間 px を dt で割ると
 # 5px/frame ≈ 150px/s になり閾値を壊すので、点滅は低速扱いする。
 UNMATCHED_SPEED = 12.0

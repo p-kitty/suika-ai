@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 
 from .vision.board import BoardResult
-from .vision.colors import FRUIT_NAMES
 from .vision.normalized import NORMALIZED_WIDTH
 from .vision.state import Fruit
 
@@ -23,14 +22,6 @@ class Observation:
     held_x: float | None
     next_type: int | None
     raw_fruits: tuple[Fruit, ...] = ()
-
-    @property
-    def held_name(self) -> str | None:
-        return None if self.held_type is None else FRUIT_NAMES[self.held_type]
-
-    @property
-    def next_name(self) -> str | None:
-        return None if self.next_type is None else FRUIT_NAMES[self.next_type]
 
     @property
     def motion_fruits(self) -> tuple[Fruit, ...]:

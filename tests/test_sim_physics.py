@@ -113,7 +113,6 @@ def test_held_merge_pulls_toward_held() -> None:
 
 def test_held_merge_pull_grows_with_side_offset() -> None:
     # ギリギリ側面ほど合体瞬間の横速度が大きい (移動量ベース)。
-    import math
 
     from src.sim_physics import DT, _find_merge_pair
 
@@ -172,7 +171,7 @@ def test_merge_without_held_flag_skips_side_pull() -> None:
     r = fruit_radius(4)
     y = NORMALIZED_HEIGHT - r
     space, bodies = _build_space(())
-    board = _add_fruit(space, bodies, 4, 180.0, y, wake=False)
+    _add_fruit(space, bodies, 4, 180.0, y, wake=False)
     held = _add_fruit(space, bodies, 4, 180.0 + r * 1.4, y - r * 0.2)
     held.body.velocity = (0.0, 400.0)
     held.is_held_drop = True
