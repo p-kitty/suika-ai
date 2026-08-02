@@ -6,11 +6,10 @@ Usage:
 
 Controls:
   mouse    drop column
-  click / Space  drop at that column (physics animation in the left panel)
+  click    drop at that column (physics animation in the left panel)
   g        toggle auto (continuous drops at bootstrap's best column)
   r        reset
-  [ / ]    shift the column slightly
-  q / Esc  quit (skips during animation)
+  Esc      quit (skips during animation)
 
 Left: the current board + held contact preview / drop animation. Right: the result after dropping (the final board even during animation).
 NEXT circle at the right of the header. Draws are random cherry-orange every time (reproducible when a seed is given).
@@ -113,7 +112,7 @@ def main() -> None:
     total_score = 0.0
     last_info = "ok"
     auto_play = False
-    message = "mouse: aim  space: drop  g: auto  r: reset"
+    message = "mouse: aim/drop  g: auto  r: reset  Esc: quit"
 
     def on_mouse(event: int, x: int, y: int, _flags: int, _userdata: object) -> None:
         nonlocal aim_x
@@ -222,18 +221,12 @@ def main() -> None:
         )
         cv2.imshow(WINDOW, frame)
         key = cv2.waitKey(30) & 0xFF
-        if key in (27, ord("q")):
+        if key == 27:
             break
         if key == ord("r"):
             _reset()
-        elif key in (ord(" "), 13):
-            _drop()
         elif key == ord("g"):
             _toggle_auto()
-        elif key == ord("["):
-            aim_x = max(0.0, aim_x - 8.0)
-        elif key == ord("]"):
-            aim_x = min(float(NORMALIZED_WIDTH), aim_x + 8.0)
 
         done = last_info in ("dead", "win")
         if auto_play and not done and obs.held_type is not None and obs.ready:
@@ -287,7 +280,7 @@ def _play_drop_anim(
         )
         cv2.imshow(WINDOW, canvas)
         key = cv2.waitKey(ANIM_WAIT_MS) & 0xFF
-        if key in (27, ord("q")):
+        if key == 27:
             skip = True
         elif key == ord("g") and on_toggle_auto is not None:
             on_toggle_auto()
