@@ -24,8 +24,6 @@ DEFAULT_TIMEOUT_SEC = 12.0
 DEFAULT_HELD_TIMEOUT_SEC = 4.0
 # Cap until 'the next move can be made', including waiting for ready.
 DEFAULT_PLAYABLE_TIMEOUT_SEC = 20.0
-# Old API / for tests. Inter-frame px. When given, this threshold is used without converting to speed.
-DEFAULT_STILL_PX = 1.5
 # Speed penalty per appearance or disappearance. Dividing inter-frame px by dt
 # gives 5px/frame ≈ 150px/s and breaks the threshold, so blinking is treated as slow.
 UNMATCHED_SPEED = 12.0

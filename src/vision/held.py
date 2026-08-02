@@ -139,7 +139,7 @@ def _without_overhang(mask: np.ndarray) -> np.ndarray:
     severed = mask.copy()
     severed[-strip:, :] = 0
 
-    num, labels, stats, centroids = cv2.connectedComponentsWithStats(
+    num, labels, _stats, centroids = cv2.connectedComponentsWithStats(
         (severed > 0).astype(np.uint8), connectivity=8
     )
     if num <= 1:
