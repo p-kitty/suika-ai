@@ -15,6 +15,7 @@
 - `src/policy.py` は RL 前の薄い方策。合成・危険高さ・埋め込み・薄い大小順・転がり／弾かれの事故防止だけ
 - 落下・衝突・合成の物理は pymunk (`src/sim_physics.py`。UT は `tests/test_sim_physics.py`)。`choose_x` も同じ `simulate_drop` を採点に使う
 - 手の採点は `eval = score - penalties`。加点は本家点だけで、積み上げ・事故・埋め込みは減点で表す
+- next 先読み: held の eval 上位 `held_top` 本だけを、刻み `next_candidate_step` の候補で再評価（`NEXT_DISCOUNT` 掛け）。物理が重いので held より粗い
 - 埋め込みが主減点。同種ペア待ちを、より大きい異種で直上・肩から塞ぐ手を強く引く
 - 異種中央狙い (`FOREIGN_AIM`) と同種過多 (`EXCESS_SAME` = 超過1個あたり20) で崩し・遅延合成を抑える。谷・肩への異種積みは禁じない
 - 大きい実の谷育成は、谷に同種があるときか held/next が両方とも壁よりひとつ小さいときに限る。それ以外の隙間埋めは通常減点 (`GAP_JUNK` は廃止のまま)

@@ -50,13 +50,13 @@ def choose_x(obs: Observation) -> float:
     if obs.next_type is None:
         return ranked[0][1]
 
-    # next 先読みは即時 eval 上位だけ (物理が重い)。候補は粗い刻み。
-    next_beam = 3
-    next_candidate_step = 32.0
+    # next 先読みは held の eval 上位だけ (物理が重い)。候補は held より粗い刻み。
+    held_top = 8
+    next_candidate_step = 16.0
     best_x = ranked[0][1]
     best_score = -math.inf
-    for immediate, x, after in ranked[:next_beam]:
-        value = immediate + NEXT_DISCOUNT * _best_next_score(
+    for held_eval, x, after in ranked[:held_top]:
+        value = held_eval + NEXT_DISCOUNT * _best_next_score(
             after, obs.next_type, step=next_candidate_step
         )
         if value > best_score:
