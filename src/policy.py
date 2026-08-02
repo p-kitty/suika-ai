@@ -329,7 +329,7 @@ def _foreign_aim_penalty(
     真下が同種なら合体待ちで 0。肩着地や床着地も 0。
     merges は見ない (異種真上から転がって床で合体しても減点する)。
     """
-    penalty = 30.0
+    penalty = 100.0
     under = _fruit_below(fruits, land_x, land_y, held_r)
     if under is None or under.type == drop_type:
         return 0.0

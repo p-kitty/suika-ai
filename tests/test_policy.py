@@ -326,7 +326,7 @@ def test_foreign_aim_ignores_buried_foreign() -> None:
     assert _foreign_aim_penalty((apple, grape), land_x, land_y, 4, orange_r) == 0.0
     # 異種の頭にガチ真上着地なら減点する。
     on_apple_y = apple.y - (apple_r + orange_r)
-    assert _foreign_aim_penalty((apple,), apple.x, on_apple_y, 4, orange_r) == 30.0
+    assert _foreign_aim_penalty((apple,), apple.x, on_apple_y, 4, orange_r) == 100.0
 
 
 def test_foreign_aim_ok_when_same_type_below() -> None:
@@ -351,7 +351,7 @@ def test_foreign_aim_penalizes_foreign_below_even_if_near_same_type() -> None:
         confidence=90,
     )
     on_apple_y = apple.y - (apple_r + orange_r)
-    assert _foreign_aim_penalty((apple, mate), apple.x, on_apple_y, 4, orange_r) == 30.0
+    assert _foreign_aim_penalty((apple, mate), apple.x, on_apple_y, 4, orange_r) == 100.0
 
 
 def test_merges_when_three_same_type_waiting() -> None:
