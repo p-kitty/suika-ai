@@ -206,15 +206,24 @@ def preview_land(
     return landed_xy(fruits, after, fruit_type, x0, held_r, merges)
 
 
-def _ignore_same_type(
+def _on_fruit_begin(
     arbiter: pymunk.Arbiter, _space: pymunk.Space, _data: object
 ) -> None:
-    """Same types do not collide physically; only the merge loop handles them (prevents being knocked away first)."""
+    """Same types have physical collision off. held touching a different type loses its special treatment."""
     a, b = arbiter.shapes
     ta = getattr(a, "fruit_type", None)
     tb = getattr(b, "fruit_type", None)
-    if ta is not None and ta == tb:
+    if ta is None or tb is None:
+        return
+    if ta == tb:
+        # Only the merge loop handles it (prevents being knocked away first).
         arbiter.process_collision = False
+        return
+    # Contact with a different type: later merges are the same as board-to-board (no sideways pull).
+    for shape in (a, b):
+        item = getattr(shape, "fruit_item", None)
+        if item is not None and item.is_held_drop:
+            item.is_held_drop = False
 
 
 def _build_space(
@@ -230,11 +239,11 @@ def _build_space(
     # y points down (same as the normalized board).
     space.gravity = (0.0, gravity)
     space.damping = space_damping
-    # Disable collision response between same-type fruits (pymunk 7: process_collision).
+    # Same types collide off; contact with a different type drops the held flag.
     space.on_collision(
         collision_type_a=FRUIT_COLLISION_TYPE,
         collision_type_b=FRUIT_COLLISION_TYPE,
-        begin=_ignore_same_type,
+        begin=_on_fruit_begin,
     )
 
     static = space.static_body
@@ -288,6 +297,7 @@ def _add_fruit(
     shape.fruit_type = fruit_type
     space.add(body, shape)
     item = _BodyFruit(body=body, shape=shape, fruit_type=fruit_type)
+    shape.fruit_item = item
     bodies.append(item)
     return item
 
