@@ -176,18 +176,14 @@ def _evaluate_drop(
     after, merges, merge_types = simulate_drop(before, drop_type, x)
     land_x, land_y = landed_xy(before, after, drop_type, x, held_r, merges)
 
-    land_height_weight = 0.05
     ideal_pull = 0.015
 
     score = merge_score(merge_types)
     penalties = _board_penalties(after, sign=sign)
-    # Only valley landings meeting the conditions are growing slots. Not crushed by height, wrong_side or ideal.
+    # Only valley landings meeting the conditions are growing slots. Not crushed by wrong_side or ideal.
     growing = _valley_grow_ok(before, land_x, drop_type, next_type)
     if merges == 0:
-        # A merged fruit does not remain, so the stacking penalty applies only to moves that stay on the board.
         if not growing:
-            floor = NORMALIZED_HEIGHT - held_r
-            penalties += max(0.0, floor - land_y) * land_height_weight
             penalties += _wrong_side_roll_penalty(
                 before, land_x, land_y, drop_type, held_r, sign
             )
