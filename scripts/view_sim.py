@@ -37,7 +37,7 @@ from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
 from src.sim_env import SimEnv
 from src.reward import cleared_double_watermelon, is_game_over, merge_score
-from src.sim_physics import DT, iter_simulate_drop, land_y, simulate_drop
+from src.sim_physics import DT, iter_simulate_drop, land_y
 from src.vision.classify import fruit_radius
 from src.vision.colors import FRUIT_NAMES
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
@@ -249,7 +249,10 @@ def _play_drop_anim(
     on_toggle_auto: Callable[[], None] | None = None,
 ) -> tuple[list[Fruit], int, list[int]]:
     """Play the drop physics in the left panel. The right shows the final AFTER DROP fixed."""
-    final_after, _, _ = simulate_drop(before, held_type, drop_x)
+    # The resulting score / penalties are shown fixed from the start (not 0 during the animation).
+    result_score, result_penalties, _eval, final_after, _final_merges = drop_scores(
+        before, held_type, drop_x, next_type=next_type
+    )
     after = list(before)
     merges = 0
     merge_types: list[int] = []
@@ -269,8 +272,8 @@ def _play_drop_anim(
             held_type=None,
             next_type=next_type,
             merges=merges,
-            score=float(merge_score(merge_types)),
-            penalties=0.0,
+            score=result_score,
+            penalties=result_penalties,
             total_score=total_score,
             info=info,
             message=f"animating… merges={merges}  (Esc skip / g auto)",
