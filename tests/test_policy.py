@@ -329,6 +329,31 @@ def test_foreign_aim_ignores_buried_foreign() -> None:
     assert _foreign_aim_penalty((apple,), apple.x, on_apple_y, 4, orange_r) == 30.0
 
 
+def test_foreign_aim_ok_when_same_type_below() -> None:
+    # If directly below is the same type it is waiting to merge, so no FOREIGN_AIM (not a merges condition).
+    orange_r = fruit_radius(4)
+    floor = NORMALIZED_HEIGHT - orange_r
+    mate = Fruit(type=4, x=200, y=floor, radius=orange_r, confidence=90)
+    land_y = mate.y - 2 * orange_r
+    assert _foreign_aim_penalty((mate,), mate.x, land_y, 4, orange_r) == 0.0
+
+
+def test_foreign_aim_penalizes_foreign_below_even_if_near_same_type() -> None:
+    # Directly below is a different type. Even with a same type beside it, aiming directly above is penalized (the loophole of rolling into a merge).
+    apple_r = fruit_radius(5)
+    orange_r = fruit_radius(4)
+    apple = Fruit(type=5, x=200, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
+    mate = Fruit(
+        type=4,
+        x=200 + apple_r + orange_r - 4,
+        y=NORMALIZED_HEIGHT - orange_r,
+        radius=orange_r,
+        confidence=90,
+    )
+    on_apple_y = apple.y - (apple_r + orange_r)
+    assert _foreign_aim_penalty((apple, mate), apple.x, on_apple_y, 4, orange_r) == 30.0
+
+
 def test_merges_when_three_same_type_waiting() -> None:
     # On a board with 3 of the same type, merge early with the same type in hand.
     cherry_r = fruit_radius(0)
@@ -348,3 +373,76 @@ def test_merges_when_three_same_type_waiting() -> None:
     # Merging is clearly better than dumping it at the edge as a fourth.
     far = 40.0
     assert _score(obs, x, cherry_r) > _score(obs, far, cherry_r) + 20.0
+
+
+def test_biggest_prefers_edge_over_center() -> None:
+    # The biggest fruit is pushed to an edge (either side). A peach on an empty board is toward the edge from center.
+    peach_r = fruit_radius(7)
+    obs = _obs(held_type=7)
+    x = choose_x(obs)
+    assert x < NORMALIZED_WIDTH * 0.35 or x > NORMALIZED_WIDTH * 0.65
+    center = NORMALIZED_WIDTH / 2
+    assert _score(obs, x, peach_r) > _score(obs, center, peach_r)
+
+
+def test_large_fruits_prefer_clustering() -> None:
+    # Big fruits stay close. For a peach at the left edge, the pear picks the neighbor over far away.
+    peach_r = fruit_radius(7)
+    pear_r = fruit_radius(6)
+    peach = Fruit(
+        type=7,
+        x=peach_r + 4,
+        y=NORMALIZED_HEIGHT - peach_r,
+        radius=peach_r,
+        confidence=90,
+    )
+    obs = _obs(held_type=6, fruits=(peach,))
+    x = choose_x(obs)
+    land_x, _land_y = preview_land((peach,), 6, x, pear_r)
+    assert abs(land_x - peach.x) < peach_r + pear_r + 40
+    far = NORMALIZED_WIDTH - pear_r - 8
+    assert _score(obs, x, pear_r) > _score(obs, far, pear_r)
+
+
+def test_avoids_under_max_center_on_outer_edge() -> None:
+    # Placing a small fruit beyond the biggest toward the edge is fine, but avoid the corner pocket below L's center.
+    from src.policy import _big_layout_penalty
+
+    peach_r = fruit_radius(7)
+    orange_r = fruit_radius(4)
+    peach = Fruit(
+        type=7,
+        x=peach_r + 8,
+        y=NORMALIZED_HEIGHT - peach_r,
+        radius=peach_r,
+        confidence=90,
+    )
+    # Left of the peach, on the floor (y > peach.y) = corner pocket.
+    pocket = Fruit(
+        type=4,
+        x=orange_r + 2,
+        y=NORMALIZED_HEIGHT - orange_r,
+        radius=orange_r,
+        confidence=90,
+    )
+    assert pocket.x < peach.x
+    assert pocket.y > peach.y
+    # The peach's shoulder (edge side but y <= peach.y).
+    shoulder_x = peach.x - peach_r * 0.4
+    dx = abs(shoulder_x - peach.x)
+    shoulder_y = peach.y - math.sqrt((peach_r + orange_r) ** 2 - dx * dx)
+    shoulder = Fruit(
+        type=4,
+        x=shoulder_x,
+        y=shoulder_y,
+        radius=orange_r,
+        confidence=90,
+    )
+    assert shoulder.y <= peach.y
+    assert _big_layout_penalty((peach, pocket)) > _big_layout_penalty((peach, shoulder)) + 30
+
+    obs = _obs(held_type=4, fruits=(peach,))
+    x = choose_x(obs)
+    land_x, land_y = preview_land((peach,), 4, x, orange_r)
+    # Do not drop into the corner floor pocket.
+    assert not (land_x < peach.x and land_y > peach.y)

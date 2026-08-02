@@ -1,9 +1,10 @@
 """Decide the drop column. A thin bootstrap policy (the groundwork for RL).
 
-It has no concrete procedures (push-ins, restoring pushes, cascade gap opening and the like).
+It has no concrete procedures (push-ins, restoring pushes, cascade gap opening, ladder firing and the like).
 It only looks at merging, dangerous height, burying, light size order and rolling accident prevention.
-Growing into valleys of big fruits is limited to when the valley has a same type, or held and next are both
-one smaller than the walls (other gap filling gets the usual penalties).
+Big fruits stay close, and the biggest fruit is pushed to an edge on either side. Small fruits beyond the biggest toward the edge
+are not dropped below L's center. Valley growing is limited to waiting for a same type, or held/next both
+one smaller than the walls.
 Moves are scored as eval = score (the real game's merge points) - penalties (penalties for accidents and bad moves).
 """
 
@@ -180,21 +181,21 @@ def _evaluate_drop(
     penalties = _board_penalties(after, sign=sign)
     # Only valley landings meeting the conditions are growing slots. Not crushed by wrong_side.
     growing = _valley_grow_ok(before, land_x, drop_type, next_type)
+    # FOREIGN_AIM looks at 'is the fruit directly below a different type', not merges.
+    # A same type directly below is OK (waiting to merge). Rolling off a different type and merging on the floor is still penalized.
+    penalties += _foreign_aim_penalty(before, land_x, land_y, drop_type, held_r)
     if merges == 0:
         if not growing:
             penalties += _wrong_side_roll_penalty(
                 before, land_x, land_y, drop_type, held_r, sign
             )
-        penalties += _foreign_aim_penalty(
-            before, land_x, land_y, drop_type, held_r
-        )
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
     penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
     return after, score, penalties, merges
 
 
 def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
-    """Board penalties after the drop (danger, burying, excess same type, size order, bumpiness)."""
+    """Board penalties after the drop (danger, burying, excess same type, size order, pushing big, bumpiness)."""
     danger_y = 90.0
     danger_crown_weight = 0.5
     bury_weight = 20.0
@@ -209,10 +210,73 @@ def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
     penalty += bury_weight * _bury_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     penalty += _size_order_penalty(fruits, sign)
+    penalty += _big_layout_penalty(fruits, sign)
     variance = _height_variance(fruits)
     if crown < danger_y:
         variance *= variance_danger_scale
     penalty += variance_weight * variance
+    return penalty
+
+
+def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) -> float:
+    """Pushing the biggest fruit to an edge, and proximity between big fruits. Left/right direction is not looked at.
+
+    Placing a small fruit on the edge side of the biggest fruit L is fine, but if it falls below
+    L's center (larger y) it gets stuck in a corner pocket, so it is heavily penalized.
+    Not applied on boards below apple.
+    """
+    del sign  # left-right differences are not used.
+    if not fruits:
+        return 0.0
+    max_t = max(fruit.type for fruit in fruits)
+    if max_t < 5:
+        return 0.0
+
+    edge_weight = 0.55
+    cluster_weight = 0.025
+    # A corner pocket (beyond L toward the edge and below L.y) is unrecoverable, so heavy.
+    under_l_weight = 50.0
+    big_min = max(5, max_t - 2)
+
+    penalty = 0.0
+    max_fruits = [fruit for fruit in fruits if fruit.type == max_t]
+    # It is enough for any of the biggest fruits to be on an edge (either side).
+    best_edge = min(
+        min(fruit.x - fruit.radius, NORMALIZED_WIDTH - fruit.radius - fruit.x)
+        for fruit in max_fruits
+    )
+    penalty += edge_weight * max(0.0, best_edge)
+
+    for big in max_fruits:
+        left_gap = big.x - big.radius
+        right_gap = NORMALIZED_WIDTH - big.radius - big.x
+        # Only the outside of an L on the edge is a corner pocket. The outer floor of a big fruit in the center is out of scope.
+        edge_anchored = max(24.0, big.radius * 0.35)
+        for fruit in fruits:
+            if fruit.type >= max_t:
+                continue
+            if fruit.y <= big.y:
+                continue
+            left_pocket = left_gap <= edge_anchored and fruit.x < big.x
+            right_pocket = right_gap <= edge_anchored and fruit.x > big.x
+            if not left_pocket and not right_pocket:
+                continue
+            depth = fruit.y - big.y
+            penalty += under_l_weight * (1.0 + 0.05 * (max_t - fruit.type))
+            penalty += 0.15 * depth
+
+    bigs = sorted(
+        (fruit for fruit in fruits if fruit.type >= big_min),
+        key=lambda fruit: fruit.x,
+    )
+    for i in range(len(bigs) - 1):
+        left, right = bigs[i], bigs[i + 1]
+        gap = (right.x - left.x) - left.radius - right.radius
+        if gap <= 0:
+            continue
+        gap = min(gap, left.radius + right.radius)
+        size = 0.5 + 0.05 * (left.type + right.type)
+        penalty += cluster_weight * gap * size
     return penalty
 
 
@@ -229,6 +293,30 @@ def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
     return penalty
 
 
+def _fruit_below(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    land_y: float,
+    held_r: float,
+) -> Fruit | None:
+    """The fruit supporting the landing from directly below. None if only the floor."""
+    best: Fruit | None = None
+    best_err = math.inf
+    for fruit in fruits:
+        # The support is below the landing (larger y).
+        if fruit.y <= land_y - 1.0:
+            continue
+        dist = math.hypot(land_x - fruit.x, land_y - fruit.y)
+        touch = fruit.radius + held_r
+        if dist > touch + MERGE_SLACK:
+            continue
+        err = abs(dist - touch)
+        if err < best_err:
+            best_err = err
+            best = fruit
+    return best
+
+
 def _foreign_aim_penalty(
     fruits: list[Fruit] | tuple[Fruit, ...],
     land_x: float,
@@ -236,21 +324,19 @@ def _foreign_aim_penalty(
     drop_type: int,
     held_r: float,
 ) -> float:
-    """Penalty for landing directly above a different type. Not applied to a different type buried below."""
+    """Penalty for landing directly above a different type right below.
+
+    0 if the fruit below is the same type (waiting to merge). Shoulder and floor landings are 0 too.
+    merges is not looked at (rolling off a different type and merging on the floor is still penalized).
+    """
     penalty = 30.0
-    # On the real machine it can land on top even when slightly off.
-    land_slack = 6.0
-    for fruit in fruits:
-        if fruit.type == drop_type:
-            continue
-        # If the center is off, it is not directly above. Shoulder landings are out of scope.
-        if abs(land_x - fruit.x) > fruit.radius * FOREIGN_AIM_CENTER_FRAC:
-            continue
-        gap = fruit.radius + held_r
-        expected_y = fruit.y - gap
-        if abs(land_y - expected_y) <= land_slack:
-            return penalty
-    return 0.0
+    under = _fruit_below(fruits, land_x, land_y, held_r)
+    if under is None or under.type == drop_type:
+        return 0.0
+    # If the center is off, it is not directly above. Shoulder landings are out of scope.
+    if abs(land_x - under.x) > under.radius * FOREIGN_AIM_CENTER_FRAC:
+        return 0.0
+    return penalty
 
 
 def _wrong_side_roll_penalty(
