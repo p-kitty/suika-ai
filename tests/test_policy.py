@@ -208,7 +208,8 @@ def test_strawberry_stays_beside_right_edge_cherry() -> None:
     obs = _obs(held_type=1, fruits=(cherry,))
     x = choose_x(obs)
     land_x, land_y = preview_land((cherry,), 1, x, straw_r)
-    assert land_y >= NORMALIZED_HEIGHT - straw_r - 1.0
+    # 床 Segment 半径 2px ぶん、中心は NORMALIZED_HEIGHT - r より上に止まる。
+    assert land_y >= NORMALIZED_HEIGHT - straw_r - 3.0
     assert land_x > NORMALIZED_WIDTH * 0.5
     assert land_x < cherry.x
     above = NORMALIZED_WIDTH - straw_r

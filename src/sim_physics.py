@@ -18,6 +18,8 @@ from .vision.state import Fruit
 
 # --- 複数箇所で共有するチューニング ---
 DT = 1.0 / 60.0
+# 1 表示フレームあたりの物理分割。粗いと高速落下が 1px かすりを貫通する。
+SUBSTEPS = 4
 MAX_STEPS = int(4.0 / DT)
 # 速度だけだと遅い creep を見逃す。settle.py と同様、静穏中の変位も見る。
 SLEEP_FRAMES = 45
@@ -105,16 +107,10 @@ def iter_simulate_drop(
     yield _export_fruits(bodies, clamp=False), merges, list(merge_types)
 
     for _ in range(MAX_STEPS):
-        # 接触中の同種を合成 (1 ステップ 1 ペアまで)。
-        paired = _find_merge_pair(bodies)
-        if paired is not None:
-            _merge_pair(space, bodies, paired[0], paired[1], merge_types)
-            merges += 1
+        stepped = _advance(space, bodies, merge_types)
+        merges += stepped
+        if stepped:
             quiet.reset()
-            space.step(DT)
-        else:
-            space.step(DT)
-
         yield _export_fruits(bodies, clamp=False), merges, list(merge_types)
         if quiet.update(bodies):
             break
@@ -141,20 +137,38 @@ def simulate_drop(
     quiet = _QuietGate()
 
     for _ in range(MAX_STEPS):
-        # 接触中の同種を合成 (1 ステップ 1 ペアまで)。
-        paired = _find_merge_pair(bodies)
-        if paired is not None:
-            _merge_pair(space, bodies, paired[0], paired[1], merge_types)
-            merges += 1
+        stepped = _advance(space, bodies, merge_types)
+        merges += stepped
+        if stepped:
             quiet.reset()
-            space.step(DT)
-            continue
-
-        space.step(DT)
         if quiet.update(bodies):
             break
 
     return _export_fruits(bodies), merges, merge_types
+
+
+def _advance(
+    space: pymunk.Space,
+    bodies: list[_BodyFruit],
+    merge_types: list[int],
+) -> int:
+    """表示 1 フレーム (= DT) 分の物理。SUBSTEPS に分割して進める。
+
+    粗い step だと高速落下が 1px かすりを貫通して impulse 0 になる。
+    戻り値はそのフレーム内の合成回数。
+    """
+    merges = 0
+    sub_dt = DT / SUBSTEPS
+    for _ in range(SUBSTEPS):
+        # 接触中の同種を合成 (1 サブステップ 1 ペアまで)。
+        paired = _find_merge_pair(bodies)
+        if paired is not None:
+            _merge_pair(space, bodies, paired[0], paired[1], merge_types)
+            merges += 1
+            space.step(sub_dt)
+        else:
+            space.step(sub_dt)
+    return merges
 
 
 def landed_xy(
@@ -208,7 +222,8 @@ def _build_space(
 ) -> tuple[pymunk.Space, list[_BodyFruit]]:
     gravity = 2800.0
     space_damping = 1.0
-    wall_friction = 0.10
+    # 床摩擦は実どうしより少し高め。ノック後の氷上滑走を抑える。
+    wall_friction = 0.28
     wall_elasticity = 0.08
 
     space = pymunk.Space()
@@ -255,8 +270,9 @@ def _add_fruit(
 ) -> _BodyFruit:
     # 本家同様、全サイズ同じ質量。Chipmunk の摩擦は積。
     fruit_mass = 1.0
-    friction = 0.08
-    elasticity = 0.20
+    # 異種かすり: 弾性で弾き、摩擦で接線方向のキックを伝える。
+    friction = 0.22
+    elasticity = 0.42
 
     r = fruit_radius(fruit_type)
     moment = pymunk.moment_for_circle(fruit_mass, 0.0, r)

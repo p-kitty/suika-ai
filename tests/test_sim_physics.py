@@ -53,6 +53,24 @@ def test_foreign_hit_moves_both() -> None:
     ) > 8.0
 
 
+def test_foreign_glance_kicks_target_quickly() -> None:
+    # 1px のかすりでも横に弾く (60Hz 1 step だと高速落下が貫通して無反応だった)。
+    orange_r = fruit_radius(4)
+    cherry_r = fruit_radius(0)
+    ox = 220.0
+    orange = Fruit(
+        type=4,
+        x=ox,
+        y=NORMALIZED_HEIGHT - orange_r,
+        radius=orange_r,
+        confidence=90,
+    )
+    drop_x = ox - (orange_r + cherry_r - 1.0)
+    after, _merges, _types = simulate_drop((orange,), 0, drop_x)
+    moved = next(f for f in after if f.type == 4)
+    assert abs(moved.x - ox) > 40.0
+
+
 def test_center_drop_merge_stays_near_midpoint_column() -> None:
     r = fruit_radius(0)
     a = Fruit(type=0, x=200, y=NORMALIZED_HEIGHT - r, radius=r, confidence=90)
