@@ -6,13 +6,13 @@ Usage:
 
 Controls:
   mouse    drop column
-  click / Space  drop at that column (physics animation in the right panel)
+  click / Space  drop at that column (physics animation in the left panel)
   g        toggle auto (continuous drops at bootstrap's best column)
   r        reset
   [ / ]    shift the column slightly
   q / Esc  quit (skips during animation)
 
-Left: the current board + held contact preview. Right: drop animation / the result after dropping.
+Left: the current board + held contact preview / drop animation. Right: the result after dropping (the final board even during animation).
 NEXT circle at the right of the header. Draws are random cherry-orange every time (reproducible when a seed is given).
 """
 
@@ -38,7 +38,7 @@ from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
 from src.sim_env import SimEnv
 from src.reward import cleared_double_watermelon, is_game_over, merge_score
-from src.sim_physics import DT, iter_simulate_drop, land_y
+from src.sim_physics import DT, iter_simulate_drop, land_y, simulate_drop
 from src.vision.classify import fruit_radius
 from src.vision.colors import FRUIT_NAMES
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
@@ -255,7 +255,8 @@ def _play_drop_anim(
     auto_play: bool = False,
     on_toggle_auto: Callable[[], None] | None = None,
 ) -> tuple[list[Fruit], int, list[int]]:
-    """Play the drop physics in the right panel. Esc/q skips to the end. g toggles auto."""
+    """Play the drop physics in the left panel. The right shows the final AFTER DROP fixed."""
+    final_after, _, _ = simulate_drop(before, held_type, drop_x)
     after = list(before)
     merges = 0
     merge_types: list[int] = []
@@ -268,8 +269,8 @@ def _play_drop_anim(
         if not show:
             continue
         canvas = _render(
-            before=before,
-            after=after,
+            before=after,
+            after=final_after,
             aim_x=drop_x,
             land=None,
             held_type=None,
@@ -280,7 +281,8 @@ def _play_drop_anim(
             total_score=total_score,
             info=info,
             message=f"animating… merges={merges}  (Esc skip / g auto)",
-            right_title="LIVE",
+            left_title="LIVE",
+            right_title="AFTER DROP",
             auto_play=auto_on,
         )
         cv2.imshow(WINDOW, canvas)
@@ -323,6 +325,7 @@ def _render(
     total_score: float,
     info: str,
     message: str,
+    left_title: str = "NOW",
     right_title: str = "AFTER DROP",
     auto_play: bool = False,
 ) -> np.ndarray:
@@ -332,7 +335,7 @@ def _render(
     height = PAD * 2 + panel_h + HEADER + FOOTER
     canvas = np.full((height, width, 3), 36, dtype=np.uint8)
 
-    left = _board_panel(before, aim_x, land, held_type, title="NOW")
+    left = _board_panel(before, aim_x, land, held_type, title=left_title)
     right = _board_panel(after, aim_x, None, None, title=right_title)
     y0 = PAD + HEADER
     canvas[y0 : y0 + panel_h, PAD : PAD + panel_w] = left
