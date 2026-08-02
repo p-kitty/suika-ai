@@ -9,6 +9,7 @@ import math
 
 from src.observe import Observation
 from src.policy import (
+    _foreign_aim_penalty,
     _ideal_x,
     _score,
     choose_x,
@@ -299,14 +300,33 @@ def test_does_not_block_waiting_pair_with_bigger_fruit() -> None:
 
 
 def test_avoids_foreign_center_stack() -> None:
-    # 異種の中央真上より、空き床や隣を選ぶ。
+    # 異種のガチ真上より、空き床や隣を選ぶ。
     apple_r = fruit_radius(5)
     orange_r = fruit_radius(4)
     apple = Fruit(type=5, x=200, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
     obs = _obs(held_type=4, fruits=(apple,))
     x = choose_x(obs)
-    assert abs(x - apple.x) > apple_r * 0.3
+    assert abs(x - apple.x) > 6.0
     assert _score(obs, x, orange_r) > _score(obs, apple.x, orange_r)
+
+
+def test_foreign_aim_ignores_buried_foreign() -> None:
+    # 下の異種中央列でも、着地が上の実の肩なら減点しない。
+    apple_r = fruit_radius(5)
+    grape_r = fruit_radius(2)
+    orange_r = fruit_radius(4)
+    apple = Fruit(type=5, x=200, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
+    grape_x = apple.x + apple_r * 0.45
+    grape_y = apple.y - math.sqrt((apple_r + grape_r) ** 2 - (grape_x - apple.x) ** 2)
+    grape = Fruit(type=2, x=grape_x, y=grape_y, radius=grape_r, confidence=90)
+    # りんご中央列に落とすが、乗るのはずれたぶどう。
+    land_x = apple.x
+    dx = abs(land_x - grape.x)
+    land_y = grape_y - math.sqrt((grape_r + orange_r) ** 2 - dx * dx)
+    assert _foreign_aim_penalty((apple, grape), land_x, land_y, 4, orange_r) == 0.0
+    # 異種の頭にガチ真上着地なら減点する。
+    on_apple_y = apple.y - (apple_r + orange_r)
+    assert _foreign_aim_penalty((apple,), apple.x, on_apple_y, 4, orange_r) == 30.0
 
 
 def test_merges_when_three_same_type_waiting() -> None:

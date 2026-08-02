@@ -190,7 +190,9 @@ def _evaluate_drop(
                 before, land_x, land_y, drop_type, held_r, sign
             )
             penalties += abs(x - _ideal_x(drop_type, sign)) * ideal_pull
-        penalties += _foreign_aim_penalty(before, x, drop_type)
+        penalties += _foreign_aim_penalty(
+            before, land_x, land_y, drop_type, held_r
+        )
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
     penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
     return after, score, penalties, merges
@@ -234,16 +236,24 @@ def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
 
 def _foreign_aim_penalty(
     fruits: list[Fruit] | tuple[Fruit, ...],
-    drop_x: float,
+    land_x: float,
+    land_y: float,
     drop_type: int,
+    held_r: float,
 ) -> float:
-    """異種のほぼ中央を狙う減点。転がっても実機では不安定。"""
-    foreign_aim_penalty = 10.0
+    """異種のガチ真上に着地する減点。下に埋まった異種ではかけない。"""
+    penalty = 30.0
+    land_slack = 6.0
     for fruit in fruits:
         if fruit.type == drop_type:
             continue
-        if abs(drop_x - fruit.x) <= fruit.radius * 0.3:
-            return foreign_aim_penalty
+        # 中心がずれていれば真上ではない。肩着地は対象外。
+        if abs(land_x - fruit.x) > land_slack:
+            continue
+        gap = fruit.radius + held_r
+        expected_y = fruit.y - gap
+        if abs(land_y - expected_y) <= land_slack:
+            return penalty
     return 0.0
 
 
