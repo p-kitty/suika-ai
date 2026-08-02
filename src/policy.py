@@ -50,13 +50,13 @@ def choose_x(obs: Observation) -> float:
     if obs.next_type is None:
         return ranked[0][1]
 
-    # The next lookahead covers only the top immediate eval (the physics is heavy). Candidates at a coarse spacing.
-    next_beam = 3
-    next_candidate_step = 32.0
+    # The next lookahead covers only the top held eval (the physics is heavy). Candidates are coarser than held.
+    held_top = 8
+    next_candidate_step = 16.0
     best_x = ranked[0][1]
     best_score = -math.inf
-    for immediate, x, after in ranked[:next_beam]:
-        value = immediate + NEXT_DISCOUNT * _best_next_score(
+    for held_eval, x, after in ranked[:held_top]:
+        value = held_eval + NEXT_DISCOUNT * _best_next_score(
             after, obs.next_type, step=next_candidate_step
         )
         if value > best_score:
