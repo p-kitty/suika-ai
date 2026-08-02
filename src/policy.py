@@ -29,6 +29,8 @@ MERGE_SLACK = 18.0
 NEXT_DISCOUNT = 0.55
 # Sideways offset of a landing counted as directly above a different type (ratio to the lower fruit's radius).
 FOREIGN_AIM_CENTER_FRAC = 0.20
+# Penalty for landing in the center band of a different type directly below.
+FOREIGN_AIM_PENALTY = 100.0
 
 
 def choose_x(obs: Observation) -> float:
@@ -329,14 +331,13 @@ def _foreign_aim_penalty(
     0 if the fruit below is the same type (waiting to merge). Shoulder and floor landings are 0 too.
     merges is not looked at (rolling off a different type and merging on the floor is still penalized).
     """
-    penalty = 100.0
     under = _fruit_below(fruits, land_x, land_y, held_r)
     if under is None or under.type == drop_type:
         return 0.0
     # If the center is off, it is not directly above. Shoulder landings are out of scope.
     if abs(land_x - under.x) > under.radius * FOREIGN_AIM_CENTER_FRAC:
         return 0.0
-    return penalty
+    return FOREIGN_AIM_PENALTY
 
 
 def _wrong_side_roll_penalty(
