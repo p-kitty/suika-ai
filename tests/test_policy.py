@@ -377,11 +377,11 @@ def test_merges_when_three_same_type_waiting() -> None:
 
 
 def test_biggest_prefers_edge_over_center() -> None:
-    # The biggest fruit is pushed to an edge (either side). A peach on an empty board is toward the edge from center.
+    # Pushing the biggest fruit to the big side is left to size-order / ideal. A peach on an empty board leans left.
     peach_r = fruit_radius(7)
     obs = _obs(held_type=7)
     x = choose_x(obs)
-    assert x < NORMALIZED_WIDTH * 0.35 or x > NORMALIZED_WIDTH * 0.65
+    assert x < NORMALIZED_WIDTH * 0.45
     center = NORMALIZED_WIDTH / 2
     assert _score(obs, x, peach_r) > _score(obs, center, peach_r)
 
@@ -406,7 +406,7 @@ def test_large_fruits_prefer_clustering() -> None:
 
 
 def test_avoids_under_max_center_on_outer_edge() -> None:
-    # Placing a small fruit beyond the biggest toward the edge is fine, but avoid the corner pocket below L's center.
+    # Placing a small fruit at the big-side edge beyond the biggest is fine, but avoid the corner pocket below L's center.
     from src.policy import _big_layout_penalty
 
     peach_r = fruit_radius(7)
@@ -418,7 +418,7 @@ def test_avoids_under_max_center_on_outer_edge() -> None:
         radius=peach_r,
         confidence=90,
     )
-    # Left of the peach, on the floor (y > peach.y) = corner pocket.
+    # Left of the peach, on the floor (y > peach.y) = the big-side corner pocket (sign=+1).
     pocket = Fruit(
         type=4,
         x=orange_r + 2,
@@ -440,10 +440,21 @@ def test_avoids_under_max_center_on_outer_edge() -> None:
         confidence=90,
     )
     assert shoulder.y <= peach.y
-    assert _big_layout_penalty((peach, pocket)) > _big_layout_penalty((peach, shoulder)) + 30
+    assert _big_layout_penalty((peach, pocket), sign=1) > _big_layout_penalty(
+        (peach, shoulder), sign=1
+    ) + 30
+    # A small fruit on the small-side (right) floor does not make a corner pocket in the big-side layout.
+    right_floor = Fruit(
+        type=4,
+        x=NORMALIZED_WIDTH - orange_r - 2,
+        y=NORMALIZED_HEIGHT - orange_r,
+        radius=orange_r,
+        confidence=90,
+    )
+    assert _big_layout_penalty((peach, right_floor), sign=1) < 20
 
     obs = _obs(held_type=4, fruits=(peach,))
     x = choose_x(obs)
     land_x, land_y = preview_land((peach,), 4, x, orange_r)
-    # Do not drop into the corner floor pocket.
+    # Do not drop into the floor pocket of the big-side corner.
     assert not (land_x < peach.x and land_y > peach.y)

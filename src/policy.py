@@ -2,9 +2,8 @@
 
 It has no concrete procedures (push-ins, restoring pushes, cascade gap opening, ladder firing and the like).
 It only looks at merging, dangerous height, burying, light size order and rolling accident prevention.
-Big fruits stay close, and the biggest fruit is pushed to an edge on either side. Small fruits beyond the biggest toward the edge
-are not dropped below L's center. Valley growing is limited to waiting for a same type, or held/next both
-one smaller than the walls.
+Big fruits stay close, and the corner pocket at the big-side edge (below L's center) is avoided.
+Valley growing is limited to waiting for a same type, or held/next both one smaller than the walls.
 Moves are scored as eval = score (the real game's merge points) - penalties (penalties for accidents and bad moves).
 """
 
@@ -221,47 +220,38 @@ def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
 
 
 def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) -> float:
-    """Pushing the biggest fruit to an edge, and proximity between big fruits. Left/right direction is not looked at.
+    """Proximity between big fruits, and the corner pocket penalty at the big-side edge.
 
-    Placing a small fruit on the edge side of the biggest fruit L is fine, but if it falls below
-    L's center (larger y) it gets stuck in a corner pocket, so it is heavily penalized.
-    Not applied on boards below apple.
+    sign=+1 means the left is the big side, -1 the right. The corner pocket looks only at that side.
+    When the biggest fruit L is on the big-side wall, small fruits outside L and below L.y are heavily penalized.
     """
-    del sign  # left-right differences are not used.
     if not fruits:
         return 0.0
     max_t = max(fruit.type for fruit in fruits)
-    if max_t < 5:
-        return 0.0
 
-    edge_weight = 0.55
     cluster_weight = 0.025
-    # A corner pocket (beyond L toward the edge and below L.y) is unrecoverable, so heavy.
     under_l_weight = 50.0
-    big_min = max(5, max_t - 2)
+    big_min = max(0, max_t - 2)
+    large_left = sign > 0
 
     penalty = 0.0
     max_fruits = [fruit for fruit in fruits if fruit.type == max_t]
-    # It is enough for any of the biggest fruits to be on an edge (either side).
-    best_edge = min(
-        min(fruit.x - fruit.radius, NORMALIZED_WIDTH - fruit.radius - fruit.x)
-        for fruit in max_fruits
-    )
-    penalty += edge_weight * max(0.0, best_edge)
 
     for big in max_fruits:
-        left_gap = big.x - big.radius
-        right_gap = NORMALIZED_WIDTH - big.radius - big.x
-        # Only the outside of an L on the edge is a corner pocket. The outer floor of a big fruit in the center is out of scope.
+        if large_left:
+            wall_gap = big.x - big.radius
+        else:
+            wall_gap = NORMALIZED_WIDTH - big.radius - big.x
         edge_anchored = max(24.0, big.radius * 0.35)
+        if wall_gap > edge_anchored:
+            continue
         for fruit in fruits:
             if fruit.type >= max_t:
                 continue
             if fruit.y <= big.y:
                 continue
-            left_pocket = left_gap <= edge_anchored and fruit.x < big.x
-            right_pocket = right_gap <= edge_anchored and fruit.x > big.x
-            if not left_pocket and not right_pocket:
+            on_outer = fruit.x < big.x if large_left else fruit.x > big.x
+            if not on_outer:
                 continue
             depth = fruit.y - big.y
             penalty += under_l_weight * (1.0 + 0.05 * (max_t - fruit.type))

@@ -4,6 +4,8 @@
 
 - **`10.png` vision**: similar-color mask fusion + a strawberry outside the frame. Needs a redesign of the cropping; worse value for effort than policy / held
 - **Training episode length**: raise `max_steps` and lower `episodes` (fewer, longer games)
+- **Packing too tight early**: neighbors by size order and proximity (e.g. apple and dekopon) have too little gap between them. When stacking an orange only order-breaking moves remain. Some space is wanted
+- **Big draws after the floor fills**: after the floor fills, big draws such as orange / dekopon are placed on the small side instead of the L (biggest fruit) side and the board collapses. The big/small side placement stops working partway through
 
 ## When to move
 
@@ -19,7 +21,7 @@
 - Burying is the main penalty. Moves that block a same-type pair waiting to merge with a bigger fruit of another type, directly above or on the shoulder, are heavily penalized
 - Aiming at the center of a different type (`FOREIGN_AIM`): `FOREIGN_AIM_PENALTY` if the fruit directly below is a different type and in its center band (`FOREIGN_AIM_CENTER_FRAC`). OK if it is the same type. Not cut by `merges` (closes the loophole of rolling off a different type and merging). Excess same type (`EXCESS_SAME` = 20 per excess fruit). Stacking a different type in valleys or on shoulders is not forbidden
 - Valley growing for big fruits is limited to when the valley has a same type, or held/next are both one smaller than the walls. Other gap filling gets the usual penalties (`GAP_JUNK` stays retired)
-- Layout: the biggest fruit is pushed hard to an edge on either side. Big fruits stay close. A small fruit beyond the biggest toward the edge coming below L's center (corner pocket) is heavily penalized (`_big_layout_penalty`)
+- Layout: big fruits stay close together. On the big side (`sign`), the corner pocket outside an edge-anchored L and below L's center is heavily penalized (`_big_layout_penalty`). `wrong_side_roll` is also for rolling accidents onto the same big-side floor
 - Not included: push-in merges, restoring pushes, cascade gap opening, forced moves one tier up, hard-coded ladder firing
 - Do not add UTs for concrete procedures. When something breaks, look at accident prevention or the observation side
 
