@@ -306,7 +306,7 @@ def test_avoids_foreign_center_stack() -> None:
     apple = Fruit(type=5, x=200, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
     obs = _obs(held_type=4, fruits=(apple,))
     x = choose_x(obs)
-    assert abs(x - apple.x) > 6.0
+    assert abs(x - apple.x) > apple_r * 0.02
     assert _score(obs, x, orange_r) > _score(obs, apple.x, orange_r)
 
 

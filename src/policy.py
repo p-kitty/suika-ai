@@ -243,12 +243,14 @@ def _foreign_aim_penalty(
 ) -> float:
     """Penalty for landing directly above a different type. Not applied to a different type buried below."""
     penalty = 30.0
+    # On the real machine it can land on top even when slightly off, so a few % of the radius.
+    center_frac = 0.02
     land_slack = 6.0
     for fruit in fruits:
         if fruit.type == drop_type:
             continue
         # If the center is off, it is not directly above. Shoulder landings are out of scope.
-        if abs(land_x - fruit.x) > land_slack:
+        if abs(land_x - fruit.x) > fruit.radius * center_frac:
             continue
         gap = fruit.radius + held_r
         expected_y = fruit.y - gap

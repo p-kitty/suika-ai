@@ -231,9 +231,6 @@ def _build_space(
 ) -> tuple[pymunk.Space, list[_BodyFruit]]:
     gravity = 2800.0
     space_damping = 1.0
-    # Floor friction slightly higher than between fruits. Suppresses sliding on ice after a knock.
-    wall_friction = 0.28
-    wall_elasticity = 0.0
 
     space = pymunk.Space()
     # y points down (same as the normalized board).
@@ -258,8 +255,8 @@ def _build_space(
         2.0,
     )
     for seg in (floor, left, right):
-        seg.friction = wall_friction
-        seg.elasticity = wall_elasticity
+        seg.friction = 0.28
+        seg.elasticity = 0.0
         space.add(seg)
 
     bodies: list[_BodyFruit] = []
@@ -288,7 +285,7 @@ def _add_fruit(
         body.velocity = (0.0, 0.0)
         body.angular_velocity = 0.0
     shape = pymunk.Circle(body, r)
-    shape.friction = 0.4
+    shape.friction = 0.5
     shape.elasticity = 0.0
     shape.collision_type = FRUIT_COLLISION_TYPE
     shape.fruit_type = fruit_type
