@@ -27,7 +27,7 @@ MERGE_SLACK = 18.0
 # Discount for the next move.
 NEXT_DISCOUNT = 0.55
 # Sideways offset of a landing counted as directly above a different type (ratio to the lower fruit's radius).
-FOREIGN_AIM_CENTER_FRAC = 0.05
+FOREIGN_AIM_CENTER_FRAC = 0.20
 
 
 def choose_x(obs: Observation) -> float:
