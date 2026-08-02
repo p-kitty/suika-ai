@@ -243,12 +243,14 @@ def _foreign_aim_penalty(
 ) -> float:
     """異種のガチ真上に着地する減点。下に埋まった異種ではかけない。"""
     penalty = 30.0
+    # 実機ではわずかにずれても真上に載ることがあるので半径の数 %。
+    center_frac = 0.02
     land_slack = 6.0
     for fruit in fruits:
         if fruit.type == drop_type:
             continue
         # 中心がずれていれば真上ではない。肩着地は対象外。
-        if abs(land_x - fruit.x) > land_slack:
+        if abs(land_x - fruit.x) > fruit.radius * center_frac:
             continue
         gap = fruit.radius + held_r
         expected_y = fruit.y - gap
