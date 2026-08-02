@@ -6,11 +6,10 @@
 
 操作:
   マウス   落とす列
-  クリック / Space  その列に落とす (左パネルで物理アニメ)
+  クリック その列に落とす (左パネルで物理アニメ)
   g        auto トグル (bootstrap の最善列で連続落下)
   r        リセット
-  [ / ]    列を少しずらす
-  q / Esc  終了 (アニメ中はスキップ)
+  Esc      終了 (アニメ中はスキップ)
 
 左: いまの盤 + held の接点 preview / 落下アニメ。右: 落としたあとの結果 (アニメ中も最終盤)。
 ヘッダ右に NEXT の円。ツモは cherry〜orange を毎回ランダム (seed 指定時は再現)。
@@ -113,7 +112,7 @@ def main() -> None:
     total_score = 0.0
     last_info = "ok"
     auto_play = False
-    message = "mouse: aim  space: drop  g: auto  r: reset"
+    message = "mouse: aim/drop  g: auto  r: reset  Esc: quit"
 
     def on_mouse(event: int, x: int, y: int, _flags: int, _userdata: object) -> None:
         nonlocal aim_x
@@ -222,18 +221,12 @@ def main() -> None:
         )
         cv2.imshow(WINDOW, frame)
         key = cv2.waitKey(30) & 0xFF
-        if key in (27, ord("q")):
+        if key == 27:
             break
         if key == ord("r"):
             _reset()
-        elif key in (ord(" "), 13):
-            _drop()
         elif key == ord("g"):
             _toggle_auto()
-        elif key == ord("["):
-            aim_x = max(0.0, aim_x - 8.0)
-        elif key == ord("]"):
-            aim_x = min(float(NORMALIZED_WIDTH), aim_x + 8.0)
 
         done = last_info in ("dead", "win")
         if auto_play and not done and obs.held_type is not None and obs.ready:
@@ -287,7 +280,7 @@ def _play_drop_anim(
         )
         cv2.imshow(WINDOW, canvas)
         key = cv2.waitKey(ANIM_WAIT_MS) & 0xFF
-        if key in (27, ord("q")):
+        if key == 27:
             skip = True
         elif key == ord("g") and on_toggle_auto is not None:
             on_toggle_auto()
