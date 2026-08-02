@@ -135,6 +135,56 @@ def test_board_merge_cancels_opposing_velocity() -> None:
     assert abs(bodies[0].body.velocity.x) < 15.0
 
 
+def test_quiet_gate_rejects_slow_drift() -> None:
+    # Even below the speed threshold, keep drifting in one direction means not settled.
+    from src.sim_physics import (
+        DT,
+        SLEEP_DRIFT,
+        SLEEP_FRAMES,
+        SLEEP_VEL,
+        _QuietGate,
+        _add_fruit,
+        _build_space,
+    )
+
+    space, bodies = _build_space(())
+    space.gravity = (0.0, 0.0)
+    r = fruit_radius(1)
+    item = _add_fruit(space, bodies, 1, 200.0, NORMALIZED_HEIGHT - r, wake=False)
+    # Just below the threshold. The old check (speed only) would stop at SLEEP_FRAMES.
+    creep = max(SLEEP_VEL * 0.9, 0.5)
+    gate = _QuietGate()
+    slept_at: int | None = None
+    for step in range(SLEEP_FRAMES * 3):
+        item.body.velocity = (creep, 0.0)
+        space.step(DT)
+        if gate.update(bodies):
+            slept_at = step + 1
+            break
+    assert slept_at is None
+    # The expected drift within the window exceeds the drift cap (sanity of the coefficients).
+    assert creep * SLEEP_FRAMES * DT > SLEEP_DRIFT
+
+
+def test_quiet_gate_accepts_true_rest() -> None:
+    from src.sim_physics import DT, SLEEP_FRAMES, _QuietGate, _add_fruit, _build_space
+
+    space, bodies = _build_space(())
+    space.gravity = (0.0, 0.0)
+    # Rest in the air so tiny bounces on floor contact do not drift.
+    item = _add_fruit(space, bodies, 1, 200.0, 200.0, wake=False)
+    item.body.velocity = (0.0, 0.0)
+    item.body.angular_velocity = 0.0
+    gate = _QuietGate()
+    slept_at: int | None = None
+    for step in range(SLEEP_FRAMES + 5):
+        space.step(DT)
+        if gate.update(bodies):
+            slept_at = step + 1
+            break
+    assert slept_at == SLEEP_FRAMES
+
+
 def test_preview_land_returns_finite() -> None:
     r = fruit_radius(0)
     x, y = preview_land((), 0, 200, r)
