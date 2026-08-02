@@ -6,13 +6,13 @@
 
 操作:
   マウス   落とす列
-  クリック / Space  その列に落とす (右パネルで物理アニメ)
+  クリック / Space  その列に落とす (左パネルで物理アニメ)
   g        auto トグル (bootstrap の最善列で連続落下)
   r        リセット
   [ / ]    列を少しずらす
   q / Esc  終了 (アニメ中はスキップ)
 
-左: いまの盤 + held の接点 preview。右: 落下アニメ / 落としたあとの結果。
+左: いまの盤 + held の接点 preview / 落下アニメ。右: 落としたあとの結果 (アニメ中も最終盤)。
 ヘッダ右に NEXT の円。ツモは cherry〜orange を毎回ランダム (seed 指定時は再現)。
 """
 
@@ -38,7 +38,7 @@ from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
 from src.sim_env import SimEnv
 from src.reward import cleared_double_watermelon, is_game_over, merge_score
-from src.sim_physics import DT, iter_simulate_drop, land_y
+from src.sim_physics import DT, iter_simulate_drop, land_y, simulate_drop
 from src.vision.classify import fruit_radius
 from src.vision.colors import FRUIT_NAMES
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
@@ -255,7 +255,8 @@ def _play_drop_anim(
     auto_play: bool = False,
     on_toggle_auto: Callable[[], None] | None = None,
 ) -> tuple[list[Fruit], int, list[int]]:
-    """右パネルに落下物理を再生する。Esc/q で最後まで飛ばす。g で auto トグル。"""
+    """左パネルに落下物理を再生する。右は最終 AFTER DROP を固定表示。"""
+    final_after, _, _ = simulate_drop(before, held_type, drop_x)
     after = list(before)
     merges = 0
     merge_types: list[int] = []
@@ -268,8 +269,8 @@ def _play_drop_anim(
         if not show:
             continue
         canvas = _render(
-            before=before,
-            after=after,
+            before=after,
+            after=final_after,
             aim_x=drop_x,
             land=None,
             held_type=None,
@@ -280,7 +281,8 @@ def _play_drop_anim(
             total_score=total_score,
             info=info,
             message=f"animating… merges={merges}  (Esc skip / g auto)",
-            right_title="LIVE",
+            left_title="LIVE",
+            right_title="AFTER DROP",
             auto_play=auto_on,
         )
         cv2.imshow(WINDOW, canvas)
@@ -323,6 +325,7 @@ def _render(
     total_score: float,
     info: str,
     message: str,
+    left_title: str = "NOW",
     right_title: str = "AFTER DROP",
     auto_play: bool = False,
 ) -> np.ndarray:
@@ -332,7 +335,7 @@ def _render(
     height = PAD * 2 + panel_h + HEADER + FOOTER
     canvas = np.full((height, width, 3), 36, dtype=np.uint8)
 
-    left = _board_panel(before, aim_x, land, held_type, title="NOW")
+    left = _board_panel(before, aim_x, land, held_type, title=left_title)
     right = _board_panel(after, aim_x, None, None, title=right_title)
     y0 = PAD + HEADER
     canvas[y0 : y0 + panel_h, PAD : PAD + panel_w] = left
