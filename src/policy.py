@@ -29,6 +29,8 @@ MERGE_SLACK = 18.0
 NEXT_DISCOUNT = 0.55
 # 異種真上とみなす着地の横ずれ (下実半径に対する割合)。
 FOREIGN_AIM_CENTER_FRAC = 0.20
+# 真下の異種中心帯に着地したときの減点。
+FOREIGN_AIM_PENALTY = 100.0
 
 
 def choose_x(obs: Observation) -> float:
@@ -329,14 +331,13 @@ def _foreign_aim_penalty(
     真下が同種なら合体待ちで 0。肩着地や床着地も 0。
     merges は見ない (異種真上から転がって床で合体しても減点する)。
     """
-    penalty = 100.0
     under = _fruit_below(fruits, land_x, land_y, held_r)
     if under is None or under.type == drop_type:
         return 0.0
     # 中心がずれていれば真上ではない。肩着地は対象外。
     if abs(land_x - under.x) > under.radius * FOREIGN_AIM_CENTER_FRAC:
         return 0.0
-    return penalty
+    return FOREIGN_AIM_PENALTY
 
 
 def _wrong_side_roll_penalty(
