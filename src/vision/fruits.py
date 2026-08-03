@@ -1,3 +1,4 @@
+import math
 from functools import cache
 
 import cv2
@@ -98,7 +99,7 @@ def fruit_mask(board: np.ndarray) -> np.ndarray:
 
     # The frame, shadows and the background outside the frame are all highly saturated and cannot be cut by color,
     # so the board's edges are dropped wholesale without looking at color.
-    height, width = (int(v) for v in mask.shape[:2])
+    height, width = mask.shape[:2]
     mask[_border_band((height, width))] = 0
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -294,7 +295,7 @@ def _deduplicate(fruits: list[Fruit]) -> list[Fruit]:
         duplicate = False
 
         for existing in kept:
-            distance = np.hypot(fruit.x - existing.x, fruit.y - existing.y)
+            distance = math.hypot(fruit.x - existing.x, fruit.y - existing.y)
             # Only a second peak standing on the same fruit should be dropped. A different touching
             # fruit does not bite into the center even if they overlap somewhat visually.
             if distance < max(fruit.radius, existing.radius):
