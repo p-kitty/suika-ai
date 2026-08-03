@@ -1,7 +1,7 @@
 """Pit two bootstrap variants against each other on the same seeds and report the difference by phase.
 
 A tool for localizing 'where it got better/worse' after a change.
-The default compares ladders (SUIKA_LADDER) ON/OFF. The same seed sequence goes through both,
+The default compares placement after the floor fills (SUIKA_PACKED) ON/OFF. The same seed sequence goes through both,
 reporting not just means but per-seed wins and losses and metrics split into early and late game.
 
 Usage:
@@ -12,14 +12,19 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import statistics
 import sys
-from concurrent.futures import ProcessPoolExecutor
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._bootstrap import ROOT
 
 from src.parallel import default_workers
 from src.reward import watermelon_count
@@ -28,15 +33,17 @@ from src.reward import watermelon_count
 EARLY_STEPS = 30
 # Merges per move counted as a cascade firing.
 CASCADE_MERGES = 3
+# Where run results go. The key includes the hash of policy.py, so leaving them does not go stale.
+CACHE_DIR = ROOT / "artifacts" / "compare_cache"
 
 
-def _episode(seed: int, max_steps: int, ladder: bool) -> dict[str, float]:
+def _episode(seed: int, max_steps: int, variant: bool) -> dict[str, float]:
     """Run one episode and return metrics. Runs on the ProcessPool worker side."""
     from src import policy
     from src.policy import choose_x
     from src.sim_env import SimEnv
 
-    policy.set_ladder_enabled(ladder)
+    policy.set_packed_rule_enabled(variant)
 
     env = SimEnv(seed=seed)
     obs = env.reset()
@@ -85,15 +92,61 @@ def _episode(seed: int, max_steps: int, ladder: bool) -> dict[str, float]:
     }
 
 
+def _policy_digest() -> str:
+    """A hash of the contents of policy.py. The cache is invalidated when it changes."""
+    src = (ROOT / "src" / "policy.py").read_bytes()
+    return hashlib.sha256(src).hexdigest()[:16]
+
+
+def _cache_path(seeds: list[int], max_steps: int, variant: bool) -> Path:
+    key = f"{_policy_digest()}-{seeds[0]}-{len(seeds)}-{max_steps}-{int(variant)}"
+    return CACHE_DIR / f"{key}.json"
+
+
 def _run(
-    seeds: list[int], max_steps: int, ladder: bool, workers: int
+    seeds: list[int],
+    max_steps: int,
+    variant: bool,
+    workers: int,
+    *,
+    label: str,
 ) -> list[dict[str, float]]:
+    """Run one variant. With the same seeds the result is determined, so it is cached.
+
+    The OFF side is the same across variants. Recomputing it every time doubles the A/B run time.
+    The cache key includes the hash of policy.py, so touching the policy
+    invalidates it automatically. It also prevents comparing against a stale baseline.
+    """
+    path = _cache_path(seeds, max_steps, variant)
+    if path.is_file():
+        print(f"  {label}: using cache ({path.name})", flush=True)
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    started = time.monotonic()
+    print(f"  {label}: running {len(seeds)} episodes...", flush=True)
     if workers <= 1:
-        return [_episode(s, max_steps, ladder) for s in seeds]
-    # The child reads the policy from the environment at spawn. Also overwritten with set_ladder_enabled.
-    os.environ["SUIKA_LADDER"] = "1" if ladder else "0"
-    with ProcessPoolExecutor(max_workers=workers) as pool:
-        return list(pool.map(_episode, seeds, [max_steps] * len(seeds), [ladder] * len(seeds)))
+        rows = [_episode(s, max_steps, variant) for s in seeds]
+    else:
+        # The child reads the policy from the environment at spawn. Also overwritten with the setter.
+        os.environ["SUIKA_PACKED"] = "1" if variant else "0"
+        rows = []
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(_episode, s, max_steps, variant) for s in seeds
+            ]
+            for done, future in enumerate(as_completed(futures), start=1):
+                rows.append(future.result())
+                print(
+                    f"    {done}/{len(seeds)}  ({time.monotonic() - started:.0f}s)",
+                    end="\r",
+                    flush=True,
+                )
+        rows.sort(key=lambda r: r["seed"])
+    print(f"  {label}: done {time.monotonic() - started:.0f}s" + " " * 20, flush=True)
+
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows), encoding="utf-8")
+    return rows
 
 
 def _mean(rows: list[dict[str, float]], key: str) -> float:
@@ -117,14 +170,26 @@ def main() -> None:
     workers = args.workers if args.workers is not None else default_workers()
 
     seeds = [args.seed + i for i in range(args.episodes)]
-    base = _run(seeds, args.max_steps, False, workers)
-    new = _run(seeds, args.max_steps, True, workers)
+    base = _run(seeds, args.max_steps, False, workers, label="A (OFF)")
+    new = _run(seeds, args.max_steps, True, workers, label="B (ON) ")
 
     print(
-        f"episodes={args.episodes} seed={args.seed} "
+        f"\nepisodes={args.episodes} seed={args.seed} "
         f"max_steps={args.max_steps} workers={workers}"
     )
-    print("  A = ladder OFF (current)   B = ladder ON")
+    print("  A = placement after the floor fills OFF (current)   B = ON")
+
+    # If everything is truncated, neither headroom nor death rate is measured.
+    # It becomes a measurement looking only at setup cost and not the return, so warn first.
+    capped = sum(
+        1 for row in base + new if row["steps"] >= args.max_steps
+    )
+    if capped == len(base) + len(new):
+        print(
+            f"\n  ** all {capped} episodes truncated at max_steps={args.max_steps}. **\n"
+            "  ** Not one natural end, so neither survival time nor stage reached is measured. **\n"
+            "  ** Increase --max-steps and measure again. Do not trust the numbers below. **"
+        )
     for label, key, digits in (
         ("score", "score", 2),
         ("early_score", "early_score", 2),
