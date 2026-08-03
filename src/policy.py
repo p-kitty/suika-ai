@@ -250,7 +250,7 @@ def _evaluate_drop(
     growing = _valley_grow_ok(before, land_x, drop_type, next_type)
     # FOREIGN_AIM は merges ではなく「真下の実が異種か」で見る。
     # 同種が真下なら合体待ちで OK。異種真上から転がって床で合体しても減点。
-    penalties += _foreign_aim_penalty(before, land_x, land_y, drop_type, held_r)
+    penalties += _foreign_aim_penalty(before, x, drop_type, held_r)
     if merges == 0:
         if not growing:
             penalties += _wrong_side_roll_penalty(
@@ -532,48 +532,45 @@ def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
     return penalty
 
 
-def _fruit_below(
+def _straight_fall_contact(
     fruits: list[Fruit] | tuple[Fruit, ...],
-    land_x: float,
-    land_y: float,
+    x: float,
     held_r: float,
 ) -> Fruit | None:
-    """着地の真下で支えている実。床だけなら None。"""
+    """列 x にまっすぐ落としたとき最初に触れる実。床だけなら None。
+
+    弾かれて転がった後の実際の着地ではなく、狙った列にそのまま
+    落ちた場合の幾何的な最初の接触相手 (物理は回さない)。
+    """
     best: Fruit | None = None
-    best_err = math.inf
+    best_y = float(NORMALIZED_HEIGHT) - held_r  # 何にも触れなければ床。
     for fruit in fruits:
-        # 支点は着地より下 (y 大)。
-        if fruit.y <= land_y - 1.0:
+        dx = abs(fruit.x - x)
+        gap = fruit.radius + held_r
+        if dx >= gap:
             continue
-        dist = math.hypot(land_x - fruit.x, land_y - fruit.y)
-        touch = fruit.radius + held_r
-        if dist > touch + MERGE_SLACK:
-            continue
-        err = abs(dist - touch)
-        if err < best_err:
-            best_err = err
+        touch_y = fruit.y - math.sqrt(gap * gap - dx * dx)
+        if touch_y < best_y:
+            best_y = touch_y
             best = fruit
     return best
 
 
 def _foreign_aim_penalty(
     fruits: list[Fruit] | tuple[Fruit, ...],
-    land_x: float,
-    land_y: float,
+    x: float,
     drop_type: int,
     held_r: float,
 ) -> float:
-    """真下の異種のガチ真上に着地する減点。
+    """狙った列 x が異種のガチ真上かどうかの減点。
 
     真下が同種なら合体待ちで 0。肩着地や床着地も 0。
-    merges は見ない (異種真上から転がって床で合体しても減点する)。
-    梯子とは無関係。段は肩に乗るので、この減点はそもそも掛からない。
     """
-    under = _fruit_below(fruits, land_x, land_y, held_r)
+    under = _straight_fall_contact(fruits, x, held_r)
     if under is None or under.type == drop_type:
         return 0.0
     # 中心がずれていれば真上ではない。肩着地は対象外。
-    if abs(land_x - under.x) > under.radius * FOREIGN_AIM_CENTER_FRAC:
+    if abs(x - under.x) > under.radius * FOREIGN_AIM_CENTER_FRAC:
         return 0.0
     return FOREIGN_AIM_PENALTY
 
