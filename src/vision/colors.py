@@ -40,8 +40,12 @@ FRUIT_RELATIVE_RADIUS = [
     1.000,   # watermelon
 ]
 
-# watermelon radius / board width. From measurement.
-WATERMELON_RADIUS_RATIO = 0.24
+# watermelon radius / board width. The value stretched from the old basis 0.24 by the move to the inside-of-the-wall basis
+# (0.2874) turned out too large when verified on the tight wedge case of dropping a dekopon/grape between a melon and a pineapple
+# (not only the dekopon but also the grape
+# stopped reaching the floor). On the real machine the grape goes through and the dekopon gets stuck, so
+# it was retaken as 0.280, inside that threshold band (measured 0.2770-0.2810).
+WATERMELON_RADIUS_RATIO = 0.280
 
 # The board background (beige). V is not narrowed so it can be removed even when darkened by shadow.
 BOARD_BG_HSV = ((10, 0, 55), (35, 100, 255))

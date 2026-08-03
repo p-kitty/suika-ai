@@ -15,17 +15,18 @@ from .normalized import (
 )
 
 # Height of the band looked at above the board. Tall enough for the waiting fruit and the cloud holding it.
-BAND_HEIGHT = 140
+BAND_HEIGHT = 225
 
 # The drop point sits at a fixed height in the world, so how far above the board's top edge it is
-# does not change when the view moves. 10 measurements fall within 57-66.
-DROP_HEIGHT = 61.0
-# Fruits stacked past the rim measure 39 or less. Taken wide enough not to reach there.
-DROP_HEIGHT_TOLERANCE = 15.0
+# does not change when the view moves. After the board moved to the inside-of-the-wall basis, 10 measurements
+# fall within 92-107.
+DROP_HEIGHT = 97.0
+# Taken with margin so fruits stacked past the rim also fall within the measured range.
+DROP_HEIGHT_TOLERANCE = 17.0
 
 # The waiting fruit appears slightly smaller than fruits on the board. It lies where the projection is extended
 # beyond the top edge, so its scale differs slightly from inside the board.
-HELD_RADIUS_SCALE = 0.93
+HELD_RADIUS_SCALE = 0.95
 
 
 @dataclass

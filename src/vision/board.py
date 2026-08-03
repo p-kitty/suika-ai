@@ -36,6 +36,13 @@ MIN_SIDE_POINTS = 10
 # If the intersection moves this much, the fit is considered broken and falls back to the rough quadrilateral.
 MAX_CORNER_SHIFT_RATIO = 0.25
 
+# The four corners _find_corners picks up are the decorative frame outside the box; the real transparent walls are
+# further inside. The ratios come from measuring fruits resting at the walls (all of screenshots/, the gap between the wall
+# and detected fruits touching it). The frame looks different horizontally and vertically,
+# so the values are separate.
+WALL_INSET_X_RATIO = 0.0825
+WALL_INSET_Y_RATIO = 0.0534
+
 
 @dataclass
 class BoardResult:
@@ -188,7 +195,30 @@ def _find_corners(frame: np.ndarray) -> np.ndarray | None:
         return None
 
     _, corners = max(candidates, key=lambda item: item[0])
-    return _order_corners(corners)
+    return _inset_to_wall(_order_corners(corners))
+
+
+def _inset_to_wall(corners: np.ndarray) -> np.ndarray:
+    """Move the detected outer frame corners inward to where the real walls are."""
+    top_left, top_right, bottom_right, bottom_left = corners
+
+    return np.array(
+        [
+            top_left
+            + WALL_INSET_X_RATIO * (top_right - top_left)
+            + WALL_INSET_Y_RATIO * (bottom_left - top_left),
+            top_right
+            + WALL_INSET_X_RATIO * (top_left - top_right)
+            + WALL_INSET_Y_RATIO * (bottom_right - top_right),
+            bottom_right
+            + WALL_INSET_X_RATIO * (bottom_left - bottom_right)
+            + WALL_INSET_Y_RATIO * (top_right - bottom_right),
+            bottom_left
+            + WALL_INSET_X_RATIO * (bottom_right - bottom_left)
+            + WALL_INSET_Y_RATIO * (top_left - bottom_left),
+        ],
+        dtype=np.float32,
+    )
 
 
 def _touches_edge(corners: np.ndarray, shape: tuple[int, int]) -> bool:

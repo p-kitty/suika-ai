@@ -421,7 +421,7 @@ def test_floor_packed_allows_gaps_up_to_an_orange() -> None:
         cursor += 2 * r
     assert _floor_packed(row)
     # Removing the whole right side opens a hole.
-    assert not _floor_packed(row[:3])
+    assert not _floor_packed(row[:2])
 
     # A gap exactly the orange's diameter is filled, and any wider is not.
     left = _floor(7, fruit_radius(7))

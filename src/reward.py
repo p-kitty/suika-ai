@@ -8,8 +8,9 @@ from .observe import Observation
 from .vision.colors import MAX_FRUIT_TYPE
 
 WATERMELON = MAX_FRUIT_TYPE
-# Losing when the crown rises above this y (y points down).
-GAME_OVER_Y = 40.0
+# Losing when the crown rises above this y (y points down). Converted from the old
+# basis of 40.0 by the amount the board moved to the inside-of-the-wall basis.
+GAME_OVER_Y = 14.9
 
 # Points when a fruit of that stage is made by a merge (index = type made).
 # Cherries are only dropped and never made by merging, so 0.

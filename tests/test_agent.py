@@ -21,8 +21,10 @@ def test_action_to_x_in_board() -> None:
 
 
 def test_x_to_action_roundtrip() -> None:
+    # held_type=None: check the bin encoding itself without clamping.
+    # With an actual held_type, clamping can move the centers of the extreme bins.
     for action in range(N_ACTIONS):
-        assert x_to_action(action_to_x(action, 0)) == action
+        assert x_to_action(action_to_x(action, None)) == action
 
 
 def test_act_and_update() -> None:

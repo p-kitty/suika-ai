@@ -97,6 +97,42 @@ def test_side_contact_merge_happens() -> None:
     assert any(f.type == 5 for f in after)
 
 
+def _melon_pineapple_wedge() -> tuple[Fruit, Fruit, float]:
+    """Place a melon and a pineapple touching on the floor, and return the spot directly above the seam.
+
+    Measured on the real machine: a grape dropped at the seam passes through the valley to the floor,
+    while a dekopon gets stuck in the valley and stops floating (this boundary easily breaks if the calibration of
+    WATERMELON_RADIUS_RATIO is off, so this guards against regressions).
+    """
+    melon_r = fruit_radius(9)
+    pine_r = fruit_radius(8)
+    melon = Fruit(type=9, x=150, y=NORMALIZED_HEIGHT - melon_r, radius=melon_r, confidence=90)
+    pine = Fruit(
+        type=8,
+        x=150 + melon_r + pine_r,
+        y=NORMALIZED_HEIGHT - pine_r,
+        radius=pine_r,
+        confidence=90,
+    )
+    return melon, pine, 150 + melon_r
+
+
+def test_grape_falls_through_melon_pineapple_wedge() -> None:
+    melon, pine, seam_x = _melon_pineapple_wedge()
+    grape_r = fruit_radius(2)
+    after, _merges, _types = simulate_drop((melon, pine), 2, seam_x)
+    grape = next(f for f in after if f.type == 2)
+    assert abs(grape.y - (NORMALIZED_HEIGHT - grape_r)) < 3.0
+
+
+def test_dekopon_wedges_above_melon_pineapple_seam() -> None:
+    melon, pine, seam_x = _melon_pineapple_wedge()
+    dekopon_r = fruit_radius(3)
+    after, _merges, _types = simulate_drop((melon, pine), 3, seam_x)
+    dekopon = next(f for f in after if f.type == 3)
+    assert dekopon.y - (NORMALIZED_HEIGHT - dekopon_r) < -10.0
+
+
 def test_held_merge_pulls_toward_held() -> None:
     # A held merge is pulled toward held.
     r = fruit_radius(4)

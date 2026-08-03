@@ -9,9 +9,10 @@ from .classify import classify, fruit_radius_ratios, sample_hsv
 from .colors import BOARD_BG_HSV, saturated_mask
 from .state import Fruit
 
-# The detected corners are outside the frame, so the warped board shows the frame and the shadow inside it.
-# Dropping that band makes the boundary of fruits touching the walls correctly the inner wall.
-BORDER_BAND_RATIO = 0.045
+# board.py's _inset_to_wall already moved the corners to the inside-of-the-wall basis,
+# so the band dropped here only needs to cover the anti-aliasing and bleed at the warp edge.
+# It also shaves fruits touching the walls, so it is kept to the minimum necessary.
+BORDER_BAND_RATIO = 0.005
 
 # The background is a gradient getting smoothly darker from top to bottom, and its lower part is about as saturated
 # as the fruits. A fixed threshold cannot cut it, so the background color is fitted as a linear function of coordinates

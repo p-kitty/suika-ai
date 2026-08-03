@@ -263,7 +263,8 @@ def _evaluate_drop(
 
 def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
     """Board penalties after the drop (danger, burying, excess same type, size order, pushing big, bumpiness)."""
-    danger_y = 90.0
+    # Converted from the old basis of 90.0 by the amount the board moved to the inside-of-the-wall basis.
+    danger_y = 70.9
     danger_crown_weight = 0.5
     bury_weight = 20.0
     variance_weight = 0.08

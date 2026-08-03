@@ -16,14 +16,14 @@ from .normalized import (
 )
 
 # The bubble floats around the top right of the board. As its center viewed as a shadow cast onto the board's plane,
-# Measured, all 11 images fall within (538-557, -10 to 10).
-BUBBLE_X = 550
-BUBBLE_Y = 5
+# after the board moved to the inside-of-the-wall basis all 11 images fall within (605-622, -32 to -18).
+BUBBLE_X = 619
+BUBBLE_Y = -23
 
 # Radius of the window taken around the center. Wide enough to exclude the Merge Order ring below and the tree on the right.
-WINDOW_HALF = 100
+WINDOW_HALF = 120
 # A blob this far from the bubble's center is not the next fruit.
-CENTER_TOLERANCE = 45
+CENTER_TOLERANCE = 54
 
 
 @dataclass
