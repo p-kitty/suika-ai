@@ -1,3 +1,4 @@
+import math
 from functools import cache
 
 import cv2
@@ -98,7 +99,7 @@ def fruit_mask(board: np.ndarray) -> np.ndarray:
 
     # 枠・影・枠の外の背景はいずれも彩度が高く色では切れないので、
     # 盤面の縁は色を見ずにまとめて落とす。
-    height, width = (int(v) for v in mask.shape[:2])
+    height, width = mask.shape[:2]
     mask[_border_band((height, width))] = 0
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -294,7 +295,7 @@ def _deduplicate(fruits: list[Fruit]) -> list[Fruit]:
         duplicate = False
 
         for existing in kept:
-            distance = np.hypot(fruit.x - existing.x, fruit.y - existing.y)
+            distance = math.hypot(fruit.x - existing.x, fruit.y - existing.y)
             # 同じフルーツに立った二つ目のピークだけを落としたい。触れ合った
             # 別のフルーツは、見た目が多少重なっても中心までは食い込まない。
             if distance < max(fruit.radius, existing.radius):

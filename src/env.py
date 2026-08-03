@@ -103,7 +103,7 @@ class Env:
         if abort is not None and abort():
             # クリック前に止まったか、落とした直後かは drop_column 側で分岐済み。
             return StepResult(self.observe(), target, done=False, info="aborted")
-        info_aim = "ok" if aimed else "aim_timeout"
+        info = "ok" if aimed else "aim_timeout"
 
         # 落としたあと、いったん held が消えるのを待つ。消えないまま静止判定に
         # 入ると、雲が動いただけの揺れで止まってしまう。
@@ -117,7 +117,6 @@ class Env:
             return StepResult(after, target, done=True, info="dialog")
         if not after.ready:
             return StepResult(after, target, done=False, info="timeout")
-        info = info_aim if not aimed else "ok"
 
         # 次手の基準がズレないよう、落としたら視線を中央へ戻す。
         control.recenter(read, abort=abort)

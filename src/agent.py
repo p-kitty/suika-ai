@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from os import PathLike
 
 import numpy as np
@@ -17,10 +18,8 @@ HIDDEN = 128
 
 def action_to_x(action: int, held_type: int | None) -> float:
     """離散行動 -> 正規化列。"""
-    lo = 0.0
-    hi = float(NORMALIZED_WIDTH)
     # ビン中央。
-    x = (action + 0.5) * (hi - lo) / N_ACTIONS
+    x = (action + 0.5) * float(NORMALIZED_WIDTH) / N_ACTIONS
     return clamp_drop_x(x, held_type)
 
 
@@ -91,16 +90,18 @@ class LinearPolicy:
             action = int(self.rng.choice(N_ACTIONS, p=probs))
         return action, action_to_x(action, obs.held_type), vec
 
-    def update(
+    def _fit(
         self,
         batch_obs: list[np.ndarray],
-        batch_actions: list[int],
-        batch_advantages: list[float],
+        gradient: Callable[[np.ndarray, int], tuple[np.ndarray, float]],
         *,
-        lr: float = 0.01,
-        entropy_coef: float = 0.0,
+        lr: float,
     ) -> float:
-        """REINFORCE / BC 共通。平均損失 (負の加重対数尤度) を返す。"""
+        """バッチ 1 回ぶんの逆伝播と更新。平均損失を返す。
+
+        違うのは出力層の勾配だけなので、gradient(probs, i) -> (dlogits, loss)
+        に任せて、順伝播・累積・平均・適用は REINFORCE と BC で共有する。
+        """
         if not batch_obs:
             return 0.0
         gw1 = np.zeros_like(self.w1)
@@ -108,22 +109,15 @@ class LinearPolicy:
         gw2 = np.zeros_like(self.w2)
         gb2 = np.zeros_like(self.b2)
         loss = 0.0
-        for obs_vec, action, adv in zip(batch_obs, batch_actions, batch_advantages):
+        for i, obs_vec in enumerate(batch_obs):
             x = obs_vec.astype(np.float64)
             h, logits = self._forward(x)
             z = logits - logits.max()
             exp = np.exp(z)
             probs = exp / exp.sum()
-            loss -= adv * np.log(probs[action] + 1e-12)
 
-            dlog = -probs
-            dlog[action] += 1.0
-            dlogits = adv * dlog
-            if entropy_coef > 0.0:
-                log_p = np.log(probs + 1e-12)
-                entropy = -float(np.sum(probs * log_p))
-                loss -= entropy_coef * entropy
-                dlogits += entropy_coef * probs * (log_p + entropy)
+            dlogits, sample_loss = gradient(probs, i)
+            loss += sample_loss
 
             gw2 += np.outer(dlogits, h)
             gb2 += dlogits
@@ -138,6 +132,34 @@ class LinearPolicy:
         self.w2 += lr * gw2 / n
         self.b2 += lr * gb2 / n
         return float(loss / n)
+
+    def update(
+        self,
+        batch_obs: list[np.ndarray],
+        batch_actions: list[int],
+        batch_advantages: list[float],
+        *,
+        lr: float = 0.01,
+        entropy_coef: float = 0.0,
+    ) -> float:
+        """REINFORCE / BC 共通。平均損失 (負の加重対数尤度) を返す。"""
+
+        def gradient(probs: np.ndarray, i: int) -> tuple[np.ndarray, float]:
+            action = batch_actions[i]
+            adv = batch_advantages[i]
+            loss = -adv * float(np.log(probs[action] + 1e-12))
+
+            dlog = -probs
+            dlog[action] += 1.0
+            dlogits = adv * dlog
+            if entropy_coef > 0.0:
+                log_p = np.log(probs + 1e-12)
+                entropy = -float(np.sum(probs * log_p))
+                loss -= entropy_coef * entropy
+                dlogits += entropy_coef * probs * (log_p + entropy)
+            return dlogits, loss
+
+        return self._fit(batch_obs, gradient, lr=lr)
 
     def bc_update(
         self,
@@ -159,34 +181,13 @@ class LinearPolicy:
         lr: float = 0.05,
     ) -> float:
         """柔らかい教師分布へのクロスエントロピー。"""
-        if not batch_obs:
-            return 0.0
-        gw1 = np.zeros_like(self.w1)
-        gb1 = np.zeros_like(self.b1)
-        gw2 = np.zeros_like(self.w2)
-        gb2 = np.zeros_like(self.b2)
-        loss = 0.0
-        for obs_vec, target in zip(batch_obs, batch_targets):
-            x = obs_vec.astype(np.float64)
-            t = target.astype(np.float64)
-            h, logits = self._forward(x)
-            z = logits - logits.max()
-            exp = np.exp(z)
-            probs = exp / exp.sum()
-            loss -= float(np.sum(t * np.log(probs + 1e-12)))
-            dlogits = t - probs
-            gw2 += np.outer(dlogits, h)
-            gb2 += dlogits
-            dh = self.w2.T @ dlogits
-            dh *= (h > 0.0).astype(np.float64)
-            gw1 += np.outer(dh, x)
-            gb1 += dh
-        n = float(len(batch_obs))
-        self.w1 += lr * gw1 / n
-        self.b1 += lr * gb1 / n
-        self.w2 += lr * gw2 / n
-        self.b2 += lr * gb2 / n
-        return float(loss / n)
+
+        def gradient(probs: np.ndarray, i: int) -> tuple[np.ndarray, float]:
+            t = batch_targets[i].astype(np.float64)
+            loss = -float(np.sum(t * np.log(probs + 1e-12)))
+            return t - probs, loss
+
+        return self._fit(batch_obs, gradient, lr=lr)
 
     def snapshot(self) -> dict[str, np.ndarray]:
         return {

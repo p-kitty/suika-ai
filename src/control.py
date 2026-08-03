@@ -119,6 +119,7 @@ def aim(
     previous_held: float | None = None
     best_error: float | None = None
     stall_moves = 0
+    no_improve = 0
 
     while time.monotonic() < deadline:
         if abort is not None and abort():

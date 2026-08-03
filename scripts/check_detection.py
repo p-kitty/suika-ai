@@ -16,9 +16,7 @@ import cv2
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts._bootstrap import ROOT, ensure_import_path
-
-ensure_import_path()
+from scripts._bootstrap import ROOT
 
 from src.draw import put_text
 from src.imagefile import read, write

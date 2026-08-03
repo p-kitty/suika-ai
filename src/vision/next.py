@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 
 import cv2
@@ -125,7 +126,7 @@ def _find_blob(mask: np.ndarray) -> tuple[float, float, float] | None:
     centered = [
         peak
         for peak in circle_peaks(mask, min_radius, max_radius)
-        if np.hypot(peak[0] - WINDOW_HALF, peak[1] - WINDOW_HALF) <= CENTER_TOLERANCE
+        if math.hypot(peak[0] - WINDOW_HALF, peak[1] - WINDOW_HALF) <= CENTER_TOLERANCE
     ]
     if not centered:
         return None

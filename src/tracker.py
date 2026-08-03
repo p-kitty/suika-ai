@@ -1,7 +1,6 @@
+import math
 from collections import Counter, deque
 from dataclasses import dataclass, field
-
-import numpy as np
 
 from .vision.state import Fruit
 
@@ -95,7 +94,7 @@ class Tracker:
         best_distance = threshold
 
         for index, fruit in enumerate(fruits):
-            distance = float(np.hypot(fruit.x - track.x, fruit.y - track.y))
+            distance = math.hypot(fruit.x - track.x, fruit.y - track.y)
             if distance < best_distance:
                 best_distance = distance
                 best_index = index

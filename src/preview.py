@@ -41,21 +41,17 @@ def render_preview(
     debug_board: bool,
     window_title: str,
 ) -> None:
-    output = frame.copy()
     if debug_board and board is not None:
         output = draw_frame_debug(frame, board)
-        if (
-            state.aim_x is not None
-            and board.corners is not None
-            and obs.ready
-        ):
-            draw_aim_line(output, board.corners, state.aim_x)
-    elif (
-        state.aim_x is not None
-        and board is not None
-        and board.corners is not None
-    ):
-        draw_aim_line(output, board.corners, state.aim_x)
+        # 検出オーバーレイと揃えるので、読めているときだけ狙い線を出す。
+        aim = state.aim_x if obs.ready else None
+    else:
+        output = frame.copy()
+        # 待ち中は古い検出を載せない代わりに、狙い線だけ残す。
+        aim = state.aim_x
+
+    if aim is not None and board is not None and board.corners is not None:
+        draw_aim_line(output, board.corners, aim)
 
     mode_badge(output, state.auto_play)
     put_text(
