@@ -6,6 +6,8 @@
 - **Training episode length**: raise `max_steps` and lower `episodes` (fewer, longer games)
 - **Packing too tight early**: neighbors by size order and proximity (e.g. apple and dekopon) have too little gap between them. When stacking an orange only order-breaking moves remain. Some space is wanted
 - **Big draws after the floor fills**: after the floor fills, big draws such as orange / dekopon are placed on the small side instead of the L (biggest fruit) side and the board collapses. The big/small side placement stops working partway through
+- **Wall friction may be too low**: at the walls in `sim_physics.py`, fruits slide in far more than in the real game. Revisit the friction coefficient
+- **Friction between fruits also seems low**: same as above. Fruit-to-fruit contact feels slipperier than the real game too. Revisit both wall and fruit friction coefficients together
 
 ## When to move
 

@@ -434,6 +434,31 @@ def test_floor_packed_allows_gaps_up_to_an_orange() -> None:
     assert not _floor_packed([left, _floor(7, right_x + 2.0), edge])
 
 
+def test_small_side_room_ignores_gap_blocked_by_overhang() -> None:
+    # Even if a floor gap is geometrically wide, it does not fit when a roof (another fruit) spans above it.
+    # Judging by geometry alone wrongly says there is room (changed to a physics check after it was pointed out).
+    from src.policy import _small_side_room_ok
+
+    peach_r = fruit_radius(7)
+    peach = _floor(7, peach_r + 2)
+    roof_r = fruit_radius(6)
+    roof = Fruit(
+        type=6,
+        x=NORMALIZED_WIDTH - roof_r - 2,
+        y=NORMALIZED_HEIGHT - roof_r - 120,
+        radius=roof_r,
+        confidence=90,
+    )
+    pillar_r = fruit_radius(0)
+    pillar = _floor(0, roof.x - roof_r - pillar_r + 4)
+    fruits = (peach, roof, pillar)
+
+    orange_r = fruit_radius(4)
+    assert not _small_side_room_ok(fruits, 4, orange_r, 7, sign=1)
+    # Control: without the roof, the same gap width has room.
+    assert _small_side_room_ok((peach,), 4, orange_r, 7, sign=1)
+
+
 def _rest_on(a: Fruit, b: Fruit, fruit_type: int) -> Fruit:
     """A fruit of type resting on top touching both a and b. Scaffolding for tests building ladder shoulders."""
     r = fruit_radius(fruit_type)

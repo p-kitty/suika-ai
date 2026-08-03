@@ -257,7 +257,7 @@ def _evaluate_drop(
                 before, land_x, land_y, drop_type, held_r, sign
             )
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
-        penalties += _packed_small_side_penalty(before, land_x, drop_type, sign)
+        penalties += _packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
     penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
     return after, score, penalties, merges
 
@@ -351,28 +351,58 @@ def _big_cluster_edge(
     return min(fruit.x - fruit.radius for fruit in bigs)
 
 
-def _small_side_room(
+def _widest_gap(
     fruits: list[Fruit] | tuple[Fruit, ...],
-    max_type: int,
-    sign: int,
-) -> float:
-    """The widest gap on the small-side floor. Looks from the cluster's edge to the far wall.
-
-    If it fits cleanly here, just place it normally; there is no reason to send it to the big side.
-    """
-    edge = _big_cluster_edge(fruits, max_type, sign)
-    if sign > 0:
-        lo, hi = edge, float(NORMALIZED_WIDTH)
-    else:
-        lo, hi = 0.0, edge
+    lo: float,
+    hi: float,
+) -> tuple[float, float]:
+    """Width and center x of the widest gap on the floor within [lo, hi]."""
     widest = 0.0
+    center = (lo + hi) / 2.0
     cursor = lo
     for fruit in _floor_row(fruits):
         if fruit.x + fruit.radius <= lo or fruit.x - fruit.radius >= hi:
             continue
-        widest = max(widest, (fruit.x - fruit.radius) - cursor)
+        gap = (fruit.x - fruit.radius) - cursor
+        if gap > widest:
+            widest = gap
+            center = (cursor + (fruit.x - fruit.radius)) / 2.0
         cursor = max(cursor, fruit.x + fruit.radius)
-    return max(widest, hi - cursor)
+    gap = hi - cursor
+    if gap > widest:
+        widest = gap
+        center = (cursor + hi) / 2.0
+    return widest, center
+
+
+def _small_side_room_ok(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_type: int,
+    held_r: float,
+    max_type: int,
+    sign: int,
+) -> bool:
+    """Actually drop on the small side and check whether it lands on the floor.
+
+    Measuring floor gaps by geometry alone misses cases where another fruit overhangs the gap and it
+    does not actually fit (fixed after it was pointed out). Only when the width looks physically enough,
+    actually drop once into the center of the widest gap to check.
+    """
+    edge = _big_cluster_edge(fruits, max_type, sign)
+    lo, hi = (edge, float(NORMALIZED_WIDTH)) if sign > 0 else (0.0, edge)
+    lo, hi = max(lo, held_r), min(hi, NORMALIZED_WIDTH - held_r)
+    if lo > hi:
+        return False
+    widest, center = _widest_gap(fruits, lo, hi)
+    if widest < held_r * 2.0:
+        return False
+    x = clamp_drop_x(center, drop_type)
+    after, merges, _merge_types = simulate_drop(fruits, drop_type, x)
+    if merges > 0:
+        return True
+    land_x, land_y = landed_xy(fruits, after, drop_type, x, held_r, merges)
+    floor_y = NORMALIZED_HEIGHT - held_r
+    return land_y >= floor_y - 4.0 and lo - MERGE_SLACK <= land_x <= hi + MERGE_SLACK
 
 
 def _floor_row(fruits: list[Fruit] | tuple[Fruit, ...]) -> list[Fruit]:
@@ -580,6 +610,7 @@ def _packed_small_side_penalty(
     fruits: list[Fruit] | tuple[Fruit, ...],
     land_x: float,
     drop_type: int,
+    held_r: float,
     sign: int,
 ) -> float:
     """Penalty for escaping a larger draw to the small side after the floor fills.
@@ -598,10 +629,10 @@ def _packed_small_side_penalty(
         return 0.0
     if (land_x - _big_cluster_edge(fruits, max_type, sign)) * sign <= 0.0:
         return 0.0
-    # If there is a gap on the small side this draw fits cleanly into, placing it there is the normal move.
+    # If this draw can be placed cleanly on the small side, placing it there is the normal move.
     # Send it to the big side only when 'there is no choice'. Cutting on a uniform gap width
     # fires all through the midgame and dries up the small side's production line (orange->apple->pear).
-    if _small_side_room(fruits, max_type, sign) >= fruit_radius(drop_type) * 2.0:
+    if _small_side_room_ok(fruits, drop_type, held_r, max_type, sign):
         return 0.0
     return PACKED_SMALL_SIDE_WEIGHT
 
