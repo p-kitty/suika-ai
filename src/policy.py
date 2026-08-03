@@ -263,7 +263,8 @@ def _evaluate_drop(
 
 def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
     """落としたあとの盤面減点（危険・埋め込み・同種過多・サイズ順・大寄せ・凸凹）。"""
-    danger_y = 90.0
+    # 盤面が壁の内側基準になった分だけ、旧基準の 90.0 を座標変換してある。
+    danger_y = 70.9
     danger_crown_weight = 0.5
     bury_weight = 20.0
     variance_weight = 0.08

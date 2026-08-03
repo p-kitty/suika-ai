@@ -97,6 +97,42 @@ def test_side_contact_merge_happens() -> None:
     assert any(f.type == 5 for f in after)
 
 
+def _melon_pineapple_wedge() -> tuple[Fruit, Fruit, float]:
+    """メロンとパインを床で接するように並べ、継ぎ目の真上を返す。
+
+    実機の実測: 継ぎ目にグレープを落とすと谷を抜けて床まで届くが、
+    デコポンは谷に挟まって浮いたまま止まる (WATERMELON_RADIUS_RATIO の
+    校正がずれるとこの境目が簡単に崩れるので、その回帰止め)。
+    """
+    melon_r = fruit_radius(9)
+    pine_r = fruit_radius(8)
+    melon = Fruit(type=9, x=150, y=NORMALIZED_HEIGHT - melon_r, radius=melon_r, confidence=90)
+    pine = Fruit(
+        type=8,
+        x=150 + melon_r + pine_r,
+        y=NORMALIZED_HEIGHT - pine_r,
+        radius=pine_r,
+        confidence=90,
+    )
+    return melon, pine, 150 + melon_r
+
+
+def test_grape_falls_through_melon_pineapple_wedge() -> None:
+    melon, pine, seam_x = _melon_pineapple_wedge()
+    grape_r = fruit_radius(2)
+    after, _merges, _types = simulate_drop((melon, pine), 2, seam_x)
+    grape = next(f for f in after if f.type == 2)
+    assert abs(grape.y - (NORMALIZED_HEIGHT - grape_r)) < 3.0
+
+
+def test_dekopon_wedges_above_melon_pineapple_seam() -> None:
+    melon, pine, seam_x = _melon_pineapple_wedge()
+    dekopon_r = fruit_radius(3)
+    after, _merges, _types = simulate_drop((melon, pine), 3, seam_x)
+    dekopon = next(f for f in after if f.type == 3)
+    assert dekopon.y - (NORMALIZED_HEIGHT - dekopon_r) < -10.0
+
+
 def test_held_merge_pulls_toward_held() -> None:
     # held 合体は held 側へ引っ張られる。
     r = fruit_radius(4)

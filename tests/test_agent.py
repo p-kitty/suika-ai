@@ -21,8 +21,10 @@ def test_action_to_x_in_board() -> None:
 
 
 def test_x_to_action_roundtrip() -> None:
+    # held_type=None: クランプなしでビンの符号化そのものを確かめる。
+    # 実際の held_type ではクランプが極端なビンの中心を動かすことがある。
     for action in range(N_ACTIONS):
-        assert x_to_action(action_to_x(action, 0)) == action
+        assert x_to_action(action_to_x(action, None)) == action
 
 
 def test_act_and_update() -> None:

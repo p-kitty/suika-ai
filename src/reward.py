@@ -8,8 +8,9 @@ from .observe import Observation
 from .vision.colors import MAX_FRUIT_TYPE
 
 WATERMELON = MAX_FRUIT_TYPE
-# この y より上に頭頂が出たら負け (y は下向き)。
-GAME_OVER_Y = 40.0
+# この y より上に頭頂が出たら負け (y は下向き)。盤面が壁の内側基準に
+# なった分だけ、旧基準の 40.0 を座標変換してある。
+GAME_OVER_Y = 14.9
 
 # 合成でその段階の実ができたときの点数 (index = できた type)。
 # cherry は落下のみで合成では生まれないので 0。

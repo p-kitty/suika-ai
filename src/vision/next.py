@@ -16,14 +16,14 @@ from .normalized import (
 )
 
 # 泡は盤面の右上あたりに浮いている。盤面の面に投げた影として見たときの中心で、
-# 実測では 11 枚すべて (538〜557, -10〜10) に収まる。
-BUBBLE_X = 550
-BUBBLE_Y = 5
+# 盤面が壁の内側基準になった後、11 枚すべて (605〜622, -32〜-18) に収まる。
+BUBBLE_X = 619
+BUBBLE_Y = -23
 
 # 中心の周りに取る窓の半径。下の Merge Order の輪や右の木を入れない広さ。
-WINDOW_HALF = 100
+WINDOW_HALF = 120
 # 泡の中心からこれだけ離れた塊は next のフルーツではない。
-CENTER_TOLERANCE = 45
+CENTER_TOLERANCE = 54
 
 
 @dataclass

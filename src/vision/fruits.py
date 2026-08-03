@@ -9,9 +9,10 @@ from .classify import classify, fruit_radius_ratios, sample_hsv
 from .colors import BOARD_BG_HSV, saturated_mask
 from .state import Fruit
 
-# 検出した四隅は枠の外側なので、warp した盤面には枠と内側の影が写る。
-# その帯を落とすと、壁に接したフルーツの境界が正しく内壁になる。
-BORDER_BAND_RATIO = 0.045
+# board.py の _inset_to_wall で四隅をすでに壁の内側基準に寄せてあるので、
+# ここで落とす帯はワープの縁のアンチエイリアス・にじみぶんだけでよい。
+# 壁に接したフルーツまで削るので、必要最小限に絞ってある。
+BORDER_BAND_RATIO = 0.005
 
 # 下地は上から下へ滑らかに濃くなるグラデーションで、下側はフルーツと同じ
 # くらい彩度が高い。固定しきい値では切れないので、下地の色を座標の一次式

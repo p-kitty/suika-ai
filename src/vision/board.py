@@ -36,6 +36,13 @@ MIN_SIDE_POINTS = 10
 # 交点がこれだけ動いたら当てはめが破綻したとみなし、粗い四角形に戻す。
 MAX_CORNER_SHIFT_RATIO = 0.25
 
+# _find_corners が拾う四隅は箱の外側の装飾枠で、本当の透明な壁はそこから
+# 内側にある。壁際で静止しているフルーツの実測 (screenshots/ 全数、壁に
+# 接した検出済みフルーツと壁との隙間) から求めた比率。横と縦で枠の見え方が
+# 違うため別々の値になる。
+WALL_INSET_X_RATIO = 0.0825
+WALL_INSET_Y_RATIO = 0.0534
+
 
 @dataclass
 class BoardResult:
@@ -188,7 +195,30 @@ def _find_corners(frame: np.ndarray) -> np.ndarray | None:
         return None
 
     _, corners = max(candidates, key=lambda item: item[0])
-    return _order_corners(corners)
+    return _inset_to_wall(_order_corners(corners))
+
+
+def _inset_to_wall(corners: np.ndarray) -> np.ndarray:
+    """検出した枠の外側の四隅を、本当の壁の位置まで内側へ寄せる。"""
+    top_left, top_right, bottom_right, bottom_left = corners
+
+    return np.array(
+        [
+            top_left
+            + WALL_INSET_X_RATIO * (top_right - top_left)
+            + WALL_INSET_Y_RATIO * (bottom_left - top_left),
+            top_right
+            + WALL_INSET_X_RATIO * (top_left - top_right)
+            + WALL_INSET_Y_RATIO * (bottom_right - top_right),
+            bottom_right
+            + WALL_INSET_X_RATIO * (bottom_left - bottom_right)
+            + WALL_INSET_Y_RATIO * (top_right - bottom_right),
+            bottom_left
+            + WALL_INSET_X_RATIO * (bottom_right - bottom_left)
+            + WALL_INSET_Y_RATIO * (top_left - bottom_left),
+        ],
+        dtype=np.float32,
+    )
 
 
 def _touches_edge(corners: np.ndarray, shape: tuple[int, int]) -> bool:
