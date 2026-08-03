@@ -1,20 +1,21 @@
-"""Pit two bootstrap variants against each other on the same seeds and report the difference by phase.
+"""Pit two bootstrap variants against each other and report the difference by phase.
 
 A tool for localizing 'where it got better/worse' after a change.
 The default compares placement after the floor fills (SUIKA_PACKED) ON/OFF. The same seed sequence goes through both,
 reporting not just means but per-seed wins and losses and metrics split into early and late game.
 
+Omitting --seed starts from a random seed every time. Reusing fixed seeds over and over
+makes it easy to misread a collapse that happened by chance on that seed set as 'reproduced'.
+
 Usage:
   python scripts/compare_policy.py
-  python scripts/compare_policy.py --episodes 60 --max-steps 120 --workers 8
+  python scripts/compare_policy.py --episodes 60 --max-steps 300 --workers 8
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
-import os
+import secrets
 import statistics
 import sys
 import time
@@ -24,8 +25,6 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts._bootstrap import ROOT
-
 from src.parallel import default_workers
 from src.reward import watermelon_count
 
@@ -33,8 +32,6 @@ from src.reward import watermelon_count
 EARLY_STEPS = 30
 # Merges per move counted as a cascade firing.
 CASCADE_MERGES = 3
-# Where run results go. The key includes the hash of policy.py, so leaving them does not go stale.
-CACHE_DIR = ROOT / "artifacts" / "compare_cache"
 
 
 def _episode(seed: int, max_steps: int, variant: bool) -> dict[str, float]:
@@ -92,17 +89,6 @@ def _episode(seed: int, max_steps: int, variant: bool) -> dict[str, float]:
     }
 
 
-def _policy_digest() -> str:
-    """A hash of the contents of policy.py. The cache is invalidated when it changes."""
-    src = (ROOT / "src" / "policy.py").read_bytes()
-    return hashlib.sha256(src).hexdigest()[:16]
-
-
-def _cache_path(seeds: list[int], max_steps: int, variant: bool) -> Path:
-    key = f"{_policy_digest()}-{seeds[0]}-{len(seeds)}-{max_steps}-{int(variant)}"
-    return CACHE_DIR / f"{key}.json"
-
-
 def _run(
     seeds: list[int],
     max_steps: int,
@@ -111,24 +97,11 @@ def _run(
     *,
     label: str,
 ) -> list[dict[str, float]]:
-    """Run one variant. With the same seeds the result is determined, so it is cached.
-
-    The OFF side is the same across variants. Recomputing it every time doubles the A/B run time.
-    The cache key includes the hash of policy.py, so touching the policy
-    invalidates it automatically. It also prevents comparing against a stale baseline.
-    """
-    path = _cache_path(seeds, max_steps, variant)
-    if path.is_file():
-        print(f"  {label}: using cache ({path.name})", flush=True)
-        return json.loads(path.read_text(encoding="utf-8"))
-
     started = time.monotonic()
     print(f"  {label}: running {len(seeds)} episodes...", flush=True)
     if workers <= 1:
         rows = [_episode(s, max_steps, variant) for s in seeds]
     else:
-        # The child reads the policy from the environment at spawn. Also overwritten with the setter.
-        os.environ["SUIKA_PACKED"] = "1" if variant else "0"
         rows = []
         with ProcessPoolExecutor(max_workers=workers) as pool:
             futures = [
@@ -143,9 +116,6 @@ def _run(
                 )
         rows.sort(key=lambda r: r["seed"])
     print(f"  {label}: done {time.monotonic() - started:.0f}s" + " " * 20, flush=True)
-
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(rows), encoding="utf-8")
     return rows
 
 
@@ -163,27 +133,31 @@ def _line(label: str, a: float, b: float, *, digits: int = 2) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--episodes", type=int, default=40)
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="random every time when omitted. Avoid reusing fixed seeds.",
+    )
     parser.add_argument("--max-steps", type=int, default=100)
     parser.add_argument("--workers", type=int, default=None)
     args = parser.parse_args()
     workers = args.workers if args.workers is not None else default_workers()
+    seed = args.seed if args.seed is not None else secrets.randbelow(1_000_000)
 
-    seeds = [args.seed + i for i in range(args.episodes)]
+    seeds = [seed + i for i in range(args.episodes)]
     base = _run(seeds, args.max_steps, False, workers, label="A (OFF)")
     new = _run(seeds, args.max_steps, True, workers, label="B (ON) ")
 
     print(
-        f"\nepisodes={args.episodes} seed={args.seed} "
+        f"\nepisodes={args.episodes} seed={seed} "
         f"max_steps={args.max_steps} workers={workers}"
     )
     print("  A = placement after the floor fills OFF (current)   B = ON")
 
     # If everything is truncated, neither headroom nor death rate is measured.
     # It becomes a measurement looking only at setup cost and not the return, so warn first.
-    capped = sum(
-        1 for row in base + new if row["steps"] >= args.max_steps
-    )
+    capped = sum(1 for row in base + new if row["steps"] >= args.max_steps)
     if capped == len(base) + len(new):
         print(
             f"\n  ** all {capped} episodes truncated at max_steps={args.max_steps}. **\n"

@@ -36,4 +36,3 @@ artifacts/
 .ruff_cache/
 .coverage
 htmlcov/
-artifacts/compare_cache/
