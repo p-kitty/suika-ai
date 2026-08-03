@@ -1,7 +1,7 @@
 """bootstrap の 2 変種を同一シードで対戦させ、差をフェーズ別に出す。
 
 変更を入れたあと「どこが良く/悪くなったか」を局在させるための道具。
-既定は梯子 (SUIKA_LADDER) の ON/OFF 比較。同じシード列を両方に流し、
+既定は床埋め後の置き分け (SUIKA_PACKED) の ON/OFF 比較。同じシード列を両方に流し、
 平均だけでなくシードごとの勝ち負けと、序盤・終盤に分けた指標を出す。
 
 用法:
@@ -12,14 +12,19 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import statistics
 import sys
-from concurrent.futures import ProcessPoolExecutor
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._bootstrap import ROOT
 
 from src.parallel import default_workers
 from src.reward import watermelon_count
@@ -28,15 +33,17 @@ from src.reward import watermelon_count
 EARLY_STEPS = 30
 # 連鎖発火とみなす 1 手あたりの合成数。
 CASCADE_MERGES = 3
+# 実行結果の置き場。鍵に policy.py のハッシュが入るので放置しても腐らない。
+CACHE_DIR = ROOT / "artifacts" / "compare_cache"
 
 
-def _episode(seed: int, max_steps: int, ladder: bool) -> dict[str, float]:
+def _episode(seed: int, max_steps: int, variant: bool) -> dict[str, float]:
     """1 エピソード回して指標を返す。ProcessPool のワーカー側で走る。"""
     from src import policy
     from src.policy import choose_x
     from src.sim_env import SimEnv
 
-    policy.set_ladder_enabled(ladder)
+    policy.set_packed_rule_enabled(variant)
 
     env = SimEnv(seed=seed)
     obs = env.reset()
@@ -85,15 +92,61 @@ def _episode(seed: int, max_steps: int, ladder: bool) -> dict[str, float]:
     }
 
 
+def _policy_digest() -> str:
+    """policy.py の中身のハッシュ。変わればキャッシュを無効にする。"""
+    src = (ROOT / "src" / "policy.py").read_bytes()
+    return hashlib.sha256(src).hexdigest()[:16]
+
+
+def _cache_path(seeds: list[int], max_steps: int, variant: bool) -> Path:
+    key = f"{_policy_digest()}-{seeds[0]}-{len(seeds)}-{max_steps}-{int(variant)}"
+    return CACHE_DIR / f"{key}.json"
+
+
 def _run(
-    seeds: list[int], max_steps: int, ladder: bool, workers: int
+    seeds: list[int],
+    max_steps: int,
+    variant: bool,
+    workers: int,
+    *,
+    label: str,
 ) -> list[dict[str, float]]:
+    """1 変種ぶん走らせる。シードが同じなら結果は決まるのでキャッシュする。
+
+    OFF 側は変種を変えても同じ。毎回計算し直すと A/B の所要時間が倍になる。
+    キャッシュ鍵に policy.py のハッシュを入れてあるので、方策をいじれば
+    自動で無効になる。古い基準と比べる事故も防げる。
+    """
+    path = _cache_path(seeds, max_steps, variant)
+    if path.is_file():
+        print(f"  {label}: キャッシュ利用 ({path.name})", flush=True)
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    started = time.monotonic()
+    print(f"  {label}: {len(seeds)} エピソード実行中...", flush=True)
     if workers <= 1:
-        return [_episode(s, max_steps, ladder) for s in seeds]
-    # 子は spawn 時の環境変数で policy を読む。set_ladder_enabled でも上書きする。
-    os.environ["SUIKA_LADDER"] = "1" if ladder else "0"
-    with ProcessPoolExecutor(max_workers=workers) as pool:
-        return list(pool.map(_episode, seeds, [max_steps] * len(seeds), [ladder] * len(seeds)))
+        rows = [_episode(s, max_steps, variant) for s in seeds]
+    else:
+        # 子は spawn 時の環境変数で policy を読む。setter でも上書きする。
+        os.environ["SUIKA_PACKED"] = "1" if variant else "0"
+        rows = []
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(_episode, s, max_steps, variant) for s in seeds
+            ]
+            for done, future in enumerate(as_completed(futures), start=1):
+                rows.append(future.result())
+                print(
+                    f"    {done}/{len(seeds)}  ({time.monotonic() - started:.0f}s)",
+                    end="\r",
+                    flush=True,
+                )
+        rows.sort(key=lambda r: r["seed"])
+    print(f"  {label}: 完了 {time.monotonic() - started:.0f}s" + " " * 20, flush=True)
+
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows), encoding="utf-8")
+    return rows
 
 
 def _mean(rows: list[dict[str, float]], key: str) -> float:
@@ -117,14 +170,26 @@ def main() -> None:
     workers = args.workers if args.workers is not None else default_workers()
 
     seeds = [args.seed + i for i in range(args.episodes)]
-    base = _run(seeds, args.max_steps, False, workers)
-    new = _run(seeds, args.max_steps, True, workers)
+    base = _run(seeds, args.max_steps, False, workers, label="A (OFF)")
+    new = _run(seeds, args.max_steps, True, workers, label="B (ON) ")
 
     print(
-        f"episodes={args.episodes} seed={args.seed} "
+        f"\nepisodes={args.episodes} seed={args.seed} "
         f"max_steps={args.max_steps} workers={workers}"
     )
-    print("  A = ladder OFF (現状)   B = ladder ON")
+    print("  A = 床埋め後の置き分け OFF (現状)   B = ON")
+
+    # 全部が打ち切りだと、伸びしろも死亡率も測れていない。
+    # 仕込みのコストだけ見てリターンを見ない測定になるので、先に警告する。
+    capped = sum(
+        1 for row in base + new if row["steps"] >= args.max_steps
+    )
+    if capped == len(base) + len(new):
+        print(
+            f"\n  ** 全 {capped} エピソードが max_steps={args.max_steps} で打ち切り。**\n"
+            "  ** 自然終了が 1 つも無く、生存時間も到達段階も測れていない。**\n"
+            "  ** --max-steps を増やして測り直すこと。以下の数字は信用しない。**"
+        )
     for label, key, digits in (
         ("score", "score", 2),
         ("early_score", "early_score", 2),
