@@ -38,14 +38,11 @@ def choose_x(obs: Observation) -> float:
         raise ValueError("held_type が無い")
 
     held_r = fruit_radius(obs.held_type)
-    before = list(obs.fruits)
     ranked: list[tuple[float, float, list[Fruit]]] = []
-    for x in _candidates(before, obs.held_type, held_r, extra_type=obs.next_type):
+    for x in _candidates(list(obs.fruits), obs.held_type, held_r, extra_type=obs.next_type):
         x = clamp_drop_x(x, obs.held_type)
-        after, score, penalties, _merges = _evaluate_drop(
-            before, obs.held_type, x, held_r, next_type=obs.next_type
-        )
-        ranked.append((score - penalties, x, after))
+        after, held_eval = _held_eval(obs, x, held_r)
+        ranked.append((held_eval, x, after))
 
     if not ranked:
         return NORMALIZED_WIDTH / 2
@@ -85,26 +82,29 @@ def _candidates(
     grid = candidate_step if step is None else step
     xs = {round(x / grid) * grid for x in _frange(lo, hi, grid)}
     xs.add(_ideal_x(drop_type, sign))
+    _add_near_fruit_x(xs, fruits, held_r, lambda t: drop_type <= t <= drop_type + 2)
 
+    if extra_type is not None:
+        xs.add(_ideal_x(extra_type, sign))
+        _add_near_fruit_x(xs, fruits, held_r, lambda t: t == extra_type)
+
+    return [x for x in xs if lo <= x <= hi]
+
+
+def _add_near_fruit_x(
+    xs: set[float],
+    fruits: tuple[Fruit, ...] | list[Fruit],
+    held_r: float,
+    matches,
+) -> None:
+    """type が matches を満たす実の上／左右接触位置を xs に足す。"""
     for fruit in fruits:
-        if fruit.type < drop_type or fruit.type > drop_type + 2:
+        if not matches(fruit.type):
             continue
         xs.add(fruit.x)
         gap = held_r + fruit.radius
         xs.add(fruit.x - gap)
         xs.add(fruit.x + gap)
-
-    if extra_type is not None:
-        xs.add(_ideal_x(extra_type, sign))
-        for fruit in fruits:
-            if fruit.type != extra_type:
-                continue
-            xs.add(fruit.x)
-            gap = held_r + fruit.radius
-            xs.add(fruit.x - gap)
-            xs.add(fruit.x + gap)
-
-    return [x for x in xs if lo <= x <= hi]
 
 
 def drop_scores(
@@ -133,14 +133,19 @@ def drop_scores(
     return score, penalties, score - penalties, after, merges
 
 
-def _score(obs: Observation, x: float, held_r: float) -> float:
-    """held を落とした盤＋ next の仮想最善手を採点する。"""
+def _held_eval(obs: Observation, x: float, held_r: float) -> tuple[list[Fruit], float]:
+    """held を x に落としたあとの (盤面, score - penalties)。next は見ない。"""
     assert obs.held_type is not None
     before = list(obs.fruits)
     after, score, penalties, _merges = _evaluate_drop(
         before, obs.held_type, x, held_r, next_type=obs.next_type
     )
-    value = score - penalties
+    return after, score - penalties
+
+
+def _score(obs: Observation, x: float, held_r: float) -> float:
+    """held を落とした盤＋ next の仮想最善手を採点する。"""
+    after, value = _held_eval(obs, x, held_r)
     if obs.next_type is not None:
         value += NEXT_DISCOUNT * _best_next_score(after, obs.next_type)
     return value
