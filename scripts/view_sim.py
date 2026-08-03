@@ -28,15 +28,10 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts._bootstrap import ensure_import_path
-
-ensure_import_path()
-
 from src.draw import mode_badge, put_text
 from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
 from src.sim_env import SimEnv
-from src.reward import cleared_double_watermelon, is_game_over, merge_score
 from src.sim_physics import DT, iter_simulate_drop, land_y
 from src.vision.classify import fruit_radius
 from src.vision.colors import FRUIT_NAMES
@@ -137,12 +132,11 @@ def main() -> None:
             return
         target = clamp_drop_x(aim_x if x is None else x, obs.held_type)
         aim_x = target
-        held = obs.held_type
-        before_obs = obs
-        before = list(obs.fruits)
-        after, merges, merge_types = _play_drop_anim(
-            before=before,
-            held_type=held,
+        # 見せるだけ。盤の更新・採点・勝敗は SimEnv に任せる (物理は決定的
+        # なので、アニメで見た最終形と env.step の結果は一致する)。
+        _play_drop_anim(
+            before=list(obs.fruits),
+            held_type=obs.held_type,
             drop_x=target,
             next_type=obs.next_type,
             total_score=total_score,
@@ -150,25 +144,15 @@ def main() -> None:
             auto_play=auto_play,
             on_toggle_auto=_toggle_auto,
         )
-        score = float(merge_score(merge_types))
-        env.fruits = _clamp_board(after)
-        env.held_type = env.next_type
-        env.next_type = env._spawn()
-        obs = env._obs()
-        total_score += score
-        dead = is_game_over(obs)
-        win = cleared_double_watermelon(before_obs, obs, merges=merges)
-        if win:
-            last_info = "win"
-        elif dead:
-            last_info = "dead"
-        else:
-            last_info = "ok"
+        step = env.step(target)
+        obs = step.observation
+        total_score += step.score
+        last_info = step.info
         message = (
-            f"drop x={target:.0f}  score+{score:.0f}  "
-            f"merges={merges}  {last_info}"
+            f"drop x={target:.0f}  score+{step.score:.0f}  "
+            f"merges={step.merges}  {last_info}"
         )
-        if dead or win:
+        if step.done:
             if auto_play:
                 auto_play = False
                 message += "  (auto off — r to reset)"
@@ -247,19 +231,16 @@ def _play_drop_anim(
     info: str,
     auto_play: bool = False,
     on_toggle_auto: Callable[[], None] | None = None,
-) -> tuple[list[Fruit], int, list[int]]:
+) -> None:
     """左パネルに落下物理を再生する。右は最終 AFTER DROP を固定表示。"""
     # 結果の score / penalties は最初から固定表示 (アニメ中も 0 にしない)。
     result_score, result_penalties, _eval, final_after, _final_merges = drop_scores(
         before, held_type, drop_x, next_type=next_type
     )
-    after = list(before)
-    merges = 0
-    merge_types: list[int] = []
     skip = False
     frame_i = 0
     auto_on = auto_play
-    for after, merges, merge_types in iter_simulate_drop(before, held_type, drop_x):
+    for after, merges, _merge_types in iter_simulate_drop(before, held_type, drop_x):
         show = (not skip) and (frame_i % ANIM_STRIDE == 0)
         frame_i += 1
         if not show:
@@ -288,23 +269,6 @@ def _play_drop_anim(
         elif key == ord("g") and on_toggle_auto is not None:
             on_toggle_auto()
             auto_on = not auto_on
-    return after, merges, merge_types
-
-
-def _clamp_board(fruits: list[Fruit]) -> list[Fruit]:
-    out: list[Fruit] = []
-    for fruit in fruits:
-        r = fruit.radius
-        out.append(
-            Fruit(
-                type=fruit.type,
-                x=max(r, min(NORMALIZED_WIDTH - r, fruit.x)),
-                y=max(r * 0.1, min(NORMALIZED_HEIGHT - r, fruit.y)),
-                radius=r,
-                confidence=100.0,
-            )
-        )
-    return out
 
 
 def _render(
