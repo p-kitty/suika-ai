@@ -29,7 +29,7 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.draw import mode_badge, put_text
+from src.draw import FRUIT_BGR, mode_badge, put_text
 from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
 from src.reward import GAME_OVER_Y
@@ -48,20 +48,6 @@ NEXT_PREVIEW_R = 18
 # 物理 1 ステップあたりの表示。1 なら実時間、2 なら 2x。
 ANIM_STRIDE = 1
 ANIM_WAIT_MS = max(1, int(round(1000.0 * DT / ANIM_STRIDE)))
-# 段階ごとの BGR。screenshots の盤面から中央付近をサンプリングした色。
-FRUIT_BGR = [
-    (2, 5, 199),       # cherry — 濃い赤
-    (59, 90, 208),     # strawberry — 赤みの強い橙赤
-    (212, 88, 134),    # grape — 紫
-    (5, 155, 211),     # dekopon — 明るい橙
-    (19, 113, 216),    # orange — やや赤みの橙 (柿色)
-    (17, 15, 204),     # apple — 濃い赤
-    (104, 202, 211),   # pear — 淡黄緑
-    (145, 153, 213),   # peach — ピンク
-    (4, 196, 206),     # pineapple — 黄
-    (12, 185, 130),    # melon — 黄緑
-    (6, 127, 14),      # watermelon — 濃い緑
-]
 WINDOW = "suika-ai sim"
 # main で画面サイズに合わせて入れる。
 SCALE = 1.5
