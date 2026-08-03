@@ -119,11 +119,8 @@ def _candidates(
     lo = held_r
     hi = NORMALIZED_WIDTH - held_r
     grid = CANDIDATE_STEP if step is None else step
-    # List multiples of grid from lo. lo itself is not necessarily a multiple, so start from
-    # the nearest multiple. On the hi side, less than one grid remains at the edge
-    # (it misses one column right by the right wall. If fixing it, measure it separately as a behavior change).
-    first = round(lo / grid)
-    xs = {(first + i) * grid for i in range(int((hi - lo + 1e-6) / grid) + 1)}
+    # List every multiple of grid within lo..hi.
+    xs = {i * grid for i in range(math.ceil(lo / grid), int(hi / grid) + 1)}
     xs.add(_ideal_x(drop_type, sign))
     _add_near_fruit_x(xs, fruits, held_r, lambda t: drop_type <= t <= drop_type + 2)
 
