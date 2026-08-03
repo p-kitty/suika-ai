@@ -250,7 +250,7 @@ def _evaluate_drop(
     growing = _valley_grow_ok(before, land_x, drop_type, next_type)
     # FOREIGN_AIM looks at 'is the fruit directly below a different type', not merges.
     # A same type directly below is OK (waiting to merge). Rolling off a different type and merging on the floor is still penalized.
-    penalties += _foreign_aim_penalty(before, land_x, land_y, drop_type, held_r)
+    penalties += _foreign_aim_penalty(before, x, drop_type, held_r)
     if merges == 0:
         if not growing:
             penalties += _wrong_side_roll_penalty(
@@ -532,48 +532,45 @@ def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
     return penalty
 
 
-def _fruit_below(
+def _straight_fall_contact(
     fruits: list[Fruit] | tuple[Fruit, ...],
-    land_x: float,
-    land_y: float,
+    x: float,
     held_r: float,
 ) -> Fruit | None:
-    """The fruit supporting the landing from directly below. None if only the floor."""
+    """The first fruit touched when dropping straight down column x. None if only the floor.
+
+    Not the actual landing after bouncing and rolling, but the geometric first contact
+    when falling straight down the aimed column (no physics is run).
+    """
     best: Fruit | None = None
-    best_err = math.inf
+    best_y = float(NORMALIZED_HEIGHT) - held_r  # the floor if it touches nothing.
     for fruit in fruits:
-        # The support is below the landing (larger y).
-        if fruit.y <= land_y - 1.0:
+        dx = abs(fruit.x - x)
+        gap = fruit.radius + held_r
+        if dx >= gap:
             continue
-        dist = math.hypot(land_x - fruit.x, land_y - fruit.y)
-        touch = fruit.radius + held_r
-        if dist > touch + MERGE_SLACK:
-            continue
-        err = abs(dist - touch)
-        if err < best_err:
-            best_err = err
+        touch_y = fruit.y - math.sqrt(gap * gap - dx * dx)
+        if touch_y < best_y:
+            best_y = touch_y
             best = fruit
     return best
 
 
 def _foreign_aim_penalty(
     fruits: list[Fruit] | tuple[Fruit, ...],
-    land_x: float,
-    land_y: float,
+    x: float,
     drop_type: int,
     held_r: float,
 ) -> float:
-    """Penalty for landing directly above a different type right below.
+    """Penalty for whether the aimed column x is directly above a different type.
 
     0 if the fruit below is the same type (waiting to merge). Shoulder and floor landings are 0 too.
-    merges is not looked at (rolling off a different type and merging on the floor is still penalized).
-    Unrelated to ladders. The rungs sit on shoulders, so this penalty never applies in the first place.
     """
-    under = _fruit_below(fruits, land_x, land_y, held_r)
+    under = _straight_fall_contact(fruits, x, held_r)
     if under is None or under.type == drop_type:
         return 0.0
     # If the center is off, it is not directly above. Shoulder landings are out of scope.
-    if abs(land_x - under.x) > under.radius * FOREIGN_AIM_CENTER_FRAC:
+    if abs(x - under.x) > under.radius * FOREIGN_AIM_CENTER_FRAC:
         return 0.0
     return FOREIGN_AIM_PENALTY
 

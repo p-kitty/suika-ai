@@ -315,7 +315,7 @@ def test_avoids_foreign_center_stack() -> None:
 
 
 def test_foreign_aim_ignores_buried_foreign() -> None:
-    # Even in the center column of a different type below, no penalty if the landing is on the shoulder of the fruit above.
+    # Even in the center column of a different type below, no penalty if the geometric contact directly below is the shoulder of the fruit above.
     apple_r = fruit_radius(5)
     grape_r = fruit_radius(2)
     orange_r = fruit_radius(4)
@@ -323,14 +323,10 @@ def test_foreign_aim_ignores_buried_foreign() -> None:
     grape_x = apple.x + apple_r * 0.45
     grape_y = apple.y - math.sqrt((apple_r + grape_r) ** 2 - (grape_x - apple.x) ** 2)
     grape = Fruit(type=2, x=grape_x, y=grape_y, radius=grape_r, confidence=90)
-    # Drop at the apple's center column, but it sits on the offset grape.
-    land_x = apple.x
-    dx = abs(land_x - grape.x)
-    land_y = grape_y - math.sqrt((grape_r + orange_r) ** 2 - dx * dx)
-    assert _foreign_aim_penalty((apple, grape), land_x, land_y, 4, orange_r) == 0.0
-    # Landing straight down onto the head of a different type is penalized.
-    on_apple_y = apple.y - (apple_r + orange_r)
-    assert _foreign_aim_penalty((apple,), apple.x, on_apple_y, 4, orange_r) == FOREIGN_AIM_PENALTY
+    # Aim at the apple's center column, but what it touches directly below is the offset grape.
+    assert _foreign_aim_penalty((apple, grape), apple.x, 4, orange_r) == 0.0
+    # Aiming straight down onto the head of a different type is penalized.
+    assert _foreign_aim_penalty((apple,), apple.x, 4, orange_r) == FOREIGN_AIM_PENALTY
 
 
 def test_foreign_aim_ok_when_same_type_below() -> None:
@@ -338,12 +334,11 @@ def test_foreign_aim_ok_when_same_type_below() -> None:
     orange_r = fruit_radius(4)
     floor = NORMALIZED_HEIGHT - orange_r
     mate = Fruit(type=4, x=200, y=floor, radius=orange_r, confidence=90)
-    land_y = mate.y - 2 * orange_r
-    assert _foreign_aim_penalty((mate,), mate.x, land_y, 4, orange_r) == 0.0
+    assert _foreign_aim_penalty((mate,), mate.x, 4, orange_r) == 0.0
 
 
 def test_foreign_aim_penalizes_foreign_below_even_if_near_same_type() -> None:
-    # Directly below is a different type. Even with a same type beside it, aiming directly above is penalized (the loophole of rolling into a merge).
+    # Directly below is a different type. Even with a same type beside it, aiming directly above is penalized.
     apple_r = fruit_radius(5)
     orange_r = fruit_radius(4)
     apple = Fruit(type=5, x=200, y=NORMALIZED_HEIGHT - apple_r, radius=apple_r, confidence=90)
@@ -354,8 +349,7 @@ def test_foreign_aim_penalizes_foreign_below_even_if_near_same_type() -> None:
         radius=orange_r,
         confidence=90,
     )
-    on_apple_y = apple.y - (apple_r + orange_r)
-    assert _foreign_aim_penalty((apple, mate), apple.x, on_apple_y, 4, orange_r) == FOREIGN_AIM_PENALTY
+    assert _foreign_aim_penalty((apple, mate), apple.x, 4, orange_r) == FOREIGN_AIM_PENALTY
 
 
 def test_merges_when_three_same_type_waiting() -> None:
