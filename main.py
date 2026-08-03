@@ -138,6 +138,11 @@ def main() -> None:
         nonlocal frame, next_pump
         # 待ち中の押しっぱなし／再押しを、戻ったあとに誤発火させない。
         poll_step_key()
+        # G / L も待ち中に取りこぼすと、押した瞬間が step/settle の間に埋もれて
+        # 切り替わらないまま次のトグルまで判定がずれる。手動 P 単発の待ちは
+        # should_abort を経由せずここだけを通るので、G の検出もここに置く。
+        poll_g_toggle()
+        poll_policy_toggle()
         now = time.monotonic()
         if now < next_pump:
             cv2.waitKey(1)
@@ -171,7 +176,6 @@ def main() -> None:
 
     def should_abort() -> bool:
         """自動中の待ちループ用。G で off にしたら打ち切る。"""
-        poll_g_toggle()
         pump_ui()
         return not auto_play
 
