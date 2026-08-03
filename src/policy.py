@@ -119,7 +119,11 @@ def _candidates(
     lo = held_r
     hi = NORMALIZED_WIDTH - held_r
     grid = CANDIDATE_STEP if step is None else step
-    xs = {round(x / grid) * grid for x in _frange(lo, hi, grid)}
+    # grid の倍数を lo から並べる。lo 自身は倍数とは限らないので、そこから
+    # 一番近い倍数を起点にする。hi 側は grid 未満のぶんが端に残る
+    # (右壁ぎわの列を 1 本取りこぼす。直すなら挙動変更として別に測ること)。
+    first = round(lo / grid)
+    xs = {(first + i) * grid for i in range(int((hi - lo + 1e-6) / grid) + 1)}
     xs.add(_ideal_x(drop_type, sign))
     _add_near_fruit_x(xs, fruits, held_r, lambda t: drop_type <= t <= drop_type + 2)
 
@@ -610,12 +614,18 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
     size_order_pair_weight = 1.5
     size_order_ideal_weight = 0.004
     penalty = 0.0
-    open_fruits = [f for f in fruits if not _is_nestled(f, fruits)]
+    # _is_nestled は 1 個あたり O(n)。ペアごとに引き直すと O(n^3) になるので
+    # 先に 1 回だけ引く。候補ごとに毎回走る場所。
+    nestled = [_is_nestled(f, fruits) for f in fruits]
+    open_fruits = [f for f, nest in zip(fruits, nestled) if not nest]
     for i, a in enumerate(fruits):
-        for b in fruits[i + 1 :]:
+        if nestled[i]:
+            continue
+        for j in range(i + 1, len(fruits)):
+            b = fruits[j]
             if abs(a.x - b.x) < min(a.radius, b.radius) * 0.5:
                 continue
-            if _is_nestled(a, fruits) or _is_nestled(b, fruits):
+            if nestled[j]:
                 continue
             left, right = (a, b) if a.x <= b.x else (b, a)
             if sign > 0 and left.type < right.type:
@@ -643,9 +653,7 @@ def _bury_penalty(fruits: list[Fruit]) -> float:
     penalty = 0.0
     for under in fruits:
         for over in fruits:
-            if over is under or over.type == under.type:
-                continue
-            if over.type < under.type:
+            if over is under or over.type <= under.type:
                 continue
             if over.y >= under.y:
                 continue
@@ -702,8 +710,3 @@ def _height_variance(fruits: list[Fruit]) -> float:
     return float(statistics.pstdev(list(bins.values())))
 
 
-def _frange(start: float, stop: float, step: float):
-    x = start
-    while x <= stop + 1e-6:
-        yield x
-        x += step
