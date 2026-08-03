@@ -405,6 +405,94 @@ def test_large_fruits_prefer_clustering() -> None:
     assert _score(obs, x, pear_r) > _score(obs, far, pear_r)
 
 
+def _rest_on(a: Fruit, b: Fruit, fruit_type: int) -> Fruit:
+    """A fruit of type resting on top touching both a and b. Scaffolding for tests building ladder shoulders."""
+    r = fruit_radius(fruit_type)
+    d1, d2 = a.radius + r, b.radius + r
+    dx, dy = b.x - a.x, b.y - a.y
+    d = math.hypot(dx, dy)
+    mid = (d1 * d1 - d2 * d2 + d * d) / (2 * d)
+    h = math.sqrt(max(0.0, d1 * d1 - mid * mid))
+    cx, cy = a.x + mid * dx / d, a.y + mid * dy / d
+    x1, y1 = cx + h * dy / d, cy - h * dx / d
+    x2, y2 = cx - h * dy / d, cy + h * dx / d
+    x, y = (x1, y1) if y1 < y2 else (x2, y2)
+    return Fruit(type=fruit_type, x=x, y=y, radius=r, confidence=90)
+
+
+def _ladder_board() -> tuple[Fruit, ...]:
+    """Corner peach + pear on the inside, apple and orange on the shoulders of those two (a completed ladder)."""
+    peach_r, pear_r = fruit_radius(7), fruit_radius(6)
+    peach = Fruit(
+        type=7, x=peach_r + 2, y=NORMALIZED_HEIGHT - peach_r, radius=peach_r, confidence=90
+    )
+    pear = Fruit(
+        type=6,
+        x=peach.x + peach_r + pear_r,
+        y=NORMALIZED_HEIGHT - pear_r,
+        radius=pear_r,
+        confidence=90,
+    )
+    apple = _rest_on(peach, pear, 5)
+    orange = _rest_on(apple, pear, 4)
+    return (peach, pear, apple, orange)
+
+
+def test_ladder_detects_full_stack() -> None:
+    # peach→pear→apple→orange are all picked up as rungs.
+    from src.policy import _ladder_anchor, _ladder_rungs, _order_sign
+
+    fruits = _ladder_board()
+    sign = _order_sign(fruits)
+    anchor = _ladder_anchor(fruits, sign)
+    assert anchor is not None and anchor.type == 7
+    assert sorted(_ladder_rungs(fruits, anchor, sign)) == [4, 5, 6, 7]
+
+
+def test_ladder_ignores_vertical_tower() -> None:
+    # A pear stacked directly on top of the peach is not a ladder (a shape that collapses, so not counted as a rung).
+    from src.policy import _ladder_anchor, _ladder_rungs, _order_sign
+
+    peach_r, pear_r = fruit_radius(7), fruit_radius(6)
+    peach = Fruit(
+        type=7, x=peach_r + 2, y=NORMALIZED_HEIGHT - peach_r, radius=peach_r, confidence=90
+    )
+    tower = Fruit(
+        type=6, x=peach.x, y=peach.y - peach_r - pear_r, radius=pear_r, confidence=90
+    )
+    fruits = (peach, tower)
+    sign = _order_sign(fruits)
+    anchor = _ladder_anchor(fruits, sign)
+    assert anchor is not None
+    assert sorted(_ladder_rungs(fruits, anchor, sign)) == [7]
+
+
+def test_ladder_needs_no_ignition_hint() -> None:
+    # Once built, the current choose_x ties with the best of an exhaustive sweep over x.
+    # Pins down that guiding only the firing is pointless (if anything, add to the building side).
+    from src.reward import merge_score
+
+    fruits = _ladder_board()
+    # Fill the floor to the right edge. If sparse, the pear gets pushed out and the shape does not hold.
+    packed = list(fruits)
+    cursor = fruits[1].x + fruits[1].radius
+    for fruit_type in (6, 5, 5, 4, 4):
+        r = fruit_radius(fruit_type)
+        packed.append(
+            Fruit(type=fruit_type, x=cursor + r, y=NORMALIZED_HEIGHT - r, radius=r, confidence=90)
+        )
+        cursor += 2 * r
+    board = tuple(packed)
+
+    best = max(
+        merge_score(simulate_drop(board, 4, i * 8.0)[2])
+        for i in range(NORMALIZED_WIDTH // 8 + 1)
+    )
+    chosen = merge_score(simulate_drop(board, 4, choose_x(_obs(held_type=4, fruits=board)))[2])
+    assert best >= 100.0
+    assert chosen >= best
+
+
 def test_avoids_under_max_center_on_outer_edge() -> None:
     # Placing a small fruit at the big-side edge beyond the biggest is fine, but avoid the corner pocket below L's center.
     from src.policy import _big_layout_penalty

@@ -24,6 +24,33 @@
 - Layout: big fruits stay close together. On the big side (`sign`), the corner pocket outside an edge-anchored L and below L's center is heavily penalized (`_big_layout_penalty`). `wrong_side_roll` is also for rolling accidents onto the same big-side floor
 - Not included: push-in merges, restoring pushes, cascade gap opening, forced moves one tier up, hard-coded ladder firing
 - Do not add UTs for concrete procedures. When something breaks, look at accident prevention or the observation side
+
+## Ladder (firing a corner big fruit up a staircase)
+
+A pear next to the inside of a corner peach, an apple and an orange on the **shoulders** of those two, firing with the final orange
+to cascade 4→5→6→7. The same holds from a corner pineapple or corner melon onward; the staircase always goes down to the biggest drawable
+(orange). But **it is not a shape to aim for every time**. It is an option when L is fairly big and the floor
+is filled; from peach to pineapple it is often grown normally from the side.
+
+For now it is **detection only** in `_ladder_anchor` / `_ladder_rungs`, not connected to move selection.
+`SUIKA_LADDER=0` cuts detection entirely, but ON/OFF does not change moves.
+
+What measurement has shown (`scripts/compare_policy.py`, a probe of 6 seeds × 120 moves):
+
+- **Firing needs no guidance**. Once a ladder is built, `choose_x` ties with the best of an exhaustive
+  sweep over x. The same-type contact points of `_add_near_fruit_x` are enough. Adding candidate x for firing
+  was a no-op with every seed tied (measured and removed)
+- **`FOREIGN_AIM` is unrelated to the ladder**. The rungs sit on shoulders, so this penalty never applies in the first place.
+  "The -100 for directly above a different type crushes ladders" is wrong. It is physically never stable directly on top
+- **`_size_order_penalty` is not in the way either**. Measured on ladder boards it is only 0.14-0.49
+- **Without a filled floor the shape does not hold**. The pear is pushed out like a wedge and self-destructs, and wherever you drop
+  you get only one rung (15 points). Filling the floor to the right edge gives 100 points. A filled floor is a gate condition
+- **The bottleneck is building it**. A board with all 4 rungs appears only 12 times in 720. It is not that it cannot fire,
+  but that it never gets built. This is where to intervene (as a board potential on the
+  `_board_penalties` side, gated by a packed floor)
+- Treating a rung as "a move that drops and places it" is a poor approach. Draws go up to orange, and
+  the pear and apple rungs can only be grown by merging. Written as a placement condition it passed only 4 times
+  in 400 boards
 - The search cost is essentially the number of `simulate_drop` calls. `HELD_TOP` / `NEXT_CANDIDATE_STEP` decide the run time (the old 8/16 took 3.8 seconds per move and collection could not keep up. 2/32 gave 1.2 seconds and score -3.4%)
 - Do not make `CANDIDATE_STEP` coarser. At 20 the spot directly above a dangerous pile lands on the grid and `test_avoids_dangerous_tall_stack` fails. Speed is earned on the lookahead side
 - Cutting `SLEEP_FRAMES` does not work. A single `choose_x` gets faster, but the board settles differently and later moves get heavier, so the whole episode is actually slower (measured at 25). The physics fidelity (shared with `SimEnv`) also drops
@@ -35,6 +62,10 @@
 - `src/encode.py`: fixed-length observation vector
 - `src/sim_env.py`: headless drop sim (`sim_physics.simulate_drop`). `SimStep` is the real game's `score` only (no cumulative eval)
 - Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`. `--workers` default = logical cores/2)
+- A/B: `python scripts/compare_policy.py`. Runs two bootstrap variants **on the same seeds**,
+  reporting not just means but per-seed wins and losses and per-phase metrics (`early_score` / `early_crown` /
+  `dead_early` / `cascades`). If every seed ties it warns "the change is not firing".
+  Put changes through this before touching the policy, so nothing gets discarded on "it somehow got weaker"
 - Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=100 is a cap, not the losing line). best is score → moves → match
 - Teacher collection runs in parallel with `ProcessPool` (default workers=logical cores/2; 8 on a 9700X; `--workers 1` for serial)
 - `src/agent.py`: MLP with 32 discrete column bins / hidden 128 (old 20/64 npz files need retraining)

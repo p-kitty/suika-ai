@@ -10,6 +10,7 @@ Moves are scored as eval = score (the real game's merge points) - penalties (pen
 from __future__ import annotations
 
 import math
+import os
 import statistics
 
 from .observe import Observation, clamp_drop_x
@@ -39,6 +40,38 @@ NEXT_CANDIDATE_STEP = 32.0
 # Uniform spacing of held candidates. Coarser puts the spot directly above a dangerous pile among the candidates, so do not raise it
 # (test_avoids_dangerous_tall_stack failed at 20). Speed is earned on the lookahead side.
 CANDIDATE_STEP = 12.0
+
+# --- Wall-anchored check (shared by the corner pocket penalty and the ladder base) ---
+EDGE_ANCHOR_MIN = 24.0
+EDGE_ANCHOR_FRAC = 0.35
+
+# --- Ladder detection (the shape that fires a corner big fruit up a staircase) ---
+# Put a peach (7) in the corner, a pear (6) next to it on the inside. On the shoulders of those two, an apple (5) and an orange (4).
+# Dropping an orange last cascades 4→5→6→7 and the corner peach becomes a pineapple.
+# The same holds from a corner pineapple onward; the staircase always goes down to the biggest drawable type (orange).
+#
+# For now it only detects and is not used for move selection. What measurement has shown:
+# - Firing needs no guidance. Once a ladder is built, choose_x ties with the best of an exhaustive sweep over x
+# - Boards where it gets built do not appear (4 full rungs 12 times in 720 measured boards). This is where to intervene
+# - Without a filled floor the shape does not hold. The pear is pushed out like a wedge and self-destructs,
+#   and wherever you drop you get only one rung (15 points). A filled floor is a gate condition
+LADDER_MIN_ANCHOR_TYPE = 7
+# The bottom rung of the ladder.
+LADDER_BASE_TYPE = SPAWN_MAX_TYPE
+# The one below (dekopon). Two dekopons can make the orange rung, so
+# it counts as a rung only when held/next are both dekopon.
+LADDER_FEED_TYPE = SPAWN_MAX_TYPE - 1
+
+# Switch for staged rollout. 0 returns everything around ladders completely to the old behavior (for A/B).
+# For now only detection is connected, so ON/OFF does not change moves.
+# When adding guidance, put it inside this flag and measure with compare_policy.py.
+LADDER_ENABLED = os.environ.get("SUIKA_LADDER", "1") != "0"
+
+
+def set_ladder_enabled(enabled: bool) -> None:
+    """Enable/disable everything around ladders (for A/B comparison and tests)."""
+    global LADDER_ENABLED
+    LADDER_ENABLED = enabled
 
 
 def choose_x(obs: Observation) -> float:
@@ -249,12 +282,7 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
     max_fruits = [fruit for fruit in fruits if fruit.type == max_t]
 
     for big in max_fruits:
-        if large_left:
-            wall_gap = big.x - big.radius
-        else:
-            wall_gap = NORMALIZED_WIDTH - big.radius - big.x
-        edge_anchored = max(24.0, big.radius * 0.35)
-        if wall_gap > edge_anchored:
+        if not _is_wall_anchored(big, sign):
             continue
         for fruit in fruits:
             if fruit.type >= max_t:
@@ -281,6 +309,90 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
         size = 0.5 + 0.05 * (left.type + right.type)
         penalty += cluster_weight * gap * size
     return penalty
+
+
+def _wall_gap(fruit: Fruit, sign: int) -> float:
+    """Gap to the wall on the big side (sign)."""
+    if sign > 0:
+        return fruit.x - fruit.radius
+    return NORMALIZED_WIDTH - fruit.radius - fruit.x
+
+
+def _is_wall_anchored(fruit: Fruit, sign: int) -> bool:
+    """Whether it is on the big-side wall."""
+    limit = max(EDGE_ANCHOR_MIN, fruit.radius * EDGE_ANCHOR_FRAC)
+    return _wall_gap(fruit, sign) <= limit
+
+
+def _ladder_anchor(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    sign: int,
+) -> Fruit | None:
+    """The base of the ladder. The biggest fruit on the big-side wall. None if below peach or away from the wall."""
+    if not LADDER_ENABLED or not fruits:
+        return None
+    max_t = max(fruit.type for fruit in fruits)
+    if max_t < LADDER_MIN_ANCHOR_TYPE:
+        return None
+    best: Fruit | None = None
+    for fruit in fruits:
+        if fruit.type != max_t or not _is_wall_anchored(fruit, sign):
+            continue
+        if best is None or _wall_gap(fruit, sign) < _wall_gap(best, sign):
+            best = fruit
+    return best
+
+
+def _ladder_window(anchor: Fruit, sign: int) -> tuple[float, float]:
+    """The horizontal band the ladder occupies. From slightly outside the base's center, to two pears' worth on the inside."""
+    inner = anchor.radius + fruit_radius(anchor.type - 1) * 2.0 + MERGE_SLACK
+    outer = anchor.radius * 0.5
+    if sign > 0:
+        return anchor.x - outer, anchor.x + inner
+    return anchor.x - inner, anchor.x + outer
+
+
+def _ladder_beside_anchor(anchor: Fruit, x: float, sign: int) -> bool:
+    """Whether it is next to the base on the inside, not directly on top.
+
+    The rung one smaller (the pear for a peach) goes alongside. Stacking it directly on top makes a shape that collapses.
+    """
+    return (x - anchor.x) * sign > anchor.radius * 0.5
+
+
+def _ladder_rungs(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    anchor: Fruit,
+    sign: int,
+) -> dict[int, Fruit]:
+    """Rungs filled continuously downward from the base. Ends where it breaks.
+
+    Rungs are inside the horizontal band, taken from the wall side, and not lower than the rung above.
+    The pear is next to the peach (about the same y), so the floor radius difference is allowed.
+    """
+    lo, hi = _ladder_window(anchor, sign)
+    rungs = {anchor.type: anchor}
+    above = anchor
+    for want in range(anchor.type - 1, LADDER_FEED_TYPE - 1, -1):
+        best: Fruit | None = None
+        for fruit in fruits:
+            if fruit.type != want or fruit is anchor:
+                continue
+            if not lo <= fruit.x <= hi:
+                continue
+            if fruit.y > above.y + above.radius:
+                continue
+            if want == anchor.type - 1 and not _ladder_beside_anchor(
+                anchor, fruit.x, sign
+            ):
+                continue
+            if best is None or _wall_gap(fruit, sign) < _wall_gap(best, sign):
+                best = fruit
+        if best is None:
+            break
+        rungs[want] = best
+        above = best
+    return rungs
 
 
 def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
@@ -331,6 +443,7 @@ def _foreign_aim_penalty(
 
     0 if the fruit below is the same type (waiting to merge). Shoulder and floor landings are 0 too.
     merges is not looked at (rolling off a different type and merging on the floor is still penalized).
+    Unrelated to ladders. The rungs sit on shoulders, so this penalty never applies in the first place.
     """
     under = _fruit_below(fruits, land_x, land_y, held_r)
     if under is None or under.type == drop_type:
