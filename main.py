@@ -138,6 +138,11 @@ def main() -> None:
         nonlocal frame, next_pump
         # Do not misfire on a key held or pressed again while waiting after returning.
         poll_step_key()
+        # If G / L are also missed while waiting, the moment of pressing is buried between step/settle
+        # and the state stays unswitched, offsetting the check until the next toggle. A manual single P wait
+        # goes only through here without should_abort, so G detection lives here too.
+        poll_g_toggle()
+        poll_policy_toggle()
         now = time.monotonic()
         if now < next_pump:
             cv2.waitKey(1)
@@ -171,7 +176,6 @@ def main() -> None:
 
     def should_abort() -> bool:
         """For wait loops during auto. Abort when switched off with G."""
-        poll_g_toggle()
         pump_ui()
         return not auto_play
 
