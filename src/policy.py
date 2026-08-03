@@ -258,7 +258,6 @@ def _evaluate_drop(
             )
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
         penalties += _packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
-    penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
     return after, score, penalties, merges
 
 
@@ -635,26 +634,6 @@ def _packed_small_side_penalty(
     if _small_side_room_ok(fruits, drop_type, held_r, max_type, sign):
         return 0.0
     return PACKED_SMALL_SIDE_WEIGHT
-
-
-def _coast_away_penalty(
-    fruits: list[Fruit] | tuple[Fruit, ...],
-    drop_x: float,
-    land_x: float,
-    land_y: float,
-    held_r: float,
-) -> float:
-    """接触で弾かれて落下列から大きく離れた着地を減点する。"""
-    coast_drift_weight = 0.08
-    coast_floor_bonus = 8.0
-    floor = NORMALIZED_HEIGHT - held_r
-    drifted = abs(land_x - drop_x)
-    if drifted < held_r * 2:
-        return 0.0
-    penalty = drifted * coast_drift_weight
-    if land_y >= floor - 4.0 and drifted > NORMALIZED_WIDTH * 0.25:
-        penalty += coast_floor_bonus
-    return penalty
 
 
 def _valley_flanks(

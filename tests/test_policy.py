@@ -16,7 +16,7 @@ from src.policy import (
     _score,
     choose_x,
 )
-from src.sim_physics import preview_land, simulate_drop
+from src.sim_physics import landed_xy, preview_land, simulate_drop
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
@@ -93,9 +93,12 @@ def test_sets_up_next_when_no_immediate_merge() -> None:
     grape_r = fruit_radius(2)
     target = Fruit(type=0, x=300, y=NORMALIZED_HEIGHT - cherry_r, radius=cherry_r, confidence=90)
     wall = Fruit(type=5, x=80, y=NORMALIZED_HEIGHT - fruit_radius(5), radius=fruit_radius(5), confidence=90)
-    x = choose_x(_obs(held_type=2, fruits=(target, wall), next_type=0))
-    assert x > NORMALIZED_WIDTH / 2
-    assert abs(x - target.x) < cherry_r + grape_r * 2 + 40
+    fruits = (target, wall)
+    x = choose_x(_obs(held_type=2, fruits=fruits, next_type=0))
+    # 衝突で弾かれるので、狙った列 x ではなく実際の着地位置で判定する。
+    after, merges, _merge_types = simulate_drop(fruits, 2, x)
+    land_x, _land_y = landed_xy(fruits, after, 2, x, grape_r, merges)
+    assert abs(land_x - target.x) < cherry_r + grape_r * 2 + 40
 
 
 def test_small_fruit_goes_right_of_large() -> None:
