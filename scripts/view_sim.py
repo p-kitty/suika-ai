@@ -29,7 +29,7 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.draw import mode_badge, put_text
+from src.draw import FRUIT_BGR, mode_badge, put_text
 from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
 from src.reward import GAME_OVER_Y
@@ -48,20 +48,6 @@ NEXT_PREVIEW_R = 18
 # Display per physics step. 1 is real time, 2 is 2x.
 ANIM_STRIDE = 1
 ANIM_WAIT_MS = max(1, int(round(1000.0 * DT / ANIM_STRIDE)))
-# BGR per stage. Colors sampled near the center of the boards in screenshots.
-FRUIT_BGR = [
-    (2, 5, 199),       # cherry — deep red
-    (59, 90, 208),     # strawberry — strongly reddish orange-red
-    (212, 88, 134),    # grape — purple
-    (5, 155, 211),     # dekopon — bright orange
-    (19, 113, 216),    # orange — slightly reddish orange (persimmon)
-    (17, 15, 204),     # apple — deep red
-    (104, 202, 211),   # pear — pale yellow-green
-    (145, 153, 213),   # peach — pink
-    (4, 196, 206),     # pineapple — yellow
-    (12, 185, 130),    # melon — yellow-green
-    (6, 127, 14),      # watermelon — deep green
-]
 WINDOW = "suika-ai sim"
 # Set in main to fit the screen size.
 SCALE = 1.5

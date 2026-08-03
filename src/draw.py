@@ -6,6 +6,22 @@ FONT = cv2.FONT_HERSHEY_SIMPLEX
 Color = tuple[int, int, int]
 Point = tuple[int, int]
 
+# BGR per stage. Colors sampled near the center of the boards in screenshots.
+# Shared by the mini boards of view_sim / preview.
+FRUIT_BGR: list[Color] = [
+    (2, 5, 199),       # cherry — deep red
+    (59, 90, 208),     # strawberry — strongly reddish orange-red
+    (212, 88, 134),    # grape — purple
+    (5, 155, 211),     # dekopon — bright orange
+    (19, 113, 216),    # orange — slightly reddish orange (persimmon)
+    (17, 15, 204),     # apple — deep red
+    (104, 202, 211),   # pear — pale yellow-green
+    (145, 153, 213),   # peach — pink
+    (4, 196, 206),     # pineapple — yellow
+    (12, 185, 130),    # melon — yellow-green
+    (6, 127, 14),      # watermelon — deep green
+]
+
 
 def put_text(
     image: np.ndarray,
