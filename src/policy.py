@@ -119,11 +119,8 @@ def _candidates(
     lo = held_r
     hi = NORMALIZED_WIDTH - held_r
     grid = CANDIDATE_STEP if step is None else step
-    # grid の倍数を lo から並べる。lo 自身は倍数とは限らないので、そこから
-    # 一番近い倍数を起点にする。hi 側は grid 未満のぶんが端に残る
-    # (右壁ぎわの列を 1 本取りこぼす。直すなら挙動変更として別に測ること)。
-    first = round(lo / grid)
-    xs = {(first + i) * grid for i in range(int((hi - lo + 1e-6) / grid) + 1)}
+    # lo..hi に入る grid の倍数を全部並べる。
+    xs = {i * grid for i in range(math.ceil(lo / grid), int(hi / grid) + 1)}
     xs.add(_ideal_x(drop_type, sign))
     _add_near_fruit_x(xs, fruits, held_r, lambda t: drop_type <= t <= drop_type + 2)
 
