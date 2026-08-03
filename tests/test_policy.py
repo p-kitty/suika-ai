@@ -434,6 +434,31 @@ def test_floor_packed_allows_gaps_up_to_an_orange() -> None:
     assert not _floor_packed([left, _floor(7, right_x + 2.0), edge])
 
 
+def test_small_side_room_ignores_gap_blocked_by_overhang() -> None:
+    # 床の隙間が幾何的に広くても、上に屋根 (別の実) が渡してあれば入らない。
+    # 幾何だけで判定すると誤って room ありにする (指摘を受けて物理確認に変更)。
+    from src.policy import _small_side_room_ok
+
+    peach_r = fruit_radius(7)
+    peach = _floor(7, peach_r + 2)
+    roof_r = fruit_radius(6)
+    roof = Fruit(
+        type=6,
+        x=NORMALIZED_WIDTH - roof_r - 2,
+        y=NORMALIZED_HEIGHT - roof_r - 120,
+        radius=roof_r,
+        confidence=90,
+    )
+    pillar_r = fruit_radius(0)
+    pillar = _floor(0, roof.x - roof_r - pillar_r + 4)
+    fruits = (peach, roof, pillar)
+
+    orange_r = fruit_radius(4)
+    assert not _small_side_room_ok(fruits, 4, orange_r, 7, sign=1)
+    # 対照: 屋根が無ければ同じ隙間幅で room ありになる。
+    assert _small_side_room_ok((peach,), 4, orange_r, 7, sign=1)
+
+
 def _rest_on(a: Fruit, b: Fruit, fruit_type: int) -> Fruit:
     """a と b の両方に接して上に乗る type の実。梯子の肩を組むテスト足場。"""
     r = fruit_radius(fruit_type)

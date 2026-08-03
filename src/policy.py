@@ -257,7 +257,7 @@ def _evaluate_drop(
                 before, land_x, land_y, drop_type, held_r, sign
             )
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
-        penalties += _packed_small_side_penalty(before, land_x, drop_type, sign)
+        penalties += _packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
     penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
     return after, score, penalties, merges
 
@@ -351,28 +351,58 @@ def _big_cluster_edge(
     return min(fruit.x - fruit.radius for fruit in bigs)
 
 
-def _small_side_room(
+def _widest_gap(
     fruits: list[Fruit] | tuple[Fruit, ...],
-    max_type: int,
-    sign: int,
-) -> float:
-    """小さい側の床にある一番広い隙間。塊の縁から遠い壁までを見る。
-
-    ここに素直に収まるなら普通に置けばよく、大側へ回す理由は無い。
-    """
-    edge = _big_cluster_edge(fruits, max_type, sign)
-    if sign > 0:
-        lo, hi = edge, float(NORMALIZED_WIDTH)
-    else:
-        lo, hi = 0.0, edge
+    lo: float,
+    hi: float,
+) -> tuple[float, float]:
+    """[lo, hi] の床にある一番広い隙間の幅と中心 x。"""
     widest = 0.0
+    center = (lo + hi) / 2.0
     cursor = lo
     for fruit in _floor_row(fruits):
         if fruit.x + fruit.radius <= lo or fruit.x - fruit.radius >= hi:
             continue
-        widest = max(widest, (fruit.x - fruit.radius) - cursor)
+        gap = (fruit.x - fruit.radius) - cursor
+        if gap > widest:
+            widest = gap
+            center = (cursor + (fruit.x - fruit.radius)) / 2.0
         cursor = max(cursor, fruit.x + fruit.radius)
-    return max(widest, hi - cursor)
+    gap = hi - cursor
+    if gap > widest:
+        widest = gap
+        center = (cursor + hi) / 2.0
+    return widest, center
+
+
+def _small_side_room_ok(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_type: int,
+    held_r: float,
+    max_type: int,
+    sign: int,
+) -> bool:
+    """小さい側に実際に落として、床に着地できるか。
+
+    床の隙間を幾何だけで測ると、隙間の上に別の実がせり出していて実際には
+    入らないケースを見逃す (指摘を受けて修正)。幅が物理的に入りそうな
+    ときだけ、一番広い隙間の中心へ実際に 1 回落として確かめる。
+    """
+    edge = _big_cluster_edge(fruits, max_type, sign)
+    lo, hi = (edge, float(NORMALIZED_WIDTH)) if sign > 0 else (0.0, edge)
+    lo, hi = max(lo, held_r), min(hi, NORMALIZED_WIDTH - held_r)
+    if lo > hi:
+        return False
+    widest, center = _widest_gap(fruits, lo, hi)
+    if widest < held_r * 2.0:
+        return False
+    x = clamp_drop_x(center, drop_type)
+    after, merges, _merge_types = simulate_drop(fruits, drop_type, x)
+    if merges > 0:
+        return True
+    land_x, land_y = landed_xy(fruits, after, drop_type, x, held_r, merges)
+    floor_y = NORMALIZED_HEIGHT - held_r
+    return land_y >= floor_y - 4.0 and lo - MERGE_SLACK <= land_x <= hi + MERGE_SLACK
 
 
 def _floor_row(fruits: list[Fruit] | tuple[Fruit, ...]) -> list[Fruit]:
@@ -580,6 +610,7 @@ def _packed_small_side_penalty(
     fruits: list[Fruit] | tuple[Fruit, ...],
     land_x: float,
     drop_type: int,
+    held_r: float,
     sign: int,
 ) -> float:
     """床が埋まったあと、大きめのツモを小さい側へ逃がす減点。
@@ -598,10 +629,10 @@ def _packed_small_side_penalty(
         return 0.0
     if (land_x - _big_cluster_edge(fruits, max_type, sign)) * sign <= 0.0:
         return 0.0
-    # 小側にこのツモが素直に収まる隙間があるなら、そこへ置くのが普通の手。
+    # 小側にこのツモが素直に置けるなら、そこへ置くのが普通の手。
     # 大側へ回すのは「置くしかない」ときだけ。ここを一律の隙間幅で切ると
     # 中盤ずっと発火し、小側の生産ライン (orange->apple->pear) が枯れる。
-    if _small_side_room(fruits, max_type, sign) >= fruit_radius(drop_type) * 2.0:
+    if _small_side_room_ok(fruits, drop_type, held_r, max_type, sign):
         return 0.0
     return PACKED_SMALL_SIDE_WEIGHT
 
