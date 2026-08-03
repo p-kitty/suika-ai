@@ -1,20 +1,21 @@
-"""bootstrap の 2 変種を同一シードで対戦させ、差をフェーズ別に出す。
+"""bootstrap の 2 変種を対戦させ、差をフェーズ別に出す。
 
 変更を入れたあと「どこが良く/悪くなったか」を局在させるための道具。
 既定は床埋め後の置き分け (SUIKA_PACKED) の ON/OFF 比較。同じシード列を両方に流し、
 平均だけでなくシードごとの勝ち負けと、序盤・終盤に分けた指標を出す。
 
+--seed を省略すると毎回ランダムなシードから始める。固定シードを何度も
+使い回すと、たまたまそのシード集合で起きた崩れを「再現した」と誤読しやすい。
+
 用法:
   python scripts/compare_policy.py
-  python scripts/compare_policy.py --episodes 60 --max-steps 120 --workers 8
+  python scripts/compare_policy.py --episodes 60 --max-steps 300 --workers 8
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
-import os
+import secrets
 import statistics
 import sys
 import time
@@ -24,8 +25,6 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts._bootstrap import ROOT
-
 from src.parallel import default_workers
 from src.reward import watermelon_count
 
@@ -33,8 +32,6 @@ from src.reward import watermelon_count
 EARLY_STEPS = 30
 # 連鎖発火とみなす 1 手あたりの合成数。
 CASCADE_MERGES = 3
-# 実行結果の置き場。鍵に policy.py のハッシュが入るので放置しても腐らない。
-CACHE_DIR = ROOT / "artifacts" / "compare_cache"
 
 
 def _episode(seed: int, max_steps: int, variant: bool) -> dict[str, float]:
@@ -92,17 +89,6 @@ def _episode(seed: int, max_steps: int, variant: bool) -> dict[str, float]:
     }
 
 
-def _policy_digest() -> str:
-    """policy.py の中身のハッシュ。変わればキャッシュを無効にする。"""
-    src = (ROOT / "src" / "policy.py").read_bytes()
-    return hashlib.sha256(src).hexdigest()[:16]
-
-
-def _cache_path(seeds: list[int], max_steps: int, variant: bool) -> Path:
-    key = f"{_policy_digest()}-{seeds[0]}-{len(seeds)}-{max_steps}-{int(variant)}"
-    return CACHE_DIR / f"{key}.json"
-
-
 def _run(
     seeds: list[int],
     max_steps: int,
@@ -111,24 +97,11 @@ def _run(
     *,
     label: str,
 ) -> list[dict[str, float]]:
-    """1 変種ぶん走らせる。シードが同じなら結果は決まるのでキャッシュする。
-
-    OFF 側は変種を変えても同じ。毎回計算し直すと A/B の所要時間が倍になる。
-    キャッシュ鍵に policy.py のハッシュを入れてあるので、方策をいじれば
-    自動で無効になる。古い基準と比べる事故も防げる。
-    """
-    path = _cache_path(seeds, max_steps, variant)
-    if path.is_file():
-        print(f"  {label}: キャッシュ利用 ({path.name})", flush=True)
-        return json.loads(path.read_text(encoding="utf-8"))
-
     started = time.monotonic()
     print(f"  {label}: {len(seeds)} エピソード実行中...", flush=True)
     if workers <= 1:
         rows = [_episode(s, max_steps, variant) for s in seeds]
     else:
-        # 子は spawn 時の環境変数で policy を読む。setter でも上書きする。
-        os.environ["SUIKA_PACKED"] = "1" if variant else "0"
         rows = []
         with ProcessPoolExecutor(max_workers=workers) as pool:
             futures = [
@@ -143,9 +116,6 @@ def _run(
                 )
         rows.sort(key=lambda r: r["seed"])
     print(f"  {label}: 完了 {time.monotonic() - started:.0f}s" + " " * 20, flush=True)
-
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(rows), encoding="utf-8")
     return rows
 
 
@@ -163,27 +133,31 @@ def _line(label: str, a: float, b: float, *, digits: int = 2) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--episodes", type=int, default=40)
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="省略時は毎回ランダム。固定シードの使い回しは避けること。",
+    )
     parser.add_argument("--max-steps", type=int, default=100)
     parser.add_argument("--workers", type=int, default=None)
     args = parser.parse_args()
     workers = args.workers if args.workers is not None else default_workers()
+    seed = args.seed if args.seed is not None else secrets.randbelow(1_000_000)
 
-    seeds = [args.seed + i for i in range(args.episodes)]
+    seeds = [seed + i for i in range(args.episodes)]
     base = _run(seeds, args.max_steps, False, workers, label="A (OFF)")
     new = _run(seeds, args.max_steps, True, workers, label="B (ON) ")
 
     print(
-        f"\nepisodes={args.episodes} seed={args.seed} "
+        f"\nepisodes={args.episodes} seed={seed} "
         f"max_steps={args.max_steps} workers={workers}"
     )
     print("  A = 床埋め後の置き分け OFF (現状)   B = ON")
 
     # 全部が打ち切りだと、伸びしろも死亡率も測れていない。
     # 仕込みのコストだけ見てリターンを見ない測定になるので、先に警告する。
-    capped = sum(
-        1 for row in base + new if row["steps"] >= args.max_steps
-    )
+    capped = sum(1 for row in base + new if row["steps"] >= args.max_steps)
     if capped == len(base) + len(new):
         print(
             f"\n  ** 全 {capped} エピソードが max_steps={args.max_steps} で打ち切り。**\n"
