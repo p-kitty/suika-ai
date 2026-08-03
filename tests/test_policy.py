@@ -47,11 +47,14 @@ def test_prefers_same_type_over_empty_low_column() -> None:
 
 
 def test_avoids_dangerous_tall_stack() -> None:
+    """危険な山から離れて落ち着くこと。狙う列 (x) 自体は問わない (上と同じ理由)。"""
     big_r = fruit_radius(5)
+    cherry_r = fruit_radius(0)
     tall = Fruit(type=5, x=80, y=60 + big_r, radius=big_r, confidence=90)
     x = choose_x(_obs(held_type=0, fruits=(tall,)))
-    assert abs(x - tall.x) > 80
-    assert x >= NORMALIZED_WIDTH / 2
+    after, _merges, _types = simulate_drop((tall,), 0, x)
+    cherry = next(f for f in after if f.type == 0)
+    assert abs(cherry.x - tall.x) > big_r + cherry_r * 3
 
 
 def test_prefers_merge_that_lowers_stack() -> None:
@@ -102,10 +105,19 @@ def test_sets_up_next_when_no_immediate_merge() -> None:
 
 
 def test_small_fruit_goes_right_of_large() -> None:
+    """大きい実から離れて落ち着くこと。狙う列 (x) 自体は問わない。
+
+    大きい実のすぐ脇を狙っても転がって離れた位置に収まれば意図通り。
+    狙点を NORMALIZED_WIDTH の絶対値と比べると、転がりの分だけ無関係な
+    列を選んでも落ち続ける (実測: x=132 を狙っても x=384 まで転がる)。
+    """
     big_r = fruit_radius(6)
+    cherry_r = fruit_radius(0)
     big = Fruit(type=6, x=90, y=NORMALIZED_HEIGHT - big_r, radius=big_r, confidence=90)
     x = choose_x(_obs(held_type=0, fruits=(big,)))
-    assert x > NORMALIZED_WIDTH / 2
+    after, _merges, _types = simulate_drop((big,), 0, x)
+    cherry = next(f for f in after if f.type == 0)
+    assert abs(cherry.x - big.x) > big_r + cherry_r * 3
 
 
 def test_prefers_held_that_enables_next_merge() -> None:
@@ -273,7 +285,9 @@ def test_chooses_merge_for_sandwiched_same_type() -> None:
     left = Fruit(type=6, x=160, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
     right = Fruit(
         type=6,
-        x=160 + pear_r * 2 + 10,
+        # 隙間が狭いと合成後の dekopon が pear に挟まれて size-order 減点を
+        # 食らい、合成しない方が有利になる。挟まれずに済む広さを取る。
+        x=160 + pear_r * 2 + 40,
         y=NORMALIZED_HEIGHT - pear_r,
         radius=pear_r,
         confidence=90,
