@@ -405,6 +405,35 @@ def test_large_fruits_prefer_clustering() -> None:
     assert _score(obs, x, pear_r) > _score(obs, far, pear_r)
 
 
+def _floor(fruit_type: int, x: float) -> Fruit:
+    r = fruit_radius(fruit_type)
+    return Fruit(type=fruit_type, x=x, y=NORMALIZED_HEIGHT - r, radius=r, confidence=90)
+
+
+def test_floor_packed_allows_gaps_up_to_an_orange() -> None:
+    # It need not be connected from wall to wall. A gap an orange does not fit counts as filled.
+    from src.policy import FLOOR_PACKED_GAP, _floor_packed
+
+    assert not _floor_packed(())
+
+    row: list[Fruit] = []
+    cursor = 0.0
+    for fruit_type in (7, 6, 5, 5, 4, 4):
+        r = fruit_radius(fruit_type)
+        row.append(_floor(fruit_type, cursor + r))
+        cursor += 2 * r
+    assert _floor_packed(row)
+    # Removing the whole right side opens a hole.
+    assert not _floor_packed(row[:3])
+
+    # A gap exactly the orange's diameter is filled, and any wider is not.
+    left = _floor(7, fruit_radius(7))
+    right_x = left.x + left.radius + FLOOR_PACKED_GAP + fruit_radius(7)
+    edge = _floor(4, NORMALIZED_WIDTH - fruit_radius(4))
+    assert _floor_packed([left, _floor(7, right_x), edge])
+    assert not _floor_packed([left, _floor(7, right_x + 2.0), edge])
+
+
 def _rest_on(a: Fruit, b: Fruit, fruit_type: int) -> Fruit:
     """A fruit of type resting on top touching both a and b. Scaffolding for tests building ladder shoulders."""
     r = fruit_radius(fruit_type)

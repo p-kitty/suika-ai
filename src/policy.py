@@ -45,6 +45,17 @@ CANDIDATE_STEP = 12.0
 EDGE_ANCHOR_MIN = 24.0
 EDGE_ANCHOR_FRAC = 0.35
 
+# Number of tiers below the biggest fruit counted as 'the big-fruit cluster'.
+BIG_CLUSTER_SPAN = 2
+
+# --- How full the floor is ---
+# Height considered on the floor. A floor placement if the bottom is within this multiple of the radius.
+FLOOR_BAND = 1.35
+# Upper limit of a gap considered filled = the orange's diameter.
+# It need not be connected from wall to wall; if an orange does not fit the gap,
+# moves dropping there are not a problem, so it counts as filled.
+FLOOR_PACKED_GAP = fruit_radius(SPAWN_MAX_TYPE) * 2.0
+
 # --- Ladder detection (the shape that fires a corner big fruit up a staircase) ---
 # Put a peach (7) in the corner, a pear (6) next to it on the inside. On the shoulders of those two, an apple (5) and an orange (4).
 # Dropping an orange last cascades 4→5→6→7 and the corner peach becomes a pineapple.
@@ -62,16 +73,26 @@ LADDER_BASE_TYPE = SPAWN_MAX_TYPE
 # it counts as a rung only when held/next are both dekopon.
 LADDER_FEED_TYPE = SPAWN_MAX_TYPE - 1
 
-# Switch for staged rollout. 0 returns everything around ladders completely to the old behavior (for A/B).
-# For now only detection is connected, so ON/OFF does not change moves.
-# When adding guidance, put it inside this flag and measure with compare_policy.py.
-LADDER_ENABLED = os.environ.get("SUIKA_LADDER", "1") != "0"
+# --- Big draws after the floor fills ---
+# When the floor fills there is no place left on the small side. Still _ideal_x keeps pulling small fruits
+# to the small side (orange's ideal is 236 = right side), so larger draws get stacked
+# on the small side, crushing the small fruits below and collapsing. Once the floor fills, put them on the big side's shoulder
+# instead of side by side. The ladder shape comes out as a result of this placement split.
+# Measured (10 seeds × 120 moves): of 358 cases, 211 were placed on the small side, and in 210 of them
+# eval really chose the small side (median +4.1). A problem of evaluation, not candidates.
+PACKED_BIG_DRAW_MIN_TYPE = SPAWN_MAX_TYPE - 1
+# It flips the narrow median margin of +4.1 while keeping moves that can actually merge on the small side (max +159.9).
+# It is not applied to merging moves (only when merges == 0), so it does not compete with merging.
+PACKED_SMALL_SIDE_WEIGHT = 8.0
+
+# Switch for staged rollout. 0 returns placement after the floor fills to the old behavior (for A/B).
+PACKED_RULE_ENABLED = os.environ.get("SUIKA_PACKED", "1") != "0"
 
 
-def set_ladder_enabled(enabled: bool) -> None:
-    """Enable/disable everything around ladders (for A/B comparison and tests)."""
-    global LADDER_ENABLED
-    LADDER_ENABLED = enabled
+def set_packed_rule_enabled(enabled: bool) -> None:
+    """Enable/disable placement after the floor fills (for A/B comparison and tests)."""
+    global PACKED_RULE_ENABLED
+    PACKED_RULE_ENABLED = enabled
 
 
 def choose_x(obs: Observation) -> float:
@@ -236,6 +257,7 @@ def _evaluate_drop(
                 before, land_x, land_y, drop_type, held_r, sign
             )
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
+        penalties += _packed_small_side_penalty(before, land_x, drop_type, sign)
     penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
     return after, score, penalties, merges
 
@@ -276,7 +298,7 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
 
     cluster_weight = 0.025
     under_l_weight = 50.0
-    big_min = max(0, max_t - 2)
+    big_min = max(0, max_t - BIG_CLUSTER_SPAN)
     large_left = sign > 0
 
     penalty = 0.0
@@ -312,6 +334,78 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
     return penalty
 
 
+def _big_cluster_edge(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    max_type: int,
+    sign: int,
+) -> float:
+    """The small-side edge of the big-fruit cluster.
+
+    Not just the single biggest fruit, but down to 2 tiers below it as the cluster (the same grouping as
+    _big_layout_penalty). Cutting at the biggest alone would treat the neighboring pear and apple as small side too.
+    """
+    big_min = max(0, max_type - BIG_CLUSTER_SPAN)
+    bigs = [fruit for fruit in fruits if fruit.type >= big_min]
+    if sign > 0:
+        return max(fruit.x + fruit.radius for fruit in bigs)
+    return min(fruit.x - fruit.radius for fruit in bigs)
+
+
+def _small_side_room(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    max_type: int,
+    sign: int,
+) -> float:
+    """The widest gap on the small-side floor. Looks from the cluster's edge to the far wall.
+
+    If it fits cleanly here, just place it normally; there is no reason to send it to the big side.
+    """
+    edge = _big_cluster_edge(fruits, max_type, sign)
+    if sign > 0:
+        lo, hi = edge, float(NORMALIZED_WIDTH)
+    else:
+        lo, hi = 0.0, edge
+    widest = 0.0
+    cursor = lo
+    for fruit in _floor_row(fruits):
+        if fruit.x + fruit.radius <= lo or fruit.x - fruit.radius >= hi:
+            continue
+        widest = max(widest, (fruit.x - fruit.radius) - cursor)
+        cursor = max(cursor, fruit.x + fruit.radius)
+    return max(widest, hi - cursor)
+
+
+def _floor_row(fruits: list[Fruit] | tuple[Fruit, ...]) -> list[Fruit]:
+    """Fruits on the floor in x order."""
+    return sorted(
+        (f for f in fruits if f.y > NORMALIZED_HEIGHT - f.radius * FLOOR_BAND),
+        key=lambda f: f.x,
+    )
+
+
+def _floor_gap(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """The widest gap on the floor. Gaps to the walls count too. The board width if empty."""
+    row = _floor_row(fruits)
+    if not row:
+        return float(NORMALIZED_WIDTH)
+    worst = max(
+        row[0].x - row[0].radius,
+        NORMALIZED_WIDTH - (row[-1].x + row[-1].radius),
+    )
+    for left, right in zip(row, row[1:]):
+        worst = max(worst, (right.x - right.radius) - (left.x + left.radius))
+    return worst
+
+
+def _floor_packed(fruits: list[Fruit] | tuple[Fruit, ...]) -> bool:
+    """Whether the floor is filled.
+
+    It need not be connected from wall to wall. If the gap is at most the orange's diameter,
+    dropping there is not a problem, so it is considered filled.
+    """
+    return _floor_gap(fruits) <= FLOOR_PACKED_GAP
+
+
 def _wall_gap(fruit: Fruit, sign: int) -> float:
     """Gap to the wall on the big side (sign)."""
     if sign > 0:
@@ -330,7 +424,7 @@ def _ladder_anchor(
     sign: int,
 ) -> Fruit | None:
     """The base of the ladder. The biggest fruit on the big-side wall. None if below peach or away from the wall."""
-    if not LADDER_ENABLED or not fruits:
+    if not fruits:
         return None
     max_t = max(fruit.type for fruit in fruits)
     if max_t < LADDER_MIN_ANCHOR_TYPE:
@@ -480,6 +574,36 @@ def _wrong_side_roll_penalty(
             continue
         penalty += wrong_side_base + wrong_side_type_weight * (other.type - drop_type)
     return penalty
+
+
+def _packed_small_side_penalty(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    drop_type: int,
+    sign: int,
+) -> float:
+    """Penalty for escaping a larger draw to the small side after the floor fills.
+
+    Once the floor fills there is no side-by-side place on the small side. Placing there crushes the small fruits below and collapses.
+    Penalize landing on the small side of the biggest fruit's inner edge, choosing moves that put it on the big side's shoulder.
+    Not applied to merging moves (the caller calls it only when merges == 0).
+    """
+    if not PACKED_RULE_ENABLED or drop_type < PACKED_BIG_DRAW_MIN_TYPE:
+        return 0.0
+    if not fruits or not _floor_packed(fruits):
+        return 0.0
+    max_type = max(fruit.type for fruit in fruits)
+    # If there are only fruits the same size or smaller, the notion of a big side does not stand.
+    if max_type <= drop_type:
+        return 0.0
+    if (land_x - _big_cluster_edge(fruits, max_type, sign)) * sign <= 0.0:
+        return 0.0
+    # If there is a gap on the small side this draw fits cleanly into, placing it there is the normal move.
+    # Send it to the big side only when 'there is no choice'. Cutting on a uniform gap width
+    # fires all through the midgame and dries up the small side's production line (orange->apple->pear).
+    if _small_side_room(fruits, max_type, sign) >= fruit_radius(drop_type) * 2.0:
+        return 0.0
+    return PACKED_SMALL_SIDE_WEIGHT
 
 
 def _coast_away_penalty(
