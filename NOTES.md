@@ -17,13 +17,16 @@
 - `src/policy.py` is a thin policy before RL. Only merging, dangerous height, burying, light size order and accident prevention for rolling / knock-aways
 - The physics of falling, collision and merging is pymunk (`src/sim_physics.py`; UT in `tests/test_sim_physics.py`). `choose_x` scores with the same `simulate_drop`
 - Moves are scored as `eval = score - penalties`. The only bonus is the real game's score; dangerous height, accidents and burying are penalties
-- next lookahead: only the top `held_top` by held eval are re-evaluated with candidates at spacing `next_candidate_step` (multiplied by `NEXT_DISCOUNT`). The physics is heavy, so it is coarser than held
+- next lookahead: only the top `HELD_TOP` by held eval are re-evaluated with candidates at spacing `NEXT_CANDIDATE_STEP` (multiplied by `NEXT_DISCOUNT`). The physics is heavy, so it is coarser than held
 - Burying is the main penalty. Moves that block a same-type pair waiting to merge with a bigger fruit of another type, directly above or on the shoulder, are heavily penalized
 - Aiming at the center of a different type (`FOREIGN_AIM`): `FOREIGN_AIM_PENALTY` if the fruit directly below is a different type and in its center band (`FOREIGN_AIM_CENTER_FRAC`). OK if it is the same type. Not cut by `merges` (closes the loophole of rolling off a different type and merging). Excess same type (`EXCESS_SAME` = 20 per excess fruit). Stacking a different type in valleys or on shoulders is not forbidden
 - Valley growing for big fruits is limited to when the valley has a same type, or held/next are both one smaller than the walls. Other gap filling gets the usual penalties (`GAP_JUNK` stays retired)
 - Layout: big fruits stay close together. On the big side (`sign`), the corner pocket outside an edge-anchored L and below L's center is heavily penalized (`_big_layout_penalty`). `wrong_side_roll` is also for rolling accidents onto the same big-side floor
 - Not included: push-in merges, restoring pushes, cascade gap opening, forced moves one tier up, hard-coded ladder firing
 - Do not add UTs for concrete procedures. When something breaks, look at accident prevention or the observation side
+- The search cost is essentially the number of `simulate_drop` calls. `HELD_TOP` / `NEXT_CANDIDATE_STEP` decide the run time (the old 8/16 took 3.8 seconds per move and collection could not keep up. 2/32 gave 1.2 seconds and score -3.4%)
+- Do not make `CANDIDATE_STEP` coarser. At 20 the spot directly above a dangerous pile lands on the grid and `test_avoids_dangerous_tall_stack` fails. Speed is earned on the lookahead side
+- Cutting `SLEEP_FRAMES` does not work. A single `choose_x` gets faster, but the board settles differently and later moves get heavier, so the whole episode is actually slower (measured at 25). The physics fidelity (shared with `SimEnv`) also drops
 
 ## Training
 

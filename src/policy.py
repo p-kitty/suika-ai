@@ -30,6 +30,15 @@ NEXT_DISCOUNT = 0.55
 FOREIGN_AIM_CENTER_FRAC = 0.20
 # Penalty for landing in the center band of a different type directly below.
 FOREIGN_AIM_PENALTY = 100.0
+# Search coarseness. The physics (simulate_drop) dominates, and this nearly decides the run time.
+# The old 8/16 took 3.8 seconds per move and collection could not keep up. Traded for 1.2 seconds / score -3.4%.
+# Number of held candidates that get the next lookahead. The physics is heavy, so only the top.
+HELD_TOP = 2
+# Candidate spacing of the next lookahead. Coarser than held (CANDIDATE_STEP).
+NEXT_CANDIDATE_STEP = 32.0
+# Uniform spacing of held candidates. Coarser puts the spot directly above a dangerous pile among the candidates, so do not raise it
+# (test_avoids_dangerous_tall_stack failed at 20). Speed is earned on the lookahead side.
+CANDIDATE_STEP = 12.0
 
 
 def choose_x(obs: Observation) -> float:
@@ -52,13 +61,11 @@ def choose_x(obs: Observation) -> float:
         return ranked[0][1]
 
     # The next lookahead covers only the top held eval (the physics is heavy). Candidates are coarser than held.
-    held_top = 8
-    next_candidate_step = 16.0
     best_x = ranked[0][1]
     best_score = -math.inf
-    for held_eval, x, after in ranked[:held_top]:
+    for held_eval, x, after in ranked[:HELD_TOP]:
         value = held_eval + NEXT_DISCOUNT * _best_next_score(
-            after, obs.next_type, step=next_candidate_step
+            after, obs.next_type, step=NEXT_CANDIDATE_STEP
         )
         if value > best_score:
             best_score = value
@@ -75,11 +82,10 @@ def _candidates(
     step: float | None = None,
 ) -> list[float]:
     """Uniform spacing plus spots above / beside same-type and nearby fruits, and ideal_x."""
-    candidate_step = 12.0
     sign = _order_sign(fruits)
     lo = held_r
     hi = NORMALIZED_WIDTH - held_r
-    grid = candidate_step if step is None else step
+    grid = CANDIDATE_STEP if step is None else step
     xs = {round(x / grid) * grid for x in _frange(lo, hi, grid)}
     xs.add(_ideal_x(drop_type, sign))
     _add_near_fruit_x(xs, fruits, held_r, lambda t: drop_type <= t <= drop_type + 2)
