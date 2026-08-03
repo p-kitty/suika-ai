@@ -36,6 +36,8 @@ class _BodyFruit:
     body: pymunk.Body
     shape: pymunk.Circle
     fruit_type: int
+    # shape.radius は生成後に変わらない。pymunk 側の C 呼び出しを避けるためキャッシュ。
+    radius: float
     # このドロップで投下した実。held 合体のひっぱ向きに使う。
     is_held_drop: bool = False
 
@@ -58,9 +60,7 @@ class _QuietGate:
         if not _all_quiet(bodies):
             self.reset()
             return False
-        snap = tuple(
-            (float(item.body.position.x), float(item.body.position.y)) for item in bodies
-        )
+        snap = tuple(_position_tuple(item.body) for item in bodies)
         if self.anchor is None:
             self.anchor = snap
             self.frames = 1
@@ -290,7 +290,7 @@ def _add_fruit(
     shape.collision_type = FRUIT_COLLISION_TYPE
     shape.fruit_type = fruit_type
     space.add(body, shape)
-    item = _BodyFruit(body=body, shape=shape, fruit_type=fruit_type)
+    item = _BodyFruit(body=body, shape=shape, fruit_type=fruit_type, radius=r)
     shape.fruit_item = item
     bodies.append(item)
     return item
@@ -378,38 +378,60 @@ def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] 
     """接触中の同種ペアを 1 組選ぶ。
 
     上側 (小さい y) を何があっても最優先。同高さなら進行方向 (vx) 側。
+
+    pymunk の position/velocity はプロパティ経由で C を呼ぶので、ペアごとに
+    毎回読み直さず、各実 1 回だけ読んでローカルにキャッシュしてから比較する。
     """
+    n = len(bodies)
+    types = [item.fruit_type for item in bodies]
+    radii = [item.radius for item in bodies]
+    xs = [0.0] * n
+    ys = [0.0] * n
+    vxs = [0.0] * n
+    vys = [0.0] * n
+    for i, item in enumerate(bodies):
+        pos = item.body.position
+        xs[i] = pos.x
+        ys[i] = pos.y
+        vel = item.body.velocity
+        vxs[i] = vel.x
+        vys[i] = vel.y
+
     best: tuple[_BodyFruit, _BodyFruit] | None = None
     best_key: tuple[float, int, float] | None = None
-    n = len(bodies)
     for i in range(n):
-        a = bodies[i]
+        ti = types[i]
+        xi, yi, vxi, vyi, ri = xs[i], ys[i], vxs[i], vys[i], radii[i]
         for j in range(i + 1, n):
-            b = bodies[j]
-            if a.fruit_type != b.fruit_type:
+            if ti != types[j]:
                 continue
-            ra = a.shape.radius
-            rb = b.shape.radius
-            touch = ra + rb
-            dist = math.hypot(
-                a.body.position.x - b.body.position.x,
-                a.body.position.y - b.body.position.y,
-            )
+            xj, yj = xs[j], ys[j]
+            touch = ri + radii[j]
+            dist = math.hypot(xi - xj, yi - yj)
             if dist > touch:
                 continue
+            vxj, vyj = vxs[j], vys[j]
             # 上 (小さい y) を最優先。同高さなら動いている側の進行方向。
-            sa = math.hypot(a.body.velocity.x, a.body.velocity.y)
-            sb = math.hypot(b.body.velocity.x, b.body.velocity.y)
-            ref, other = (a, b) if sa >= sb else (b, a)
-            vx = ref.body.velocity.x
-            dx = other.body.position.x - ref.body.position.x
-            in_dir = 0 if abs(vx) >= 1.0 and dx * vx > 0.0 else 1
-            upper_y = min(a.body.position.y, b.body.position.y)
+            sa = math.hypot(vxi, vyi)
+            sb = math.hypot(vxj, vyj)
+            if sa >= sb:
+                ref_x, ref_vx, other_x = xi, vxi, xj
+            else:
+                ref_x, ref_vx, other_x = xj, vxj, xi
+            dx = other_x - ref_x
+            in_dir = 0 if abs(ref_vx) >= 1.0 and dx * ref_vx > 0.0 else 1
+            upper_y = yi if yi <= yj else yj
             key = (upper_y, in_dir, dist / max(touch, 1e-6))
             if best_key is None or key < best_key:
                 best_key = key
-                best = (a, b)
+                best = (bodies[i], bodies[j])
     return best
+
+
+def _position_tuple(body: pymunk.Body) -> tuple[float, float]:
+    """position を 1 回だけ読んで (x, y) にする (.x/.y の二重読みを避ける)。"""
+    pos = body.position
+    return float(pos.x), float(pos.y)
 
 
 def _max_pos_drift(
