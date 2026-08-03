@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from .vision.board import BoardResult
+from .vision.classify import fruit_radius
 from .vision.normalized import NORMALIZED_WIDTH
 from .vision.state import Fruit
 
@@ -77,7 +78,5 @@ def from_board(
 
 def clamp_drop_x(x: float, fruit_type: int | None = None) -> float:
     """Clamp the drop column to the range where the fruit does not sink into the walls."""
-    from .vision.classify import fruit_radius
-
     radius = 0.0 if fruit_type is None else fruit_radius(fruit_type)
     return float(min(max(x, radius), NORMALIZED_WIDTH - radius))

@@ -1,3 +1,5 @@
+import math
+
 import cv2
 import numpy as np
 
@@ -51,7 +53,7 @@ def circle_peaks(
             continue
 
         if any(
-            np.hypot(x - cx, y - cy) < max(radius, cr) * NMS_RATIO
+            math.hypot(x - cx, y - cy) < max(radius, cr) * NMS_RATIO
             for cx, cy, cr in circles
         ):
             continue

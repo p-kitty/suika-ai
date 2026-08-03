@@ -22,9 +22,7 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts._bootstrap import ROOT, ensure_import_path
-
-ensure_import_path()
+from scripts._bootstrap import ROOT
 
 from src.agent import LinearPolicy
 from src.parallel import default_workers
@@ -41,7 +39,6 @@ class SharedConfig:
     seed: int
     log_every: int
     eval_episodes: int
-    save: Path
 
 
 @dataclass(frozen=True)
@@ -55,7 +52,6 @@ class BcConfig(SharedConfig):
 
 @dataclass(frozen=True)
 class RlConfig(SharedConfig):
-    load: Path
     episodes: int
     lr: float
     rl_batch: int
@@ -362,8 +358,6 @@ def main(argv: list[str] | None = None) -> None:
                 seed=args.seed,
                 log_every=args.log_every,
                 eval_episodes=args.eval_episodes,
-                save=args.save,
-                load=args.load,
                 episodes=args.episodes,
                 lr=args.lr,
                 rl_batch=args.rl_batch,
@@ -381,7 +375,6 @@ def main(argv: list[str] | None = None) -> None:
                 seed=args.seed,
                 log_every=args.log_every,
                 eval_episodes=args.eval_episodes,
-                save=args.save,
                 collect_episodes=args.episodes,
                 epochs=args.epochs,
                 workers=args.workers,

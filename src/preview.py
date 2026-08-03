@@ -41,21 +41,17 @@ def render_preview(
     debug_board: bool,
     window_title: str,
 ) -> None:
-    output = frame.copy()
     if debug_board and board is not None:
         output = draw_frame_debug(frame, board)
-        if (
-            state.aim_x is not None
-            and board.corners is not None
-            and obs.ready
-        ):
-            draw_aim_line(output, board.corners, state.aim_x)
-    elif (
-        state.aim_x is not None
-        and board is not None
-        and board.corners is not None
-    ):
-        draw_aim_line(output, board.corners, state.aim_x)
+        # Kept consistent with the detection overlay, so the aim line is shown only when reading succeeds.
+        aim = state.aim_x if obs.ready else None
+    else:
+        output = frame.copy()
+        # While waiting, stale detections are not drawn, but the aim line stays.
+        aim = state.aim_x
+
+    if aim is not None and board is not None and board.corners is not None:
+        draw_aim_line(output, board.corners, aim)
 
     mode_badge(output, state.auto_play)
     put_text(

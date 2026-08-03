@@ -103,7 +103,7 @@ class Env:
         if abort is not None and abort():
             # Whether it stopped before the click or right after dropping is already branched in drop_column.
             return StepResult(self.observe(), target, done=False, info="aborted")
-        info_aim = "ok" if aimed else "aim_timeout"
+        info = "ok" if aimed else "aim_timeout"
 
         # After dropping, wait once for held to disappear. If it does not disappear, the settle check
         # stops on wobble that is only the clouds moving.
@@ -117,7 +117,6 @@ class Env:
             return StepResult(after, target, done=True, info="dialog")
         if not after.ready:
             return StepResult(after, target, done=False, info="timeout")
-        info = info_aim if not aimed else "ok"
 
         # After dropping, return the view to the center so the next move's reference does not drift.
         control.recenter(read, abort=abort)
