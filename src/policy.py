@@ -30,6 +30,15 @@ NEXT_DISCOUNT = 0.55
 FOREIGN_AIM_CENTER_FRAC = 0.20
 # 真下の異種中心帯に着地したときの減点。
 FOREIGN_AIM_PENALTY = 100.0
+# 探索の粗さ。物理 (simulate_drop) が支配的で、ここが実行時間をほぼ決める。
+# 旧 8/16 は 1 手 3.8 秒で収集が回らない。1.2 秒 / score -3.4% で取り引き。
+# next 先読みを回す held 候補の本数。物理が重いので上位だけ。
+HELD_TOP = 2
+# next 先読みの候補刻み。held (CANDIDATE_STEP) より粗い。
+NEXT_CANDIDATE_STEP = 32.0
+# held 候補の均等刻み。粗くすると危険な山の真上が候補に乗るので下げない
+# (20 で test_avoids_dangerous_tall_stack が落ちた)。速度は先読み側で稼ぐ。
+CANDIDATE_STEP = 12.0
 
 
 def choose_x(obs: Observation) -> float:
@@ -52,13 +61,11 @@ def choose_x(obs: Observation) -> float:
         return ranked[0][1]
 
     # next 先読みは held の eval 上位だけ (物理が重い)。候補は held より粗い刻み。
-    held_top = 8
-    next_candidate_step = 16.0
     best_x = ranked[0][1]
     best_score = -math.inf
-    for held_eval, x, after in ranked[:held_top]:
+    for held_eval, x, after in ranked[:HELD_TOP]:
         value = held_eval + NEXT_DISCOUNT * _best_next_score(
-            after, obs.next_type, step=next_candidate_step
+            after, obs.next_type, step=NEXT_CANDIDATE_STEP
         )
         if value > best_score:
             best_score = value
@@ -75,11 +82,10 @@ def _candidates(
     step: float | None = None,
 ) -> list[float]:
     """均等刻みに、同種・近い実の上／横と ideal_x を足す。"""
-    candidate_step = 12.0
     sign = _order_sign(fruits)
     lo = held_r
     hi = NORMALIZED_WIDTH - held_r
-    grid = candidate_step if step is None else step
+    grid = CANDIDATE_STEP if step is None else step
     xs = {round(x / grid) * grid for x in _frange(lo, hi, grid)}
     xs.add(_ideal_x(drop_type, sign))
     _add_near_fruit_x(xs, fruits, held_r, lambda t: drop_type <= t <= drop_type + 2)
