@@ -405,6 +405,35 @@ def test_large_fruits_prefer_clustering() -> None:
     assert _score(obs, x, pear_r) > _score(obs, far, pear_r)
 
 
+def _floor(fruit_type: int, x: float) -> Fruit:
+    r = fruit_radius(fruit_type)
+    return Fruit(type=fruit_type, x=x, y=NORMALIZED_HEIGHT - r, radius=r, confidence=90)
+
+
+def test_floor_packed_allows_gaps_up_to_an_orange() -> None:
+    # 壁から壁まで繋がっている必要はない。オレンジが収まらない隙間なら埋まり扱い。
+    from src.policy import FLOOR_PACKED_GAP, _floor_packed
+
+    assert not _floor_packed(())
+
+    row: list[Fruit] = []
+    cursor = 0.0
+    for fruit_type in (7, 6, 5, 5, 4, 4):
+        r = fruit_radius(fruit_type)
+        row.append(_floor(fruit_type, cursor + r))
+        cursor += 2 * r
+    assert _floor_packed(row)
+    # 右側をごっそり抜くと穴が空く。
+    assert not _floor_packed(row[:3])
+
+    # 隙間がオレンジ直径ちょうどなら埋まり、少しでも広ければ埋まりでない。
+    left = _floor(7, fruit_radius(7))
+    right_x = left.x + left.radius + FLOOR_PACKED_GAP + fruit_radius(7)
+    edge = _floor(4, NORMALIZED_WIDTH - fruit_radius(4))
+    assert _floor_packed([left, _floor(7, right_x), edge])
+    assert not _floor_packed([left, _floor(7, right_x + 2.0), edge])
+
+
 def _rest_on(a: Fruit, b: Fruit, fruit_type: int) -> Fruit:
     """a と b の両方に接して上に乗る type の実。梯子の肩を組むテスト足場。"""
     r = fruit_radius(fruit_type)

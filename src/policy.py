@@ -45,6 +45,17 @@ CANDIDATE_STEP = 12.0
 EDGE_ANCHOR_MIN = 24.0
 EDGE_ANCHOR_FRAC = 0.35
 
+# 「大きい実の塊」とみなす最大実からの段数。
+BIG_CLUSTER_SPAN = 2
+
+# --- 床の埋まり具合 ---
+# 床に着いているとみなす高さ。半径のこの倍率ぶん下端に寄っていれば床置き。
+FLOOR_BAND = 1.35
+# 埋まっているとみなす隙間の上限 = オレンジの直径。
+# 壁から壁まで繋がっている必要はなく、オレンジが収まらない隙間なら
+# そこへ落とす手が問題にならないので埋まり扱いにする。
+FLOOR_PACKED_GAP = fruit_radius(SPAWN_MAX_TYPE) * 2.0
+
 # --- 梯子 (角の大実を階段で発火させる形) の検出 ---
 # 桃(7) を角に置き、内側の隣に梨(6)。その 2 つの肩にリンゴ(5)・オレンジ(4)。
 # 最後にオレンジを落とすと 4→5→6→7 と連鎖して角の桃がパインになる。
@@ -62,16 +73,26 @@ LADDER_BASE_TYPE = SPAWN_MAX_TYPE
 # held/next が両方デコポンのときだけ段として認める。
 LADDER_FEED_TYPE = SPAWN_MAX_TYPE - 1
 
-# 段階導入の切り替え。0 にすると梯子まわりが完全に旧挙動へ戻る (A/B 用)。
-# いまは検出しか繋がっていないので、ON/OFF で手は変わらない。
-# 誘導を足すときはこのフラグの内側に入れて compare_policy.py で測る。
-LADDER_ENABLED = os.environ.get("SUIKA_LADDER", "1") != "0"
+# --- 床埋め後の大ツモ ---
+# 床が埋まると小さい側に置く場所が無くなる。それでも _ideal_x は小さい実を
+# 小側へ引き続けるので (orange の ideal は 236 = 右寄り)、大きめのツモを
+# 小側の上に積んで下の小実を潰し、崩れる。床が埋まったら横並びではなく
+# 大側の肩へ載せる。梯子の形はこの置き分けの結果として出てくる。
+# 実測 (10 シード×120 手): 該当 358 回のうち 211 回を小側へ置き、その 210 回で
+# eval が本気で小側を選んでいた (中央値 +4.1)。候補ではなく評価の問題。
+PACKED_BIG_DRAW_MIN_TYPE = SPAWN_MAX_TYPE - 1
+# 中央値 +4.1 の僅差をひっくり返しつつ、小側で実際に合成できる手 (最大 +159.9)
+# は残す。合成する手には掛けない (merges == 0 のときだけ) ので合成とは争わない。
+PACKED_SMALL_SIDE_WEIGHT = 8.0
+
+# 段階導入の切り替え。0 で床埋め後の置き分けが旧挙動へ戻る (A/B 用)。
+PACKED_RULE_ENABLED = os.environ.get("SUIKA_PACKED", "1") != "0"
 
 
-def set_ladder_enabled(enabled: bool) -> None:
-    """梯子まわりの有効/無効を切り替える (A/B 比較・テスト用)。"""
-    global LADDER_ENABLED
-    LADDER_ENABLED = enabled
+def set_packed_rule_enabled(enabled: bool) -> None:
+    """床埋め後の置き分けの有効/無効 (A/B 比較・テスト用)。"""
+    global PACKED_RULE_ENABLED
+    PACKED_RULE_ENABLED = enabled
 
 
 def choose_x(obs: Observation) -> float:
@@ -236,6 +257,7 @@ def _evaluate_drop(
                 before, land_x, land_y, drop_type, held_r, sign
             )
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
+        penalties += _packed_small_side_penalty(before, land_x, drop_type, sign)
     penalties += _coast_away_penalty(before, x, land_x, land_y, held_r)
     return after, score, penalties, merges
 
@@ -276,7 +298,7 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
 
     cluster_weight = 0.025
     under_l_weight = 50.0
-    big_min = max(0, max_t - 2)
+    big_min = max(0, max_t - BIG_CLUSTER_SPAN)
     large_left = sign > 0
 
     penalty = 0.0
@@ -312,6 +334,78 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
     return penalty
 
 
+def _big_cluster_edge(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    max_type: int,
+    sign: int,
+) -> float:
+    """大きい実の塊の、小さい側の縁。
+
+    最大実 1 個ではなく、その 2 段下までを塊として見る (_big_layout_penalty と
+    同じ括り)。最大実だけで切ると、隣の梨やリンゴまで小側扱いになる。
+    """
+    big_min = max(0, max_type - BIG_CLUSTER_SPAN)
+    bigs = [fruit for fruit in fruits if fruit.type >= big_min]
+    if sign > 0:
+        return max(fruit.x + fruit.radius for fruit in bigs)
+    return min(fruit.x - fruit.radius for fruit in bigs)
+
+
+def _small_side_room(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    max_type: int,
+    sign: int,
+) -> float:
+    """小さい側の床にある一番広い隙間。塊の縁から遠い壁までを見る。
+
+    ここに素直に収まるなら普通に置けばよく、大側へ回す理由は無い。
+    """
+    edge = _big_cluster_edge(fruits, max_type, sign)
+    if sign > 0:
+        lo, hi = edge, float(NORMALIZED_WIDTH)
+    else:
+        lo, hi = 0.0, edge
+    widest = 0.0
+    cursor = lo
+    for fruit in _floor_row(fruits):
+        if fruit.x + fruit.radius <= lo or fruit.x - fruit.radius >= hi:
+            continue
+        widest = max(widest, (fruit.x - fruit.radius) - cursor)
+        cursor = max(cursor, fruit.x + fruit.radius)
+    return max(widest, hi - cursor)
+
+
+def _floor_row(fruits: list[Fruit] | tuple[Fruit, ...]) -> list[Fruit]:
+    """床に着いている実を x 順で。"""
+    return sorted(
+        (f for f in fruits if f.y > NORMALIZED_HEIGHT - f.radius * FLOOR_BAND),
+        key=lambda f: f.x,
+    )
+
+
+def _floor_gap(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """床の一番広い隙間。壁との隙間も数える。空なら盤幅。"""
+    row = _floor_row(fruits)
+    if not row:
+        return float(NORMALIZED_WIDTH)
+    worst = max(
+        row[0].x - row[0].radius,
+        NORMALIZED_WIDTH - (row[-1].x + row[-1].radius),
+    )
+    for left, right in zip(row, row[1:]):
+        worst = max(worst, (right.x - right.radius) - (left.x + left.radius))
+    return worst
+
+
+def _floor_packed(fruits: list[Fruit] | tuple[Fruit, ...]) -> bool:
+    """床が埋まっているか。
+
+    壁から壁まで繋がっている必要はない。隙間がオレンジの直径以下なら、
+    そこへ落としても問題にならないので埋まっているとみなす。
+    """
+    return _floor_gap(fruits) <= FLOOR_PACKED_GAP
+
+
 def _wall_gap(fruit: Fruit, sign: int) -> float:
     """大側 (sign) の壁との隙間。"""
     if sign > 0:
@@ -330,7 +424,7 @@ def _ladder_anchor(
     sign: int,
 ) -> Fruit | None:
     """梯子の土台。大側の壁に付いた最大実。桃未満・壁から離れていれば None。"""
-    if not LADDER_ENABLED or not fruits:
+    if not fruits:
         return None
     max_t = max(fruit.type for fruit in fruits)
     if max_t < LADDER_MIN_ANCHOR_TYPE:
@@ -480,6 +574,36 @@ def _wrong_side_roll_penalty(
             continue
         penalty += wrong_side_base + wrong_side_type_weight * (other.type - drop_type)
     return penalty
+
+
+def _packed_small_side_penalty(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    land_x: float,
+    drop_type: int,
+    sign: int,
+) -> float:
+    """床が埋まったあと、大きめのツモを小さい側へ逃がす減点。
+
+    床が埋まると小側に横並びの場所は無い。そこへ置くと下の小実を潰して崩れる。
+    最大実の内側の縁より小側に落ちたら減点し、大側の肩へ載せる手を選ばせる。
+    合成する手には掛けない (呼び元が merges == 0 のときだけ呼ぶ)。
+    """
+    if not PACKED_RULE_ENABLED or drop_type < PACKED_BIG_DRAW_MIN_TYPE:
+        return 0.0
+    if not fruits or not _floor_packed(fruits):
+        return 0.0
+    max_type = max(fruit.type for fruit in fruits)
+    # 自分と同じか小さい実しか無いなら、大側という概念が立たない。
+    if max_type <= drop_type:
+        return 0.0
+    if (land_x - _big_cluster_edge(fruits, max_type, sign)) * sign <= 0.0:
+        return 0.0
+    # 小側にこのツモが素直に収まる隙間があるなら、そこへ置くのが普通の手。
+    # 大側へ回すのは「置くしかない」ときだけ。ここを一律の隙間幅で切ると
+    # 中盤ずっと発火し、小側の生産ライン (orange->apple->pear) が枯れる。
+    if _small_side_room(fruits, max_type, sign) >= fruit_radius(drop_type) * 2.0:
+        return 0.0
+    return PACKED_SMALL_SIDE_WEIGHT
 
 
 def _coast_away_penalty(
