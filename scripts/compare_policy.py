@@ -21,10 +21,6 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts._bootstrap import ensure_import_path
-
-ensure_import_path()
-
 from src.parallel import default_workers
 from src.reward import watermelon_count
 
