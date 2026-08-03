@@ -31,6 +31,7 @@ if __package__ in (None, ""):
 from src.draw import mode_badge, put_text
 from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
+from src.reward import GAME_OVER_Y
 from src.sim_env import SimEnv
 from src.sim_physics import DT, iter_simulate_drop, land_y
 from src.vision.classify import fruit_radius
@@ -344,7 +345,7 @@ def _board_panel(
     img = np.full((panel_h, panel_w, 3), (45, 55, 70), dtype=np.uint8)
     # 床・枠
     cv2.rectangle(img, (0, 0), (panel_w - 1, panel_h - 1), (90, 100, 120), 2)
-    danger_y = int(round(90 * SCALE))
+    danger_y = int(round(GAME_OVER_Y * SCALE))
     cv2.line(img, (0, danger_y), (panel_w - 1, danger_y), (40, 40, 160), 1)
 
     ax = int(round(aim_x * SCALE))
