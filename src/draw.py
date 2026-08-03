@@ -18,12 +18,16 @@ def put_text(
     cv2.putText(image, text, origin, FONT, scale, color, thickness, cv2.LINE_AA)
 
 
-def mode_badge(image: np.ndarray, auto: bool) -> None:
-    """画面右上に AUTO / LIVE を常時表示する。左上の board/next と被らない。"""
+def mode_badge(image: np.ndarray, auto: bool, fast: bool = False) -> None:
+    """画面右上に AUTO / LIVE (+FAST) を常時表示する。左上の board/next と被らない。"""
     label = "AUTO" if auto else "LIVE"
+    if fast:
+        label += "+FAST"
     fg: Color = (40, 255, 120) if auto else (170, 170, 170)
     bg: Color = (20, 70, 30) if auto else (36, 36, 36)
     border: Color = (60, 255, 160) if auto else (90, 90, 90)
+    if fast:
+        fg, bg, border = (60, 220, 255), (20, 50, 70), (80, 200, 255)
     scale = 1.15
     thickness = 3
     (tw, th), baseline = cv2.getTextSize(label, FONT, scale, thickness)

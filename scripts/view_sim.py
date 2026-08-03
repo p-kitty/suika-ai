@@ -8,6 +8,7 @@
   マウス   落とす列
   クリック その列に落とす (左パネルで物理アニメ)
   g        auto トグル (bootstrap の最善列で連続落下)
+  f        アニメ無効化トグル (ON で毎手の落下アニメを飛ばし、結果だけ表示)
   r        リセット
   Esc      終了 (アニメ中はスキップ)
 
@@ -108,7 +109,8 @@ def main() -> None:
     total_score = 0.0
     last_info = "ok"
     auto_play = False
-    message = "mouse: aim/drop  g: auto  r: reset  Esc: quit"
+    fast_forward = False
+    message = "mouse: aim/drop  g: auto  f: fast  r: reset  Esc: quit"
 
     def on_mouse(event: int, x: int, y: int, _flags: int, _userdata: object) -> None:
         nonlocal aim_x
@@ -125,6 +127,11 @@ def main() -> None:
         nonlocal auto_play, message
         auto_play = not auto_play
         message = f"auto={'ON' if auto_play else 'off'}"
+
+    def _toggle_fast() -> None:
+        nonlocal fast_forward, message
+        fast_forward = not fast_forward
+        message = f"fast={'ON' if fast_forward else 'off'}"
 
     def _drop(x: float | None = None) -> None:
         nonlocal obs, total_score, last_info, message, aim_x, auto_play
@@ -144,6 +151,7 @@ def main() -> None:
             info=last_info,
             auto_play=auto_play,
             on_toggle_auto=_toggle_auto,
+            fast_forward=fast_forward,
         )
         step = env.step(target)
         obs = step.observation
@@ -203,6 +211,7 @@ def main() -> None:
             info=last_info,
             message=message,
             auto_play=auto_play,
+            fast_forward=fast_forward,
         )
         cv2.imshow(WINDOW, frame)
         key = cv2.waitKey(30) & 0xFF
@@ -212,6 +221,8 @@ def main() -> None:
             _reset()
         elif key == ord("g"):
             _toggle_auto()
+        elif key == ord("f"):
+            _toggle_fast()
 
         done = last_info in ("dead", "win")
         if auto_play and not done and obs.held_type is not None and obs.ready:
@@ -232,12 +243,19 @@ def _play_drop_anim(
     info: str,
     auto_play: bool = False,
     on_toggle_auto: Callable[[], None] | None = None,
+    fast_forward: bool = False,
 ) -> None:
-    """左パネルに落下物理を再生する。右は最終 AFTER DROP を固定表示。"""
+    """左パネルに落下物理を再生する。右は最終 AFTER DROP を固定表示。
+
+    fast_forward が ON のときはアニメ自体を回さず即 return する
+    (drop_scores が既に物理を 1 回解いているので、二重に解かない)。
+    """
     # 結果の score / penalties は最初から固定表示 (アニメ中も 0 にしない)。
     result_score, result_penalties, _eval, final_after, _final_merges = drop_scores(
         before, held_type, drop_x, next_type=next_type
     )
+    if fast_forward:
+        return
     skip = False
     frame_i = 0
     auto_on = auto_play
@@ -289,6 +307,7 @@ def _render(
     left_title: str = "NOW",
     right_title: str = "AFTER DROP",
     auto_play: bool = False,
+    fast_forward: bool = False,
 ) -> np.ndarray:
     panel_w = int(round(NORMALIZED_WIDTH * SCALE))
     panel_h = int(round(NORMALIZED_HEIGHT * SCALE))
@@ -320,7 +339,7 @@ def _render(
         scale=0.55,
     )
     _draw_next_preview(canvas, next_type, width)
-    mode_badge(canvas, auto_play)
+    mode_badge(canvas, auto_play, fast_forward)
     put_text(
         canvas,
         f"episode  score={total_score:.0f}  info={info}",
