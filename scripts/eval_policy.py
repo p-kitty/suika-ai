@@ -101,6 +101,16 @@ def run_episodes(
         job, extra = _run_learned_episode, (str(checkpoint),)
 
     if workers <= 1 or episodes <= 1:
+        if policy_name == "bootstrap":
+            # エピソード並列の対象が無いぶん、choose_x の候補評価 (simulate_drop) を
+            # プロセス並列化する。learned は物理を回さないので対象外。
+            with ProcessPoolExecutor() as move_pool:
+                return [
+                    run_episode(
+                        s, choose=lambda obs: choose_x(obs, pool=move_pool), max_steps=max_steps
+                    )
+                    for s in seeds
+                ]
         return [job(s, max_steps, *extra) for s in seeds]
 
     # 完了順ではなく ep 番号順に並べて、直列時と同じ並びにする。

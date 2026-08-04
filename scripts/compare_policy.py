@@ -19,7 +19,7 @@ import secrets
 import statistics
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import Executor, ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 if __package__ in (None, ""):
@@ -34,8 +34,17 @@ EARLY_STEPS = 30
 CASCADE_MERGES = 3
 
 
-def _episode(seed: int, max_steps: int, variant: bool) -> dict[str, float]:
-    """1 エピソード回して指標を返す。ProcessPool のワーカー側で走る。"""
+def _episode(
+    seed: int,
+    max_steps: int,
+    variant: bool,
+    pool: Executor | None = None,
+) -> dict[str, float]:
+    """1 エピソード回して指標を返す。ProcessPool のワーカー側で走る。
+
+    pool は「エピソード並列の対象が無い (workers<=1)」ときだけ _run から渡される。
+    エピソード自体を ProcessPool に分散する側では二重並列を避けるため None のまま。
+    """
     from src import policy
     from src.policy import choose_x
     from src.sim_env import SimEnv
@@ -54,7 +63,7 @@ def _episode(seed: int, max_steps: int, variant: bool) -> dict[str, float]:
     early_crowns: list[float] = []
     info = "ok"
     for _ in range(max_steps):
-        result = env.step(choose_x(obs))
+        result = env.step(choose_x(obs, pool=pool))
         obs = result.observation
         score += result.score
         merges += result.merges
@@ -100,7 +109,9 @@ def _run(
     started = time.monotonic()
     print(f"  {label}: {len(seeds)} エピソード実行中...", flush=True)
     if workers <= 1:
-        rows = [_episode(s, max_steps, variant) for s in seeds]
+        # エピソード並列の対象が無いぶん、choose_x の候補評価を並列化する。
+        with ProcessPoolExecutor() as move_pool:
+            rows = [_episode(s, max_steps, variant, pool=move_pool) for s in seeds]
     else:
         rows = []
         with ProcessPoolExecutor(max_workers=workers) as pool:

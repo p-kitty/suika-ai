@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import Executor, ProcessPoolExecutor, as_completed
 
 import numpy as np
 
@@ -16,14 +16,20 @@ def collect_teacher_episode(
     env: SimEnv,
     *,
     max_steps: int,
+    pool: Executor | None = None,
 ) -> tuple[list[np.ndarray], list[int]]:
-    """先生軌道だけ集める (学習しない)。"""
+    """先生軌道だけ集める (学習しない)。
+
+    pool を渡すと choose_x の候補評価をプロセス並列化する。エピソード自体を
+    ProcessPool へ分散する側 (_collect_teacher_episode_job) では、二重に
+    プロセスを起動しないようこちらは None のままにする。
+    """
     obs = env.reset()
     obs_list: list[np.ndarray] = []
     actions: list[int] = []
 
     for _ in range(max_steps):
-        teacher_x = choose_x(obs)
+        teacher_x = choose_x(obs, pool=pool)
         obs_list.append(encode(obs))
         actions.append(x_to_action(teacher_x))
         result = env.step(teacher_x)
@@ -37,7 +43,11 @@ def _collect_teacher_episode_job(
     seed: int,
     max_steps: int,
 ) -> tuple[list[np.ndarray], list[int]]:
-    """ProcessPool 用。モジュールトップレベルに置く (Windows spawn)。"""
+    """ProcessPool 用。モジュールトップレベルに置く (Windows spawn)。
+
+    エピソード単位で既にプロセスを使っているので、ここでは choose_x 側の
+    pool は渡さない (二重並列化によるコア過剰使用を避ける)。
+    """
     env = SimEnv(seed=seed)
     return collect_teacher_episode(env, max_steps=max_steps)
 
@@ -58,12 +68,18 @@ def collect_teacher_episodes(
     ]
 
     if workers <= 1 or episodes <= 1:
-        for i, (ep_seed, steps) in enumerate(jobs, start=1):
-            obs_list, actions = _collect_teacher_episode_job(ep_seed, steps)
-            obs_buf.extend(obs_list)
-            act_buf.extend(actions)
-            if i % log_every == 0 or i == 1 or i == episodes:
-                print(f"collect={i:4d}  buf={len(obs_buf)}", flush=True)
+        # エピソード単位の並列化先が無いぶん、代わりに choose_x の候補評価を
+        # プロセス並列化する (手ごとにプールを作り直すと起動コストが乗るので使い回す)。
+        with ProcessPoolExecutor() as move_pool:
+            for i, (ep_seed, steps) in enumerate(jobs, start=1):
+                env = SimEnv(seed=ep_seed)
+                obs_list, actions = collect_teacher_episode(
+                    env, max_steps=steps, pool=move_pool
+                )
+                obs_buf.extend(obs_list)
+                act_buf.extend(actions)
+                if i % log_every == 0 or i == 1 or i == episodes:
+                    print(f"collect={i:4d}  buf={len(obs_buf)}", flush=True)
         return obs_buf, act_buf
 
     done = 0

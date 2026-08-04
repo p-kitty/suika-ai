@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import cv2
@@ -91,6 +92,9 @@ def main() -> None:
 
     env = SimEnv(seed=args.seed)
     obs = env.reset()
+    # choose_x の候補評価 (simulate_drop) をプロセス並列化する。手ごとに作り直すと
+    # 起動コストが乗るので、起動時に 1 回だけ作って使い回す。
+    pool = ProcessPoolExecutor()
     aim_x = NORMALIZED_WIDTH / 2
     total_score = 0.0
     last_info = "ok"
@@ -212,11 +216,12 @@ def main() -> None:
 
         done = last_info in ("dead", "win")
         if auto_play and not done and obs.held_type is not None and obs.ready:
-            x = choose_x(obs)
+            x = choose_x(obs, pool=pool)
             aim_x = x
             _drop(x)
 
     cv2.destroyAllWindows()
+    pool.shutdown()
 
 
 def _play_drop_anim(

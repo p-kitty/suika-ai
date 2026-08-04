@@ -1,5 +1,6 @@
 import argparse
 import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import cv2
@@ -51,6 +52,9 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
     env = Env()
+    # choose_x の候補評価 (simulate_drop) をプロセス並列化する。プロセス起動コストが
+    # 大きいので、手ごとではなくプログラム起動時に 1 回だけ作って使い回す。
+    pool = ProcessPoolExecutor()
     message = ""
     message_until = 0.0
     next_auto_dump = 0.0
@@ -84,7 +88,7 @@ def main() -> None:
             assert learned_policy is not None
             _, x, _ = learned_policy.act(obs_in, greedy=True)
             return x
-        return choose_x(obs_in)
+        return choose_x(obs_in, pool=pool)
 
     maximize_window(WINDOW_TITLE)
     g_key = EdgeKey(VK_G)
@@ -281,6 +285,7 @@ def main() -> None:
             break
 
     cv2.destroyAllWindows()
+    pool.shutdown()
 
 
 def _refresh(env: Env, frame: np.ndarray, fallback: Observation):

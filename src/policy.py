@@ -9,9 +9,11 @@
 
 from __future__ import annotations
 
+import itertools
 import math
 import os
 import statistics
+from concurrent.futures import Executor
 
 from .observe import Observation, clamp_drop_x
 from .reward import merge_score
@@ -95,20 +97,37 @@ def set_packed_rule_enabled(enabled: bool) -> None:
     PACKED_RULE_ENABLED = enabled
 
 
-def choose_x(obs: Observation) -> float:
-    """観測から落とす列を返す。ready で held_type がある前提。"""
+def _held_eval_job(
+    obs: Observation, held_r: float, x: float
+) -> tuple[float, float, list[Fruit]]:
+    """held 候補 1 個ぶんの (eval, x, after)。プールに投げる単位。"""
+    after, held_eval = _held_eval(obs, x, held_r)
+    return held_eval, x, after
+
+
+def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
+    """観測から落とす列を返す。ready で held_type がある前提。
+
+    pool を渡すと held/next 候補の simulate_drop をプロセスプールに分散する。
+    結果は逐次実行と同じ (どの候補も互いに独立、盤面は読むだけ)。
+    """
     if obs.held_type is None:
         raise ValueError("held_type が無い")
 
     held_r = fruit_radius(obs.held_type)
-    ranked: list[tuple[float, float, list[Fruit]]] = []
-    for x in _candidates(list(obs.fruits), obs.held_type, held_r, extra_type=obs.next_type):
-        x = clamp_drop_x(x, obs.held_type)
-        after, held_eval = _held_eval(obs, x, held_r)
-        ranked.append((held_eval, x, after))
-
-    if not ranked:
+    xs = [
+        clamp_drop_x(x, obs.held_type)
+        for x in _candidates(list(obs.fruits), obs.held_type, held_r, extra_type=obs.next_type)
+    ]
+    if not xs:
         return NORMALIZED_WIDTH / 2
+
+    if pool is None:
+        ranked = [_held_eval_job(obs, held_r, x) for x in xs]
+    else:
+        ranked = list(
+            pool.map(_held_eval_job, itertools.repeat(obs), itertools.repeat(held_r), xs)
+        )
 
     ranked.sort(key=lambda row: row[0], reverse=True)
     if obs.next_type is None:
@@ -119,7 +138,7 @@ def choose_x(obs: Observation) -> float:
     best_score = -math.inf
     for held_eval, x, after in ranked[:HELD_TOP]:
         value = held_eval + NEXT_DISCOUNT * _best_next_score(
-            after, obs.next_type, step=NEXT_CANDIDATE_STEP
+            after, obs.next_type, step=NEXT_CANDIDATE_STEP, pool=pool
         )
         if value > best_score:
             best_score = value
@@ -212,22 +231,38 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
     return value
 
 
+def _next_eval_job(fruits: list[Fruit], next_type: int, next_r: float, nx: float) -> float:
+    """next 候補 1 個ぶんの eval。プールに投げる単位。"""
+    # その先の next は未知。育成免除は谷内同種だけが効く。
+    _, score, penalties, _merges = _evaluate_drop(fruits, next_type, nx, next_r)
+    return score - penalties
+
+
 def _best_next_score(
     fruits: list[Fruit],
     next_type: int,
     *,
     step: float | None = None,
+    pool: Executor | None = None,
 ) -> float:
     """next を最善列に落としたときの eval。"""
     next_r = fruit_radius(next_type)
-    best = -math.inf
-    for nx in _candidates(fruits, next_type, next_r, step=step):
-        nx = clamp_drop_x(nx, next_type)
-        # その先の next は未知。育成免除は谷内同種だけが効く。
-        _, score, penalties, _merges = _evaluate_drop(fruits, next_type, nx, next_r)
-        if score - penalties > best:
-            best = score - penalties
-    return 0.0 if best == -math.inf else best
+    xs = [clamp_drop_x(nx, next_type) for nx in _candidates(fruits, next_type, next_r, step=step)]
+    if not xs:
+        return 0.0
+    if pool is None:
+        scores = [_next_eval_job(fruits, next_type, next_r, nx) for nx in xs]
+    else:
+        scores = list(
+            pool.map(
+                _next_eval_job,
+                itertools.repeat(fruits),
+                itertools.repeat(next_type),
+                itertools.repeat(next_r),
+                xs,
+            )
+        )
+    return max(scores)
 
 
 def _evaluate_drop(
