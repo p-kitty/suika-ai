@@ -101,6 +101,16 @@ def run_episodes(
         job, extra = _run_learned_episode, (str(checkpoint),)
 
     if workers <= 1 or episodes <= 1:
+        if policy_name == "bootstrap":
+            # With nothing to parallelize per episode, parallelize choose_x candidate evaluation (simulate_drop)
+            # over processes. learned runs no physics, so it is not included.
+            with ProcessPoolExecutor() as move_pool:
+                return [
+                    run_episode(
+                        s, choose=lambda obs: choose_x(obs, pool=move_pool), max_steps=max_steps
+                    )
+                    for s in seeds
+                ]
         return [job(s, max_steps, *extra) for s in seeds]
 
     # Order by episode number, not completion order, to match a serial run.

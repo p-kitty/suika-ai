@@ -19,7 +19,7 @@ import secrets
 import statistics
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import Executor, ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 if __package__ in (None, ""):
@@ -34,8 +34,17 @@ EARLY_STEPS = 30
 CASCADE_MERGES = 3
 
 
-def _episode(seed: int, max_steps: int, variant: bool) -> dict[str, float]:
-    """Run one episode and return metrics. Runs on the ProcessPool worker side."""
+def _episode(
+    seed: int,
+    max_steps: int,
+    variant: bool,
+    pool: Executor | None = None,
+) -> dict[str, float]:
+    """Run one episode and return metrics. Runs on the ProcessPool worker side.
+
+    pool is passed from _run only when 'there is nothing to parallelize per episode (workers<=1)'.
+    The side that spreads episodes themselves over a ProcessPool leaves it None to avoid double parallelism.
+    """
     from src import policy
     from src.policy import choose_x
     from src.sim_env import SimEnv
@@ -54,7 +63,7 @@ def _episode(seed: int, max_steps: int, variant: bool) -> dict[str, float]:
     early_crowns: list[float] = []
     info = "ok"
     for _ in range(max_steps):
-        result = env.step(choose_x(obs))
+        result = env.step(choose_x(obs, pool=pool))
         obs = result.observation
         score += result.score
         merges += result.merges
@@ -100,7 +109,9 @@ def _run(
     started = time.monotonic()
     print(f"  {label}: running {len(seeds)} episodes...", flush=True)
     if workers <= 1:
-        rows = [_episode(s, max_steps, variant) for s in seeds]
+        # With nothing to parallelize per episode, parallelize choose_x candidate evaluation instead.
+        with ProcessPoolExecutor() as move_pool:
+            rows = [_episode(s, max_steps, variant, pool=move_pool) for s in seeds]
     else:
         rows = []
         with ProcessPoolExecutor(max_workers=workers) as pool:
