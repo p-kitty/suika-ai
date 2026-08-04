@@ -125,6 +125,9 @@ def main() -> None:
 
     def _drop(x: float | None = None) -> None:
         nonlocal obs, total_score, last_info, message, aim_x, auto_play
+        if last_info in ("dead", "win"):
+            message = "done — r to reset"
+            return
         if obs.held_type is None or not obs.ready:
             message = "not ready"
             return
