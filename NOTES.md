@@ -96,6 +96,36 @@ Only detection runs in `_ladder_anchor` / `_ladder_rungs`, not used for move sel
   later moves get heavier, so the whole episode is actually slower (measured at 25). The physics fidelity
   (shared with `SimEnv`) also drops
 
+### Current penalty rules
+
+`eval = score (merge points) - penalties (penalties for accidents and bad moves)`.
+- per-move penalties in `_evaluate_drop`,
+- board-wide penalties in `_board_penalties` (`src/policy.py`) are each added.
+
+**Per-move penalties (`_evaluate_drop`)**
+
+| Rule | Function | Content | Weight |
+|---|---|---|---|
+| directly above a different type | `_foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
+| wrong-side roll | `_wrong_side_roll_penalty` | when it rolls and lands on the floor on the "big side" of a bigger fruit of another type (only moves with 0 merges and outside the growing exemption) | base 8.0 + difference×2.0 |
+| blocking a waiting merge by burying | `_bury_block_penalty` | when a bigger fruit of another type blocks, directly above or on the shoulder, a fruit waiting for a same-type pair | 14.0 ×type gap (half on a shoulder) |
+| small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (orange or bigger) escapes to the small side (fires only when it physically cannot go on the small side) | fixed 8.0 (can be disabled with `SUIKA_PACKED=0`) |
+
+**Board-wide penalties (`_board_penalties`, on the post-drop board every time)**
+
+| Rule | Function | Content | Weight |
+|---|---|---|---|
+| dangerous height | inline | when the topmost crown is above danger_y(70.9) | (danger_y − crown) × 0.5 |
+| burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35) | bury_weight 20.0x |
+| excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
+| size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (fruits being grown in a valley are exempt) | pair difference×1.5 + ideal_x deviation×0.004 |
+| big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) gap×0.025×size factor |
+| bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by 0.15 at dangerous height) | variance×0.08 |
+
+Notes:
+- `PACKED_RULE_ENABLED` (environment variable `SUIKA_PACKED`) toggles only the small-side escape penalty after the floor fills ON/OFF (for A/B)
+- Ladder detection (`_ladder_*`) is currently unused by penalties (detection only)
+
 ## Training
 
 - **score / penalties**: `score` is the real game's merge score (1-65, no penalties), `penalties` are the penalties for accidents and bad moves.
