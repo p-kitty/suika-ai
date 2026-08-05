@@ -4,6 +4,7 @@
 
 - [Open tasks](#open-tasks)
 - [In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)
+- [Investigated: sudden death from scattered low-tier fruits late in the game](#investigated-sudden-death-from-scattered-low-tier-fruits-late-in-the-game-2-improvement-attempts-none-confirmed)
 - [When to move](#when-to-move)
 - [Policy (bootstrap) design](#policy-bootstrap-design)
 - [Training](#training)
@@ -61,6 +62,60 @@ Only detection runs in `_ladder_anchor` / `_ladder_rungs`, not used for move sel
   Once, an accident left uncommitted changes stranded in the stash (`git fsck --unreachable` could
   recover it, but when comparing historical code of another commit with the current working tree,
   isolate it with `git worktree add`)
+
+## Investigated: sudden death from scattered low-tier fruits late in the game (2 improvement attempts, none confirmed)
+
+A record of the investigation when trying to strengthen bootstrap toward around 3500 points.
+
+### Diagnosing the cause of death
+
+Measured with eval_policy.py at 24-40 episodes, the mean score is 1900-2150 points
+(the "one game of 311 moves, score 3305" at the top of NOTES was one favorable example, not a typical result).
+Every episode ends in `dead` and never reaches the `max_steps` cap.
+
+Replaying one episode move by move (seed=20260816), for 10+ moves before death
+low-tier fruits such as 5-8 cherries, 3 grapes and 4 dekopons remained scattered unmerged
+across the whole board. The final move (an orange) had no safe landing and was forced onto the tower at the upper right,
+already at a dangerous height, dying instantly. It was further confirmed that in the position just before, dropping a cherry anywhere from x=0-400
+produces no merge at all. So it is not a problem with "that move":
+much earlier, low-tier fruits were squeezed from the sides by big fruits of other types and scattered into
+physically unmergeable positions, which is the root cause.
+
+### Attempt 1: triangular excess-same penalty (reverted)
+
+`_excess_same_penalty` was changed from linear (a constant 20 per excess fruit) to triangular
+(1 excess = 1x, 2 excess = 3x, ...) to strengthen the pressure to merge.
+Every unit test passed. Paired comparisons over 40 episodes (same seeds, isolated with `git worktree`):
+
+- seed 20260805 (n=24): old 1924.12 → new 1960.50 (+1.9%)
+- seed 555000 (n=40): old 2143.57 → new 2079.05 (-3.0%)
+
+Results split, and no significant improvement could be confirmed. A size buried under the noise floor of per-game variation
+(SD ~1168). Reverted.
+
+### Attempt 2: side isolation penalty (reverted)
+
+As the diagnosis of the cause of death shows, fixing "the move just before death" is too late, so at an earlier stage
+a check for moves that "block both sides of a fruit with no partner on the board, making it unmergeable"
+was tried as a new `_isolation_penalty`. Unit tests were added and all passed.
+Paired comparison over 32 episodes (seed 900000, isolated with `git worktree`):
+
+- old 2125.88 → new 1930.41 (-9.2%)
+
+This too is a difference (195) within the SE (~206), not significant.
+If anything it may have rejected local blunders and invited other deterioration; reverted.
+
+### What we learned
+
+- Per-game variation (SD ~1000-1200) is very large, and detecting a single penalty weight tweak
+  (probably tens of points even if effective) significantly by score
+  likely needs more than tens of episodes. A comparison at 100+ episodes, or
+  a proxy metric with lower variance than score (moves survived, the number of isolated fruits in specific positions and so on) is needed
+- The root cause (low-tier fruits becoming physically unmergeable) itself is a reproducible measured result.
+  But symptomatic fixes (penalty weights, adding new penalties) could not confirm improvement
+  both times. What to try next is likely better not as fine-tuning of the individual rules listed here
+  but a deeper lookahead (currently only the top `HELD_TOP` held get a one-move next
+  lookahead), or the RL planned at the end of NOTES
 
 ## When to move
 
