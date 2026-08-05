@@ -63,7 +63,7 @@ Only detection runs in `_ladder_anchor` / `_ladder_rungs`, not used for move sel
   recover it, but when comparing historical code of another commit with the current working tree,
   isolate it with `git worktree add`)
 
-## Investigated: sudden death from scattered low-tier fruits late in the game (2 improvement attempts, none confirmed)
+## Investigated: sudden death from scattered low-tier fruits late in the game (3 improvement attempts, none confirmed)
 
 A record of the investigation when trying to strengthen bootstrap toward around 3500 points.
 
@@ -105,6 +105,31 @@ Paired comparison over 32 episodes (seed 900000, isolated with `git worktree`):
 This too is a difference (195) within the SE (~206), not significant.
 If anything it may have rejected local blunders and invited other deterioration; reverted.
 
+### Attempt 3: three-ply lookahead (reverted)
+
+The RL side (below) plateaued at the BC stage, so going back to bootstrap,
+the direction of "making the search itself deeper rather than tuning individual penalty weights" was tried.
+The current `choose_x` looks ahead 2 moves, held → next
+(next candidates are only run for the `HELD_TOP` held candidates). A third move
+(of unknown type) was added:
+
+- expand to the third move only the top `NEXT_TOP=2` of the next candidates by eval
+- the third move's type is undetermined (uniform over cherry-orange), so all 5 types are
+  evaluated at a single `ideal_x` point and averaged, a rough expectation approximation
+  (`_expected_third_ply_score`). An exact expectation over all types and candidates would
+  explode in branching
+- `THIRD_PLY_DISCOUNT=0.4` discounts it further than next
+- Implemented with an ON/OFF switch `SUIKA_THIRD_PLY` (the same pattern as `PACKED_RULE`).
+  All unit tests passed; the cost per move went from 313ms → 401ms (+28%),
+  acceptable
+
+Paired comparison over 32 episodes (seed 400000, `SUIKA_THIRD_PLY=0/1` within the same process):
+
+- 2-move lookahead (old) 2010.03 → 3-move lookahead (new) 1995.81 (-0.7%)
+
+Nearly tied, no improvement confirmed. Reverted (as instructed to "remove it from the working tree and record it
+in NOTES", the code was rolled back and only the record kept).
+
 ### What we learned
 
 - Per-game variation (SD ~1000-1200) is very large, and detecting a single penalty weight tweak
@@ -112,10 +137,14 @@ If anything it may have rejected local blunders and invited other deterioration;
   likely needs more than tens of episodes. A comparison at 100+ episodes, or
   a proxy metric with lower variance than score (moves survived, the number of isolated fruits in specific positions and so on) is needed
 - The root cause (low-tier fruits becoming physically unmergeable) itself is a reproducible measured result.
-  But symptomatic fixes (penalty weights, adding new penalties) could not confirm improvement
-  both times. What to try next is likely better not as fine-tuning of the individual rules listed here
-  but a deeper lookahead (currently only the top `HELD_TOP` held get a one-move next
-  lookahead), or the RL planned at the end of NOTES
+  But symptomatic fixes (penalty weights, new penalties, 3-move lookahead)
+  could not confirm improvement all three times. Not only individual weight tuning but the direction of a deeper
+  search (attempt 3) was buried under the same noise floor. On the RL side too,
+  [BC does not reach 60-70% match](#investigated-bc-does-not-reach-60-70-match-2026-08-05)
+  showed a plateau, and fine-tuning the bootstrap heuristics or extending shallow lookahead
+  gives no outlook toward reaching around 3500 points. What to try next would be
+  re-verification at a much larger sample size (100+ episodes), or a qualitatively different change such as rebuilding
+  the features and architecture of the learned policy itself
 
 ## When to move
 
