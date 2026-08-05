@@ -209,3 +209,39 @@ Notes:
 - Condition for adding it: `match` fairly high (roughly 60–70%+) and the student's `score` close to bootstrap
 - How: only a short fine-tune after BC finishes (e.g. `--episodes 50 --lr 0.002`). Off by default
 - Until then, thickening BC (collection size, epochs) comes first
+
+### Investigated: BC does not reach 60-70% match (2026-08-05)
+
+When trying to move on to RL aiming for 3500 points, the existing checkpoints
+(`artifacts/policy_sim.npz` / `policy_sim_rl.npz`) were measured first:
+score was only about half of bootstrap (~2000-2150) (~1040-1060),
+far from the condition for starting RL (match 60–70%+).
+
+**Bug found (fixed)**: `MAX_FRUITS` in `src/encode.py` was 16,
+packing the board's fruits starting from the biggest types and ruthlessly cutting off the rest.
+Late in the game boards with over 20 fruits are common (23 measured), and the first to be cut are
+scattered low-tier fruits such as cherry/strawberry —
+[Sudden death from scattered low-tier fruits late in the game](#investigated-sudden-death-from-scattered-low-tier-fruits-late-in-the-game-2-improvement-attempts-none-confirmed)
+were invisible to the student. Raised to 32 so effectively
+nothing is cut.
+
+**What it still did not solve**: retraining BC after the fix with default settings (100 collection ep, 80 epochs)
+gave match 12.9% and score only 1242 (loss barely moved across epochs,
+clear under-fitting). The teacher data (150 ep, n=32562) was cached and
+reused to compare the following on the same data; none reached match 30%, and score
+plateaued at 900-1150:
+
+- an exhaustive sweep of lr 0.05-1.0 × epoch 80-300 × hidden 128/256 (best: hard label,
+  lr=0.5, hidden=256, epoch=300 with match=29.1%)
+- comparing a hard label approach that one-hots the teacher's continuous x as is vs a soft label approach that also
+  spreads weight to nearby bins (`teacher_action_target` / `bc_update_dist`,
+  which existed in the code but were unused by the training pipeline). Even soft stopped
+  below the best hard (15-21%)
+
+**What we learned and hypotheses**: bootstrap is a policy that actually runs `simulate_drop` per candidate
+and compares the results, and imitating from only the static features of `src/encode.py` (a list of fruit type/x/y/r
+a 1-hidden-layer MLP learning that "try candidates with physics, then choose" judgment
+plateaued whichever of learning rate, epochs and soft/hard labels was tuned.
+Unless the capacity (hidden width, layer count) or the feature design (such as including per-candidate landing results
+in the features) itself changes, BC in this configuration is likely not to reach
+the condition for starting RL. RL remains unstarted.
