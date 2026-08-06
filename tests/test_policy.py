@@ -285,16 +285,14 @@ def test_chooses_merge_for_sandwiched_same_type() -> None:
     left = Fruit(type=6, x=160, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
     right = Fruit(
         type=6,
-        # With a narrow gap the dekopon after merging gets wedged between pears and takes a size-order penalty,
-        # making not merging favorable. Take a width where it is not wedged.
-        x=160 + pear_r * 2 + 40,
+        x=160 + pear_r * 2 + 60,
         y=NORMALIZED_HEIGHT - pear_r,
         radius=pear_r,
         confidence=90,
     )
-    gx = left.x + pear_r * 0.3
-    dx = gx - left.x
-    gy = left.y - math.sqrt((pear_r + grape_r) ** 2 - dx * dx)
+    gy = NORMALIZED_HEIGHT - grape_r
+    dy = gy - left.y
+    gx = left.x + math.sqrt((pear_r + grape_r) ** 2 - dy * dy)
     grape = Fruit(type=2, x=gx, y=gy, radius=grape_r, confidence=90)
     fruits = (left, right, grape)
     x = choose_x(_obs(held_type=2, fruits=fruits))

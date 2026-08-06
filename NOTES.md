@@ -19,8 +19,7 @@
 - Packing too tight early: neighbors by size order and proximity (e.g. apple and dekopon) have too little gap between them. When stacking an orange only order-breaking moves remain. Some space is wanted
 
 **Physics simulation**
-- Wall friction may be too low: at the walls in `sim_physics.py`, fruits slide in far more than in the real game
-- Friction between fruits also seems low: same as above. Fruit-to-fruit contact feels slipperier than the real game too. Revisit both wall and fruit friction coefficients together
+- Friction between fruits seems low: fruits slide in far more than in the real game.
 
 **Training pipeline**
 - Training episode length: raise `max_steps` and lower `episodes` (fewer, longer games). Guide: natural ends around 300-400 moves (measured one game at 311 moves, score 3305, type 10 reached). Truncating at 100-250 moves cannot measure headroom or survival time

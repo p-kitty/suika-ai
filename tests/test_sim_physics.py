@@ -333,3 +333,30 @@ def test_preview_land_returns_finite() -> None:
     x, y = preview_land((), 0, 200, r)
     assert 0 < x < 400
     assert y > 0
+
+
+def test_strawberry_at_left_wall_keeps_size_order_with_cherry_and_grape() -> None:
+    # A cherry flush with the left edge, a grape to its right. Dropping a strawberry right at the left edge
+    # should settle between the cherry and grape without knocking the cherry away (keeping size order).
+    cherry_r = fruit_radius(0)
+    straw_r = fruit_radius(1)
+    grape_r = fruit_radius(2)
+
+    cherry = Fruit(
+        type=0, x=cherry_r, y=NORMALIZED_HEIGHT - cherry_r, radius=cherry_r, confidence=90
+    )
+    grape = Fruit(
+        type=2,
+        x=cherry.x + cherry_r + grape_r,
+        y=NORMALIZED_HEIGHT - grape_r,
+        radius=grape_r,
+        confidence=90,
+    )
+
+    after, merges, _types = simulate_drop((cherry, grape), 1, straw_r)
+    assert merges == 0
+    by_x = sorted(after, key=lambda f: f.x)
+    assert [f.type for f in by_x] == [0, 1, 2]
+    # The cherry has not been knocked away to near the other side of the board.
+    moved_cherry = next(f for f in after if f.type == 0)
+    assert abs(moved_cherry.x - cherry.x) < 40.0
