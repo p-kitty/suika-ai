@@ -4,19 +4,25 @@ A tool for localizing 'where it got better/worse' after a change.
 The default compares placement after the floor fills (SUIKA_PACKED) ON/OFF. The same seed sequence goes through both,
 reporting not just means but per-seed wins and losses and metrics split into early and late game.
 
+Per metric, the paired t value and 95% CI of the difference on the same seeds are reported (`src/stats.py`).
+This prevents reading 'it got better' from a rise or fall in the mean; a row whose CI crosses 0
+says nothing at that n. The n@5% column is the number of episodes needed to speak to that metric
+at 5% precision; the smaller, the fewer runs needed to read a change.
+
 Omitting --seed starts from a random seed every time. Reusing fixed seeds over and over
 makes it easy to misread a collapse that happened by chance on that seed set as 'reproduced'.
 
 Usage:
   python scripts/compare_policy.py
   python scripts/compare_policy.py --episodes 60 --max-steps 300 --workers 8
+  python scripts/compare_policy.py --episodes 100 --max-steps 400 --out artifacts/ab.json
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import secrets
-import statistics
 import sys
 import time
 from concurrent.futures import Executor, ProcessPoolExecutor, as_completed
@@ -27,6 +33,7 @@ if __package__ in (None, ""):
 
 from src.parallel import default_workers
 from src.reward import watermelon_count
+from src.stats import correlation, paired_stats
 
 # Moves considered early game. How the board breaks up to here is looked at separately from later.
 EARLY_STEPS = 30
@@ -130,15 +137,46 @@ def _run(
     return rows
 
 
-def _mean(rows: list[dict[str, float]], key: str) -> float:
-    values = [r[key] for r in rows if r[key] == r[key]]
-    return statistics.mean(values) if values else float("nan")
+def _column(rows: list[dict[str, float]], key: str) -> list[float]:
+    return [r[key] for r in rows]
 
 
-def _line(label: str, a: float, b: float, *, digits: int = 2) -> str:
-    delta = b - a
-    pct = f"{delta / a * 100:+6.1f}%" if a else "     -"
-    return f"  {label:<14} {a:9.{digits}f} -> {b:9.{digits}f}  ({delta:+.{digits}f} {pct})"
+def _fmt(value: float, digits: int) -> str:
+    return "-" if value != value else f"{value:.{digits}f}"
+
+
+def _line(
+    label: str,
+    base: list[dict[str, float]],
+    new: list[dict[str, float]],
+    *,
+    digits: int = 2,
+) -> str:
+    """The row for one metric. Not just means but the paired t, 95% CI and required n.
+
+    n@5% is 'the number of episodes needed to speak to that metric at 5% precision'. It is relative
+    so that metrics are compared on the same yardstick. The smaller it is,
+    the fewer episodes needed to read a change = better suited as a proxy.
+    r is the correlation of the metric in that row with score, a guide to whether it means anything as a proxy.
+    """
+    stats = paired_stats(_column(base, label), _column(new, label))
+    pct = f"{stats.delta / stats.mean_a * 100:+6.1f}%" if stats.mean_a else "     -"
+    ci = (
+        f"[{stats.ci_lo:+8.1f},{stats.ci_hi:+8.1f}]"
+        if stats.ci_lo == stats.ci_lo
+        else " " * 19
+    )
+    n5 = stats.required_n(abs(stats.mean_a) * 0.05) if stats.mean_a else float("nan")
+    r = correlation(
+        _column(base, label) + _column(new, label),
+        _column(base, "score") + _column(new, "score"),
+    )
+    mark = " *" if stats.significant else "  "
+    return (
+        f"  {label:<12}{_fmt(stats.mean_a, digits):>9} ->{_fmt(stats.mean_b, digits):>9}"
+        f" ({pct}) t={_fmt(stats.t, 2):>6} {ci}{mark}"
+        f" n@5%={_fmt(n5, 0):>7} r={_fmt(r, 2):>5}"
+    )
 
 
 def main() -> None:
@@ -152,6 +190,12 @@ def main() -> None:
     )
     parser.add_argument("--max-steps", type=int, default=100)
     parser.add_argument("--workers", type=int, default=None)
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="save per-seed raw data as JSON (so metrics can be chosen again later).",
+    )
     args = parser.parse_args()
     workers = args.workers if args.workers is not None else default_workers()
     seed = args.seed if args.seed is not None else secrets.randbelow(1_000_000)
@@ -159,6 +203,25 @@ def main() -> None:
     seeds = [seed + i for i in range(args.episodes)]
     base = _run(seeds, args.max_steps, False, workers, label="A (OFF)")
     new = _run(seeds, args.max_steps, True, workers, label="B (ON) ")
+
+    # Save before aggregating. Raw data from a long run must not be lost to a trivial bug on the aggregation side.
+    if args.out is not None:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(
+            json.dumps(
+                {
+                    "seed": seed,
+                    "episodes": args.episodes,
+                    "max_steps": args.max_steps,
+                    "variant": "SUIKA_PACKED",
+                    "a": base,
+                    "b": new,
+                },
+                indent=1,
+            ),
+            encoding="utf-8",
+        )
+        print(f"  saved raw data: {args.out}")
 
     print(
         f"\nepisodes={args.episodes} seed={seed} "
@@ -175,18 +238,40 @@ def main() -> None:
             "  ** Not one natural end, so neither survival time nor stage reached is measured. **\n"
             "  ** Increase --max-steps and measure again. Do not trust the numbers below. **"
         )
-    for label, key, digits in (
-        ("score", "score", 2),
-        ("early_score", "early_score", 2),
-        ("steps", "steps", 1),
-        ("merges", "merges", 1),
-        ("cascades", "cascades", 2),
-        ("max_type", "max_type", 2),
-        ("early_crown", "early_crown", 1),
-        ("dead", "dead", 3),
-        ("dead_early", "dead_early", 3),
+    print()
+    for key, digits in (
+        ("score", 2),
+        ("early_score", 2),
+        ("steps", 1),
+        ("merges", 1),
+        ("cascades", 2),
+        ("max_type", 2),
+        ("early_crown", 1),
+        ("dead", 3),
+        ("dead_early", 3),
     ):
-        print(_line(label, _mean(base, key), _mean(new, key), digits=digits))
+        print(_line(key, base, new, digits=digits))
+    print(
+        "  (* = 95% CI does not cross 0 / n@5%: episodes needed to speak to a 5% difference"
+        " / r: correlation with score)"
+    )
+
+    # The real verdict is the paired score difference. Only here is the conclusion written out.
+    score_stats = paired_stats(_column(base, "score"), _column(new, "score"))
+    print(
+        f"\n  score paired difference: {score_stats.delta:+.1f} "
+        f"(SD of the difference={_fmt(score_stats.sd_diff, 1)}, SE={_fmt(score_stats.se, 1)})"
+    )
+    if score_stats.sd_diff == 0.0:
+        print("  score is identical on every pair. No difference, no test needed.")
+    elif score_stats.significant:
+        print("  95% CI does not cross 0. Significant at this n.")
+    else:
+        need = score_stats.required_n(100.0)
+        print(
+            "  95% CI crosses 0 = no significant difference at this n."
+            f" Speaking to +/-100 points needs about n={_fmt(need, 0)}."
+        )
 
     # Per-seed head-to-head. Even if the mean does not move, split wins and losses mean something different.
     wins = sum(1 for a, b in zip(base, new) if b["score"] > a["score"])
