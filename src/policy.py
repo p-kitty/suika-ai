@@ -375,6 +375,17 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
         gap = (right.x - left.x) - left.radius - right.radius
         if gap <= 0:
             continue
+        # 間の段を育てる場所は空けておく。ここを詰めると、あとで挟まる型が
+        # ツモれたとき置き場が無く、外側へ回して並び順を壊すしかなくなる
+        # (実測: 初手 orange の真横に grape を寄せると、次の dekopon が
+        # grape の外側に落ちて 4-2-3 の並びになる)。空けるのは「すぐ次に
+        # 要る 1 個ぶん」= 抜けている型のうち一番大きいものの直径だけで、
+        # それを超えた余分は従来どおり減点する。
+        missing = range(min(left.type, right.type) + 1, max(left.type, right.type))
+        want = 2.0 * max((fruit_radius(t) for t in missing), default=0.0)
+        gap -= want
+        if gap <= 0:
+            continue
         gap = min(gap, left.radius + right.radius)
         size = 0.5 + 0.05 * (left.type + right.type)
         penalty += cluster_weight * gap * size

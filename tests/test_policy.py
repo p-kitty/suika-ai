@@ -609,3 +609,31 @@ def test_avoids_under_max_center_on_outer_edge() -> None:
     land_x, land_y = preview_land((peach,), 4, x, orange_r)
     # 大側角の床ポケットへ落とさない。
     assert not (land_x < peach.x and land_y > peach.y)
+
+
+def test_leaves_room_for_missing_rung_between_neighbours() -> None:
+    """間の型が抜けているペアは、そのぶんの隙間を空けて置く。
+
+    初手 orange の真横に grape を寄せると、次に dekopon が来たとき置き場が
+    無く、grape の外側へ回して 4-2-3 の並びになってしまう (実測)。
+    """
+    orange_r = fruit_radius(4)
+    dekopon_r = fruit_radius(3)
+    grape_r = fruit_radius(2)
+
+    # 1 手目 orange、2 手目 grape (next は dekopon)。
+    x1 = choose_x(_obs(held_type=4, fruits=(), next_type=2))
+    board1, _m, _t = simulate_drop((), 4, x1)
+    x2 = choose_x(_obs(held_type=2, fruits=tuple(board1), next_type=3))
+    board2, _m, _t = simulate_drop(board1, 2, x2)
+
+    orange = next(f for f in board2 if f.type == 4)
+    grape = next(f for f in board2 if f.type == 2)
+    gap = abs(orange.x - grape.x) - orange_r - grape_r
+    # dekopon 1 個ぶんに近い隙間を残す (押し込みぶんの余裕を見て 8 割)。
+    assert gap > dekopon_r * 2 * 0.8
+
+    # 3 手目 dekopon を置いても大小順が崩れない。
+    x3 = choose_x(_obs(held_type=3, fruits=tuple(board2)))
+    board3, _m, _t = simulate_drop(board2, 3, x3)
+    assert [f.type for f in sorted(board3, key=lambda f: f.x)] == [2, 3, 4]
