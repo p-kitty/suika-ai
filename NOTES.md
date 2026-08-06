@@ -20,13 +20,28 @@
 - Friction between fruits seems low: fruits slide in far more than in the real game.
 
 **Training pipeline**
-- Training episode length: raise `max_steps` and lower `episodes` (fewer, longer games). Guide: natural ends around 300-400 moves (measured one game at 311 moves, score 3305, type 10 reached). Truncating at 100-250 moves cannot measure headroom or survival time
+- Training episode length: raise `max_steps` and lower `episodes` (fewer, longer games).
+  The default max-steps=100 of `train_sim.py` is **a value that measures as 100% truncated** (natural ends median 210 moves).
+  That means the teacher data only sees the first half of a typical game. Truncation is 0% at 320 or more
 
 ## In progress: big draws and ladders after the floor fills
 
 After the floor fills, placing big draws such as orange / dekopon on the small side crushes the fruits below and the board collapses.
 Being handled by `_packed_small_side_penalty` (`src/policy.py`). Can be disabled with `SUIKA_PACKED=0`
-(`set_packed_rule_enabled()`). **Its effectiveness is not yet established** (below).
+(`set_packed_rule_enabled()`).
+
+### Result at n=100 (2026-08-06): no significant difference
+
+`--episodes 100 --max-steps 400` (0 truncated, 2.6 hours):
+
+- score 2047.0 → 2093.9 (**+46.9**, t=0.85, 95% CI **[-62.3, +156.1]**). **Not significant**
+- seed head-to-head win 52 / loss 38 / tie 10. With 10 ties, there are 90 firing opportunities
+- **By quantile only the bottom rose** (min 1045→1315, bottom-10 mean 1318→1450).
+  The top does not move (top-10 mean 2914→2913, type10 reached 14→17 runs).
+  It is a rule against collapse after the floor fills, so this matches the intent, but **choosing the bottom after the fact
+  and testing it is post-hoc selection**. Next time, fix a threshold such as "number of runs with score<1500" before measuring
+- Making this +46.9 significant needs **n=529 (about 14 hours)**. A cost-benefit decision is needed.
+  For now it is left ON (positive point estimate, shape matches the intent, fires 90/100)
 
 The "ladder" that fires a corner big fruit in steps (a pear next to the inside of a corner peach, an apple and an orange on the **shoulders** of those two,
 firing with the final orange and cascading 4→5→6→7) is a shape that arises naturally as a result of this placement rule.
@@ -64,8 +79,16 @@ got buried here. Read this section before reporting numbers.
   needed to move that difference away from 0). It is unit-independent, so score and moves survived can be
   compared directly. But **picking the metric that looked best in the same dump is selection bias**.
   Adopt it only after confirming it also ranks high on a second dump taken with a different change and different seeds
-- **Discard the numbers if every episode reaches `max_steps`.** Neither headroom nor death rate is measured.
-  Natural ends are 300-400 moves, so `--max-steps` around 400. `compare_policy.py` warns
+- **Discount the numbers when truncation happens.** Truncated games are the ones that went long, so
+  the better the change the more it is underestimated. Natural ends were **measured over 200 runs: mean 213 / median 210 / max 311 moves**
+  (the old "300-400 moves" came from one favorable game and was an overestimate).
+  `--max-steps` **truncates 0% at 320 or more**; the default is 400. At 200 it is 64%,
+  **at 100, 100% are truncated** (the 08-03 accident was this). `compare_policy.py`
+  warns if even one is truncated
+- **Do not stratify by the outcome and compare the same outcome (regression to the mean).** Splitting into top/bottom by A's score
+  and comparing A with B always shows "the top got worse, the bottom improved". Splitting by B's score
+  gives the mirror image. This was nearly stepped on with the n=100 of `SUIKA_PACKED`.
+  To compare distributions, compare quantiles directly
 - Do not fix seeds (omitting `--seed` makes them random). Reusing fixed seeds makes a chance collapse
   easy to misread as "reproduced". Compare changes paired on the same seeds
 - Do not build automation scripts that run `git stash` / `checkout` against the live working tree.

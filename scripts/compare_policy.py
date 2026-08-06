@@ -188,7 +188,9 @@ def main() -> None:
         default=None,
         help="random every time when omitted. Avoid reusing fixed seeds.",
     )
-    parser.add_argument("--max-steps", type=int, default=100)
+    # The old default of 100 was half a natural game (median 210 moves), and all 200 measured runs were truncated.
+    # The default measured only the cost of setting up and not the return, so it is 400.
+    parser.add_argument("--max-steps", type=int, default=400)
     parser.add_argument("--workers", type=int, default=None)
     parser.add_argument(
         "--out",
@@ -229,14 +231,21 @@ def main() -> None:
     )
     print("  A = placement after the floor fills OFF (current)   B = ON")
 
-    # If everything is truncated, neither headroom nor death rate is measured.
-    # It becomes a measurement looking only at setup cost and not the return, so warn first.
+    # Truncation caps the runs that went long, so the better the change the more it is underestimated.
+    # Warning only on 'all truncated' would let partial truncation pass without warning.
+    total = len(base) + len(new)
     capped = sum(1 for row in base + new if row["steps"] >= args.max_steps)
-    if capped == len(base) + len(new):
+    if capped == total:
         print(
             f"\n  ** all {capped} episodes truncated at max_steps={args.max_steps}. **\n"
             "  ** Not one natural end, so neither survival time nor stage reached is measured. **\n"
             "  ** Increase --max-steps and measure again. Do not trust the numbers below. **"
+        )
+    elif capped:
+        print(
+            f"\n  ** {capped}/{total} episodes truncated at max_steps={args.max_steps}"
+            f" ({capped / total * 100:.0f}%). **\n"
+            "  ** The truncated ones are games that went long, so the difference is compressed by that much. **"
         )
     print()
     for key, digits in (
