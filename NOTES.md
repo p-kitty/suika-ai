@@ -4,7 +4,8 @@
 
 - [Open tasks](#open-tasks)
 - [In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)
-- [Investigated: sudden death from scattered low-tier fruits late in the game](#investigated-sudden-death-from-scattered-low-tier-fruits-late-in-the-game-2-improvement-attempts-none-confirmed)
+- [How to measure](#how-to-measure-traps-we-keep-stepping-in) ← read before reporting numbers
+- [Investigated: sudden death from scattered low-tier fruits late in the game](#investigated-sudden-death-from-scattered-low-tier-fruits-late-in-the-game)
 - [When to move](#when-to-move)
 - [Policy (bootstrap) design](#policy-bootstrap-design)
 - [Training](#training)
@@ -48,21 +49,23 @@ Only detection runs in `_ladder_anchor` / `_ladder_rungs`, not used for move sel
 - The small-side room check confirms with an actual `simulate_drop`, not just the geometric gap width
   (`_small_side_room_ok`). Fixed a bug that judged a gap blocked by a roof as having room
 
-### Measurement caveats (today's lesson)
+## How to measure (traps we keep stepping in)
 
-- `compare_policy.py` detects truncation (every episode reaching `max_steps`) and warns.
-  Do not ignore it and draw conclusions
+**Score noise is very large.** This is the biggest wall for improving the policy, and every attempt below
+got buried here. Read this section before reporting numbers.
+
+- The per-game standard deviation is ~1000-1200, and even in paired comparisons on the same seed the SD of the difference is 78-496.
+  Seeing ±100 points as significant needs **n≈100**. Tens of episodes are not enough.
+  it is faster to look for a proxy metric with lower variance than score (moves survived, the number of isolated fruits in specific positions and so on)
+- **Discard the numbers if every episode reaches `max_steps`.** Neither headroom nor death rate is measured.
+  Natural ends are 300-400 moves, so `--max-steps` around 400. `compare_policy.py` warns
 - Do not fix seeds (omitting `--seed` makes them random). Reusing fixed seeds makes a chance collapse
-  easy to misread as "reproduced"
-- About 4 episodes cannot decide anything. Measured (4 runs on the same seeds, comparing the 3 states bf8ea23 / 5be107f / working tree
-  isolated with `git worktree`): the score difference is buried in per-game variation (SD ~1168),
-  and a significant conclusion needs tens of runs
+  easy to misread as "reproduced". Compare changes paired on the same seeds
 - Do not build automation scripts that run `git stash` / `checkout` against the live working tree.
-  Once, an accident left uncommitted changes stranded in the stash (`git fsck --unreachable` could
-  recover it, but when comparing historical code of another commit with the current working tree,
-  isolate it with `git worktree add`)
+  It once caused an accident that left uncommitted changes stranded in the stash (recovered with `git fsck --unreachable`).
+  To compare another commit with the current working tree, isolate it with `git worktree add`
 
-## Investigated: sudden death from scattered low-tier fruits late in the game (3 improvement attempts, none confirmed)
+## Investigated: sudden death from scattered low-tier fruits late in the game
 
 A record of the investigation when trying to strengthen bootstrap toward around 3500 points.
 
@@ -80,70 +83,19 @@ produces no merge at all. So it is not a problem with "that move":
 much earlier, low-tier fruits were squeezed from the sides by big fruits of other types and scattered into
 physically unmergeable positions, which is the root cause.
 
-### Attempt 1: triangular excess-same penalty (reverted)
+### Improvement attempts (none confirmed; code reverted)
 
-`_excess_same_penalty` was changed from linear (a constant 20 per excess fruit) to triangular
-(1 excess = 1x, 2 excess = 3x, ...) to strengthen the pressure to merge.
-Every unit test passed. Paired comparisons over 40 episodes (same seeds, isolated with `git worktree`):
+| Attempt | Content | Result |
+|---|---|---|
+| triangular excess-same | `_excess_same_penalty` from linear (1 excess = 20) to triangular (1 excess = 1x, 2 = 3x…) | results split: +1.9% at n=24 / -3.0% at n=40 |
+| side isolation penalty | a new `_isolation_penalty` detecting moves that block both sides of a partnerless fruit | -9.2% at n=32 (difference 195 against SE~206) |
+| three-ply lookahead | expand the third move only for the top `NEXT_TOP=2` by eval. The type is unknown, so approximated by the mean of one `ideal_x` point over 5 types, `THIRD_PLY_DISCOUNT=0.4`. 313→401ms per move | -0.7% at n=32 |
 
-- seed 20260805 (n=24): old 1924.12 → new 1960.50 (+1.9%)
-- seed 555000 (n=40): old 2143.57 → new 2079.05 (-3.0%)
-
-Results split, and no significant improvement could be confirmed. A size buried under the noise floor of per-game variation
-(SD ~1168). Reverted.
-
-### Attempt 2: side isolation penalty (reverted)
-
-As the diagnosis of the cause of death shows, fixing "the move just before death" is too late, so at an earlier stage
-a check for moves that "block both sides of a fruit with no partner on the board, making it unmergeable"
-was tried as a new `_isolation_penalty`. Unit tests were added and all passed.
-Paired comparison over 32 episodes (seed 900000, isolated with `git worktree`):
-
-- old 2125.88 → new 1930.41 (-9.2%)
-
-This too is a difference (195) within the SE (~206), not significant.
-If anything it may have rejected local blunders and invited other deterioration; reverted.
-
-### Attempt 3: three-ply lookahead (reverted)
-
-The RL side (below) plateaued at the BC stage, so going back to bootstrap,
-the direction of "making the search itself deeper rather than tuning individual penalty weights" was tried.
-The current `choose_x` looks ahead 2 moves, held → next
-(next candidates are only run for the `HELD_TOP` held candidates). A third move
-(of unknown type) was added:
-
-- expand to the third move only the top `NEXT_TOP=2` of the next candidates by eval
-- the third move's type is undetermined (uniform over cherry-orange), so all 5 types are
-  evaluated at a single `ideal_x` point and averaged, a rough expectation approximation
-  (`_expected_third_ply_score`). An exact expectation over all types and candidates would
-  explode in branching
-- `THIRD_PLY_DISCOUNT=0.4` discounts it further than next
-- Implemented with an ON/OFF switch `SUIKA_THIRD_PLY` (the same pattern as `PACKED_RULE`).
-  All unit tests passed; the cost per move went from 313ms → 401ms (+28%),
-  acceptable
-
-Paired comparison over 32 episodes (seed 400000, `SUIKA_THIRD_PLY=0/1` within the same process):
-
-- 2-move lookahead (old) 2010.03 → 3-move lookahead (new) 1995.81 (-0.7%)
-
-Nearly tied, no improvement confirmed. Reverted (as instructed to "remove it from the working tree and record it
-in NOTES", the code was rolled back and only the record kept).
-
-### What we learned
-
-- Per-game variation (SD ~1000-1200) is very large, and detecting a single penalty weight tweak
-  (probably tens of points even if effective) significantly by score
-  likely needs more than tens of episodes. A comparison at 100+ episodes, or
-  a proxy metric with lower variance than score (moves survived, the number of isolated fruits in specific positions and so on) is needed
-- The root cause (low-tier fruits becoming physically unmergeable) itself is a reproducible measured result.
-  But symptomatic fixes (penalty weights, new penalties, 3-move lookahead)
-  could not confirm improvement all three times. Not only individual weight tuning but the direction of a deeper
-  search (attempt 3) was buried under the same noise floor. On the RL side too,
-  [BC does not reach 60-70% match](#investigated-bc-does-not-reach-60-70-match-2026-08-05)
-  showed a plateau, and fine-tuning the bootstrap heuristics or extending shallow lookahead
-  gives no outlook toward reaching around 3500 points. What to try next would be
-  re-verification at a much larger sample size (100+ episodes), or a qualitatively different change such as rebuilding
-  the features and architecture of the learned policy itself
+Symptomatic fixes (weight tuning, new penalties, deeper lookahead) were buried under the noise floor
+all three times. On the RL side too, [BC does not reach 60-70% match](#investigated-bc-does-not-reach-60-70-match-2026-08-05)
+showed a plateau, and fine-tuning bootstrap or extending shallow lookahead gives no
+outlook toward 3500 points. What to try next would need 100+ episodes of re-verification, or
+a qualitatively different change such as rebuilding the features and architecture of the learned policy itself.
 
 ## When to move
 
@@ -209,37 +161,27 @@ Notes:
 - `PACKED_RULE_ENABLED` (environment variable `SUIKA_PACKED`) toggles only the small-side escape penalty after the floor fills ON/OFF (for A/B)
 - Ladder detection (`_ladder_*`) is currently unused by penalties (detection only)
 
-### Exempting held merges (`held_merged`) — score unconfirmed (2026-08-06)
+### Exempting held merges (`held_merged`) — effect unconfirmed (2026-08-06)
 
-A merge knocks the fruits on either side by recoil, and `_size_order_penalty` counted the resulting layout
-as "size-order violations", so there were positions where **merging moves lost to non-merging moves**
-(a grape between two pears with a gap of 40: merge score 6.0 against a penalty of 4.94 on top, reversing it).
-`simulate_drop_held` tracks "whether held's lineage took part in a merge", and moves where it did
-are exempt from `_size_order_penalty`. At the same time the gates of `_bury_block_penalty` /
-`_packed_small_side_penalty` changed from `merges == 0` to `not held_merged`
-(to avoid exemption by unrelated merges. `is_held_drop` is cleared on contact with a different type, so
-it is followed with a separate flag `is_held_lineage`).
+`_size_order_penalty` counted layouts knocked by merge recoil as violations, and there were positions where **merging moves
+lost to non-merging moves** (a grape between two pears with a gap of 40: merge score 6.0 with
+a penalty of 4.94 on top, reversing it). `simulate_drop_held` tracks whether held's lineage took part in a merge, and
+moves where it did are now exempt. See the code comments for the mechanism.
 
-**The effect has not been confirmed.**
+**There is no score support. Whether to keep or remove it is undecided.**
 
-- Paired comparison over 20 episodes (same seeds, natural ends with `max_steps=400`):
-  old 2046.9 → new 1942.9 (**-104.0**, t=-0.94, 95%CI -326 to +118, 7 wins 13 losses).
-  The confidence interval crosses zero, so not significant, but the point estimate is negative. A truncated run at 120 moves on other seeds also gave
-  -40.4 / 7 wins 13 losses, negative both times. **There is no evidence it "got stronger"**
-- The SD of the paired difference is a large 496, and detecting ±100 points needs n≈100
-- The firing volume is small to begin with. Over 1001 measured candidates,
-  `merges>0 and held_merged=False` (where the bury gate change matters) is **0**,
-  and the exempted `_size_order_penalty` is also median 0.19 / max 1.77 (merge scores are 1-65)
+- n=20 paired comparison (same seeds, `max_steps=400`): 2046.9 → 1942.9
+  (**-104.0**, t=-0.94, 95%CI -326 to +118, 7 wins 13 losses). Not significant, but the point estimate is negative.
+  A truncated run on other seeds also gave -40.4 / 7 wins 13 losses, negative both times. **No evidence it got stronger**
+- The firing volume is small too. Over 1001 measured candidates, `merges>0 and held_merged=False` is **0**,
+  and the exempted `_size_order_penalty` is median 0.19 / max 1.77 (merge scores are 1-65)
 
-At the same time, two long-standing inconsistencies were fixed (these are about correctness, unrelated to score):
+Two existing inconsistencies fixed at the same time (these are correct fixes regardless of score):
 
-- `landed_xy` cut on `merges`, so when merely an unrelated merge happened
-  **it returned a geometric estimate instead of the actual resting position**. The receiving
-  `_bury_block_penalty` acted on false coordinates (a measured offset of 149.6).
-  Fixed to cut on `held_merged` (with a regression UT that fails if removed)
-- `drop_scores` excluded `_size_order_penalty` on the after side yet
-  subtracted it included on the before side, subtracting a penalty that did not exist and favoring merge moves
-  (measured 0.303). Both sides were put on the same basis
+- `landed_xy` cut on `merges`, so when merely an unrelated merge happened it returned a geometric estimate instead of
+  the actual resting position, and `_bury_block_penalty` acted on false coordinates (a measured offset of 149.6)
+- `drop_scores` excluded `_size_order_penalty` on the after side while subtracting it included on the before side,
+  subtracting a penalty that did not exist (measured 0.303)
 
 ## Training
 
@@ -281,7 +223,7 @@ far from the condition for starting RL (match 60–70%+).
 packing the board's fruits starting from the biggest types and ruthlessly cutting off the rest.
 Late in the game boards with over 20 fruits are common (23 measured), and the first to be cut are
 scattered low-tier fruits such as cherry/strawberry —
-[Sudden death from scattered low-tier fruits late in the game](#investigated-sudden-death-from-scattered-low-tier-fruits-late-in-the-game-2-improvement-attempts-none-confirmed)
+exactly the culprits of the accident identified in [sudden death from scattered low tiers late](#investigated-sudden-death-from-scattered-low-tier-fruits-late-in-the-game)
 were invisible to the student. Raised to 32 so effectively
 nothing is cut.
 
