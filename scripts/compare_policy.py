@@ -1,8 +1,11 @@
 """bootstrap の 2 変種を対戦させ、差をフェーズ別に出す。
 
 変更を入れたあと「どこが良く/悪くなったか」を局在させるための道具。
-既定は床埋め後の置き分け (SUIKA_PACKED) の ON/OFF 比較。同じシード列を両方に流し、
-平均だけでなくシードごとの勝ち負けと、序盤・終盤に分けた指標を出す。
+同じシード列を A と B の両方に流し、平均だけでなくシードごとの勝ち負けと、
+序盤・終盤に分けた指標を出す。
+
+**比較したい変更は `_apply_variant` に差す。** ここが空のままだと A と B が
+同じ方策になり、全シード tie の警告が出る。
 
 指標ごとに、同一シードで対にした差の t 値と 95% CI を出す（`src/stats.py`）。
 平均の増減だけを見て「良くなった」と読むのを防ぐためで、CI が 0 をまたぐ行は
@@ -41,6 +44,19 @@ EARLY_STEPS = 30
 CASCADE_MERGES = 3
 
 
+def _apply_variant(enabled: bool) -> None:
+    """比較したい変更をここで切り替える (B 側が enabled=True)。
+
+    ワーカープロセスごとに、エピソードを回す前に呼ばれる。恒久化した規則の
+    トグルを残しておくと死んだ分岐が増えるので、実験が終わったら中身は空に
+    戻す。空のままだと A と B が同じ方策になり、全シード tie の警告が出る。
+
+    例:
+        from src import policy
+        policy.SOME_WEIGHT = 12.0 if enabled else 8.0
+    """
+
+
 def _episode(
     seed: int,
     max_steps: int,
@@ -52,11 +68,10 @@ def _episode(
     pool は「エピソード並列の対象が無い (workers<=1)」ときだけ _run から渡される。
     エピソード自体を ProcessPool に分散する側では二重並列を避けるため None のまま。
     """
-    from src import policy
     from src.policy import choose_x
     from src.sim_env import SimEnv
 
-    policy.set_packed_rule_enabled(variant)
+    _apply_variant(variant)
 
     env = SimEnv(seed=seed)
     obs = env.reset()
@@ -203,8 +218,8 @@ def main() -> None:
     seed = args.seed if args.seed is not None else secrets.randbelow(1_000_000)
 
     seeds = [seed + i for i in range(args.episodes)]
-    base = _run(seeds, args.max_steps, False, workers, label="A (OFF)")
-    new = _run(seeds, args.max_steps, True, workers, label="B (ON) ")
+    base = _run(seeds, args.max_steps, False, workers, label="A (base)")
+    new = _run(seeds, args.max_steps, True, workers, label="B (new) ")
 
     # 集計より先に保存する。長い実行の生データを、集計側の些細な不具合で失わない。
     if args.out is not None:
@@ -215,7 +230,7 @@ def main() -> None:
                     "seed": seed,
                     "episodes": args.episodes,
                     "max_steps": args.max_steps,
-                    "variant": "SUIKA_PACKED",
+                    "variant": _apply_variant.__doc__.splitlines()[0],
                     "a": base,
                     "b": new,
                 },
@@ -229,7 +244,7 @@ def main() -> None:
         f"\nepisodes={args.episodes} seed={seed} "
         f"max_steps={args.max_steps} workers={workers}"
     )
-    print("  A = 床埋め後の置き分け OFF (現状)   B = ON")
+    print("  A = _apply_variant(False)   B = _apply_variant(True)")
 
     # 打ち切りは伸びた側の頭を押さえるので、良い変更ほど過小評価される。
     # 「全部打ち切り」だけを警告していると、部分的な打ち切りが無警告で通ってしまう。

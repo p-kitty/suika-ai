@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import itertools
 import math
-import os
 import statistics
 from concurrent.futures import Executor
 
@@ -86,15 +85,6 @@ PACKED_BIG_DRAW_MIN_TYPE = SPAWN_MAX_TYPE - 1
 # 中央値 +4.1 の僅差をひっくり返しつつ、小側で実際に合成できる手 (最大 +159.9)
 # は残す。合成する手には掛けない (merges == 0 のときだけ) ので合成とは争わない。
 PACKED_SMALL_SIDE_WEIGHT = 8.0
-
-# 段階導入の切り替え。0 で床埋め後の置き分けが旧挙動へ戻る (A/B 用)。
-PACKED_RULE_ENABLED = os.environ.get("SUIKA_PACKED", "1") != "0"
-
-
-def set_packed_rule_enabled(enabled: bool) -> None:
-    """床埋め後の置き分けの有効/無効 (A/B 比較・テスト用)。"""
-    global PACKED_RULE_ENABLED
-    PACKED_RULE_ENABLED = enabled
 
 
 def _held_eval_job(
@@ -654,7 +644,7 @@ def _packed_small_side_penalty(
     最大実の内側の縁より小側に落ちたら減点し、大側の肩へ載せる手を選ばせる。
     合成する手には掛けない (呼び元が merges == 0 のときだけ呼ぶ)。
     """
-    if not PACKED_RULE_ENABLED or drop_type < PACKED_BIG_DRAW_MIN_TYPE:
+    if drop_type < PACKED_BIG_DRAW_MIN_TYPE:
         return 0.0
     if not fruits or not _floor_packed(fruits):
         return 0.0
