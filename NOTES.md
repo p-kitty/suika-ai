@@ -30,7 +30,8 @@ Being handled by `_packed_small_side_penalty` (`src/policy.py`). Can be disabled
 
 The "ladder" that fires a corner big fruit in steps (a pear next to the inside of a corner peach, an apple and an orange on the **shoulders** of those two,
 firing with the final orange and cascading 4→5→6→7) is a shape that arises naturally as a result of this placement rule.
-Only detection runs in `_ladder_anchor` / `_ladder_rungs`, not used for move selection (no flag, always computed).
+Only detection is written in `_ladder_anchor` / `_ladder_rungs`, and **it has never been called from the production path**
+(only `tests/test_policy.py` calls it). It is kept as groundwork for using it in move selection.
 
 ### What we know
 
@@ -54,6 +55,15 @@ got buried here. Read this section before reporting numbers.
 - The per-game standard deviation is ~1000-1200, and even in paired comparisons on the same seed the SD of the difference is 78-496.
   Seeing ±100 points as significant needs **n≈100**. Tens of episodes are not enough.
   it is faster to look for a proxy metric with lower variance than score (moves survived, the number of isolated fruits in specific positions and so on)
+- **Do not judge by a rise or fall in the mean alone.** `compare_policy.py` prints, per metric, the paired t value and
+  95% CI (`src/stats.py`). A row whose CI crosses 0 says nothing at that n.
+  When not significant it also shows "the n needed to speak to ±100 points"
+- Add `--out artifacts/xxx.json` to long runs to keep per-seed raw data.
+  It is written before aggregation, so a bug on the aggregation side does not lose hours of work
+- Proxy metrics are chosen with `scripts/analyze_ab.py <dump>`. It ranks metrics by n_detect (the number of episodes
+  needed to move that difference away from 0). It is unit-independent, so score and moves survived can be
+  compared directly. But **picking the metric that looked best in the same dump is selection bias**.
+  Adopt it only after confirming it also ranks high on a second dump taken with a different change and different seeds
 - **Discard the numbers if every episode reaches `max_steps`.** Neither headroom nor death rate is measured.
   Natural ends are 300-400 moves, so `--max-steps` around 400. `compare_policy.py` warns
 - Do not fix seeds (omitting `--seed` makes them random). Reusing fixed seeds makes a chance collapse
@@ -174,9 +184,12 @@ Notes:
   only (no cumulative eval)
 - Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`. `--workers` default = logical cores/2)
 - A/B: `python scripts/compare_policy.py`. Pits two bootstrap variants against each other, reporting not just means but
-  per-seed wins and losses and per-phase metrics (`early_score` / `early_crown` / `dead_early` / `cascades`)
-  are reported. If every seed ties it warns "the change is not firing", and if every episode is truncated at `max_steps`
-  it warns about that too. Omitting `--seed` makes it random (reusing fixed seeds invites misreading)
+  per-seed wins and losses, per-phase metrics (`early_score` / `early_crown` / `dead_early` / `cascades`), and
+  per-metric paired t values and 95% CIs. If every seed ties it warns "the change is not firing",
+  and if every episode is truncated at `max_steps` it warns about that too. Omitting `--seed` makes it random
+  (reusing fixed seeds invites misreading). `--out` saves raw data as JSON
+- Searching for proxy metrics: `python scripts/analyze_ab.py <dump.json>` (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
+- Statistics are in `src/stats.py` (paired t / 95% CI / required n / correlation). scipy is not installed
 - Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=100 is a cap
   not the losing line). best is score → moves → match
 - Teacher collection runs in parallel with `ProcessPool` (default workers=logical cores/2; 8 on a 9700X; `--workers 1` for serial)
