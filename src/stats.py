@@ -111,6 +111,31 @@ def paired_stats(a: list[float], b: list[float]) -> PairedStats:
     )
 
 
+def detect_n(delta: float, sd_diff: float) -> float:
+    """観測された差 delta を 95% CI で 0 から離すのに要るエピソード数。
+
+    指標選びの物差し。単位に依らず「この変化をこの指標で見るなら何局要るか」
+    に揃うので、score と生存手数のような別単位の指標どうしを比較できる。
+    """
+    if delta == 0.0 or delta != delta or sd_diff != sd_diff:
+        return float("nan")
+    if sd_diff == 0.0:
+        return 2.0  # 分散ゼロ。ペアが 2 つあれば足りる。
+    return (Z95 * sd_diff / abs(delta)) ** 2
+
+
+def pairing_gain(sd_diff: float, sd_pooled: float) -> float:
+    """同一シードで対にしたことで差の SE が縮んだ割合。
+
+    独立なシードで A/B を測ると差の SD は個体差の sqrt(2) 倍になる。そこを
+    「ペア化しなかった場合」の基準に置くので、0 は利得なし、負なら A と B が
+    逆相関していて対にすると却って荒れている、という読み方になる。
+    """
+    if sd_pooled != sd_pooled or sd_pooled == 0.0 or sd_diff != sd_diff:
+        return float("nan")
+    return 1.0 - sd_diff / (math.sqrt(2.0) * sd_pooled)
+
+
 def correlation(xs: list[float], ys: list[float]) -> float:
     """NaN を落としたうえでの Pearson 相関。定数列なら NaN。"""
     pairs = [(x, y) for x, y in zip(xs, ys) if x == x and y == y]
