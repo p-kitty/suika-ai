@@ -255,7 +255,7 @@ def _build_space(
         2.0,
     )
     for seg in (floor, left, right):
-        seg.friction = 0.28
+        seg.friction = 1.0
         seg.elasticity = 0.0
         space.add(seg)
 
