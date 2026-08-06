@@ -21,8 +21,8 @@
 
 **Training pipeline**
 - Training episode length: raise `max_steps` and lower `episodes` (fewer, longer games).
-  The default max-steps=100 of `train_sim.py` is **a value that measures as 100% truncated** (natural ends median 210 moves).
-  That means the teacher data only sees the first half of a typical game. Truncation is 0% at 320 or more
+  The default in `train_sim.py` is 300 (measured natural ends are median 210 moves and max 311, so
+  about 2% are truncated. 320 for 0%)
 
 ## In progress: big draws and ladders after the floor fills
 
@@ -215,7 +215,7 @@ Notes:
   `--out` saves raw data as JSON
 - Searching for proxy metrics: `python scripts/analyze_ab.py <dump.json>` (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
 - Statistics are in `src/stats.py` (paired t / 95% CI / required n / correlation). scipy is not installed
-- Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=100 is a cap
+- Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=300 is a cap,
   not the losing line). best is score → moves → match
 - Teacher collection runs in parallel with `ProcessPool` (default workers=logical cores/2; 8 on a 9700X; `--workers 1` for serial)
 - `src/agent.py`: MLP with 32 discrete column bins / hidden 128 (old 20/64 npz files need retraining)
