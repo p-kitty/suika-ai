@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import itertools
 import math
-import os
 import statistics
 from concurrent.futures import Executor
 
@@ -86,15 +85,6 @@ PACKED_BIG_DRAW_MIN_TYPE = SPAWN_MAX_TYPE - 1
 # It flips the narrow median margin of +4.1 while keeping moves that can actually merge on the small side (max +159.9).
 # It is not applied to merging moves (only when merges == 0), so it does not compete with merging.
 PACKED_SMALL_SIDE_WEIGHT = 8.0
-
-# Switch for staged rollout. 0 returns placement after the floor fills to the old behavior (for A/B).
-PACKED_RULE_ENABLED = os.environ.get("SUIKA_PACKED", "1") != "0"
-
-
-def set_packed_rule_enabled(enabled: bool) -> None:
-    """Enable/disable placement after the floor fills (for A/B comparison and tests)."""
-    global PACKED_RULE_ENABLED
-    PACKED_RULE_ENABLED = enabled
 
 
 def _held_eval_job(
@@ -654,7 +644,7 @@ def _packed_small_side_penalty(
     Penalize landing on the small side of the biggest fruit's inner edge, choosing moves that put it on the big side's shoulder.
     Not applied to merging moves (the caller calls it only when merges == 0).
     """
-    if not PACKED_RULE_ENABLED or drop_type < PACKED_BIG_DRAW_MIN_TYPE:
+    if drop_type < PACKED_BIG_DRAW_MIN_TYPE:
         return 0.0
     if not fruits or not _floor_packed(fruits):
         return 0.0

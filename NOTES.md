@@ -20,17 +20,33 @@
 - Friction between fruits seems low: fruits slide in far more than in the real game.
 
 **Training pipeline**
-- Training episode length: raise `max_steps` and lower `episodes` (fewer, longer games). Guide: natural ends around 300-400 moves (measured one game at 311 moves, score 3305, type 10 reached). Truncating at 100-250 moves cannot measure headroom or survival time
+- Training episode length: raise `max_steps` and lower `episodes` (fewer, longer games).
+  The default in `train_sim.py` is 300 (measured natural ends are median 210 moves and max 311, so
+  about 2% are truncated. 320 for 0%)
 
 ## In progress: big draws and ladders after the floor fills
 
 After the floor fills, placing big draws such as orange / dekopon on the small side crushes the fruits below and the board collapses.
-Being handled by `_packed_small_side_penalty` (`src/policy.py`). Can be disabled with `SUIKA_PACKED=0`
-(`set_packed_rule_enabled()`). **Its effectiveness is not yet established** (below).
+Handled by `_packed_small_side_penalty` (`src/policy.py`). **Always on** (the toggle is removed).
+
+### Result at n=100 (2026-08-06): no significant difference
+
+`--episodes 100 --max-steps 400` (0 truncated, 2.6 hours):
+
+- score 2047.0 → 2093.9 (**+46.9**, t=0.85, 95% CI **[-62.3, +156.1]**). **Not significant**
+- seed head-to-head win 52 / loss 38 / tie 10. With 10 ties, there are 90 firing opportunities
+- **By quantile only the bottom rose** (min 1045→1315, bottom-10 mean 1318→1450).
+  The top does not move (top-10 mean 2914→2913, type10 reached 14→17 runs).
+  It is a rule against collapse after the floor fills, so this matches the intent, but **choosing the bottom after the fact
+  and testing it is post-hoc selection**. Next time, fix a threshold such as "number of runs with score<1500" before measuring
+- Making this +46.9 significant needs **n=529 (about 14 hours)**. Not worth it, so without remeasuring it was
+  **made permanent as ON** (positive point estimate, shape matches the intent, fires 90/100). The A/B toggle
+  (`SUIKA_PACKED` / `set_packed_rule_enabled`) is removed
 
 The "ladder" that fires a corner big fruit in steps (a pear next to the inside of a corner peach, an apple and an orange on the **shoulders** of those two,
 firing with the final orange and cascading 4→5→6→7) is a shape that arises naturally as a result of this placement rule.
-Only detection runs in `_ladder_anchor` / `_ladder_rungs`, not used for move selection (no flag, always computed).
+Only detection is written in `_ladder_anchor` / `_ladder_rungs`, and **it has never been called from the production path**
+(only `tests/test_policy.py` calls it). It is kept as groundwork for using it in move selection.
 
 ### What we know
 
@@ -54,8 +70,25 @@ got buried here. Read this section before reporting numbers.
 - The per-game standard deviation is ~1000-1200, and even in paired comparisons on the same seed the SD of the difference is 78-496.
   Seeing ±100 points as significant needs **n≈100**. Tens of episodes are not enough.
   it is faster to look for a proxy metric with lower variance than score (moves survived, the number of isolated fruits in specific positions and so on)
-- **Discard the numbers if every episode reaches `max_steps`.** Neither headroom nor death rate is measured.
-  Natural ends are 300-400 moves, so `--max-steps` around 400. `compare_policy.py` warns
+- **Do not judge by a rise or fall in the mean alone.** `compare_policy.py` prints, per metric, the paired t value and
+  95% CI (`src/stats.py`). A row whose CI crosses 0 says nothing at that n.
+  When not significant it also shows "the n needed to speak to ±100 points"
+- Add `--out artifacts/xxx.json` to long runs to keep per-seed raw data.
+  It is written before aggregation, so a bug on the aggregation side does not lose hours of work
+- Proxy metrics are chosen with `scripts/analyze_ab.py <dump>`. It ranks metrics by n_detect (the number of episodes
+  needed to move that difference away from 0). It is unit-independent, so score and moves survived can be
+  compared directly. But **picking the metric that looked best in the same dump is selection bias**.
+  Adopt it only after confirming it also ranks high on a second dump taken with a different change and different seeds
+- **Discount the numbers when truncation happens.** Truncated games are the ones that went long, so
+  the better the change the more it is underestimated. Natural ends were **measured over 200 runs: mean 213 / median 210 / max 311 moves**
+  (the old "300-400 moves" came from one favorable game and was an overestimate).
+  `--max-steps` **truncates 0% at 320 or more**; the default is 400. At 200 it is 64%,
+  **at 100, 100% are truncated** (the 08-03 accident was this). `compare_policy.py`
+  warns if even one is truncated
+- **Do not stratify by the outcome and compare the same outcome (regression to the mean).** Splitting into top/bottom by A's score
+  and comparing A with B always shows "the top got worse, the bottom improved". Splitting by B's score
+  gives the mirror image. This was nearly stepped on with the n=100 of `SUIKA_PACKED`.
+  To compare distributions, compare quantiles directly
 - Do not fix seeds (omitting `--seed` makes them random). Reusing fixed seeds makes a chance collapse
   easy to misread as "reproduced". Compare changes paired on the same seeds
 - Do not build automation scripts that run `git stash` / `checkout` against the live working tree.
@@ -141,7 +174,7 @@ a qualitatively different change such as rebuilding the features and architectur
 |---|---|---|---|
 | directly above a different type | `_foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
 | blocking a waiting merge by burying | `_bury_block_penalty` | when a bigger fruit of another type blocks, directly above or on the shoulder, a fruit waiting for a same-type pair | 14.0 ×type gap (half on a shoulder) |
-| small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (orange or bigger) escapes to the small side (fires only when it physically cannot go on the small side) | fixed 8.0 (can be disabled with `SUIKA_PACKED=0`) |
+| small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (orange or bigger) escapes to the small side (fires only when it physically cannot go on the small side) | fixed 8.0 |
 
 The 2 below apply **only when held itself did not merge** (`held_merged`, not the merge count
 `merges`, so that an unrelated merge elsewhere on the board does not grant the exemption).
@@ -158,7 +191,8 @@ The 2 below apply **only when held itself did not merge** (`held_merged`, not th
 | bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by 0.15 at dangerous height) | variance×0.08 |
 
 Notes:
-- `PACKED_RULE_ENABLED` (environment variable `SUIKA_PACKED`) toggles only the small-side escape penalty after the floor fills ON/OFF (for A/B)
+- The rules above have no ON/OFF toggles. To A/B, in `compare_policy.py`
+  plug into `_apply_variant` and revert when done (toggles for permanent rules are not kept)
 - Ladder detection (`_ladder_*`) is currently unused by penalties (detection only)
 
 ## Training
@@ -174,10 +208,14 @@ Notes:
   only (no cumulative eval)
 - Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`. `--workers` default = logical cores/2)
 - A/B: `python scripts/compare_policy.py`. Pits two bootstrap variants against each other, reporting not just means but
-  per-seed wins and losses and per-phase metrics (`early_score` / `early_crown` / `dead_early` / `cascades`)
-  are reported. If every seed ties it warns "the change is not firing", and if every episode is truncated at `max_steps`
-  it warns about that too. Omitting `--seed` makes it random (reusing fixed seeds invites misreading)
-- Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=100 is a cap
+  per-seed wins and losses, per-phase metrics (`early_score` / `early_crown` / `dead_early` / `cascades`), and
+  per-metric paired t values and 95% CIs. **Plug the change you want to compare into `_apply_variant`**
+  (empty makes A and B identical, and a warning that every seed tied appears). A warning appears if even one `max_steps`
+  A warning appears on truncation. Omitting `--seed` makes it random (reusing fixed seeds invites misreading).
+  `--out` saves raw data as JSON
+- Searching for proxy metrics: `python scripts/analyze_ab.py <dump.json>` (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
+- Statistics are in `src/stats.py` (paired t / 95% CI / required n / correlation). scipy is not installed
+- Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=300 is a cap,
   not the losing line). best is score → moves → match
 - Teacher collection runs in parallel with `ProcessPool` (default workers=logical cores/2; 8 on a 9700X; `--workers 1` for serial)
 - `src/agent.py`: MLP with 32 discrete column bins / hidden 128 (old 20/64 npz files need retraining)
