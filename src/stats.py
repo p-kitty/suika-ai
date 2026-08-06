@@ -111,6 +111,31 @@ def paired_stats(a: list[float], b: list[float]) -> PairedStats:
     )
 
 
+def detect_n(delta: float, sd_diff: float) -> float:
+    """Episodes needed to move an observed difference delta away from 0 at the 95% CI.
+
+    A yardstick for choosing metrics. It lines up as 'how many games to see this change with this metric' regardless of units,
+    so metrics in different units such as score and moves survived can be compared.
+    """
+    if delta == 0.0 or delta != delta or sd_diff != sd_diff:
+        return float("nan")
+    if sd_diff == 0.0:
+        return 2.0  # zero variance. Two pairs are enough.
+    return (Z95 * sd_diff / abs(delta)) ** 2
+
+
+def pairing_gain(sd_diff: float, sd_pooled: float) -> float:
+    """The fraction by which pairing on the same seeds shrank the SE of the difference.
+
+    Measuring an A/B on independent seeds makes the SD of the difference sqrt(2) times the per-game variation. That is
+    taken as the 'unpaired' reference, so 0 means no gain, and negative means A and B are
+    anti-correlated and pairing actually makes it noisier.
+    """
+    if sd_pooled != sd_pooled or sd_pooled == 0.0 or sd_diff != sd_diff:
+        return float("nan")
+    return 1.0 - sd_diff / (math.sqrt(2.0) * sd_pooled)
+
+
 def correlation(xs: list[float], ys: list[float]) -> float:
     """Pearson correlation after dropping NaN. NaN for a constant series."""
     pairs = [(x, y) for x, y in zip(xs, ys) if x == x and y == y]
