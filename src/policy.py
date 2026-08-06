@@ -281,16 +281,10 @@ def _evaluate_drop(
 
     score = merge_score(merge_types)
     penalties = _board_penalties(after, sign=sign)
-    # 条件を満たす谷着地だけ育成枠。wrong_side で潰さない。
-    growing = _valley_grow_ok(before, land_x, drop_type, next_type)
     # FOREIGN_AIM は merges ではなく「真下の実が異種か」で見る。
     # 同種が真下なら合体待ちで OK。異種真上から転がって床で合体しても減点。
     penalties += _foreign_aim_penalty(before, x, drop_type, held_r)
     if merges == 0:
-        if not growing:
-            penalties += _wrong_side_roll_penalty(
-                before, land_x, land_y, drop_type, held_r, sign
-            )
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
         penalties += _packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
     return after, score, penalties, merges
@@ -616,33 +610,6 @@ def _foreign_aim_penalty(
     if abs(x - under.x) > under.radius * FOREIGN_AIM_CENTER_FRAC:
         return 0.0
     return FOREIGN_AIM_PENALTY
-
-
-def _wrong_side_roll_penalty(
-    fruits: list[Fruit] | tuple[Fruit, ...],
-    land_x: float,
-    land_y: float,
-    drop_type: int,
-    held_r: float,
-    sign: int,
-) -> float:
-    """転がって大きい実の大側床に落ちたときの減点。"""
-    wrong_side_base = 8.0
-    wrong_side_type_weight = 2.0
-    floor = NORMALIZED_HEIGHT - held_r
-    if land_y < floor - 4.0:
-        return 0.0
-
-    penalty = 0.0
-    for other in fruits:
-        if other.type <= drop_type:
-            continue
-        if (land_x - other.x) * sign >= 0:
-            continue
-        if abs(land_x - other.x) > other.radius + held_r + MERGE_SLACK * 2:
-            continue
-        penalty += wrong_side_base + wrong_side_type_weight * (other.type - drop_type)
-    return penalty
 
 
 def _packed_small_side_penalty(
