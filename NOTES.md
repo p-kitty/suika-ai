@@ -27,8 +27,7 @@
 ## In progress: big draws and ladders after the floor fills
 
 After the floor fills, placing big draws such as orange / dekopon on the small side crushes the fruits below and the board collapses.
-Being handled by `_packed_small_side_penalty` (`src/policy.py`). Can be disabled with `SUIKA_PACKED=0`
-(`set_packed_rule_enabled()`).
+Handled by `_packed_small_side_penalty` (`src/policy.py`). **Always on** (the toggle is removed).
 
 ### Result at n=100 (2026-08-06): no significant difference
 
@@ -40,8 +39,9 @@ Being handled by `_packed_small_side_penalty` (`src/policy.py`). Can be disabled
   The top does not move (top-10 mean 2914→2913, type10 reached 14→17 runs).
   It is a rule against collapse after the floor fills, so this matches the intent, but **choosing the bottom after the fact
   and testing it is post-hoc selection**. Next time, fix a threshold such as "number of runs with score<1500" before measuring
-- Making this +46.9 significant needs **n=529 (about 14 hours)**. A cost-benefit decision is needed.
-  For now it is left ON (positive point estimate, shape matches the intent, fires 90/100)
+- Making this +46.9 significant needs **n=529 (about 14 hours)**. Not worth it, so without remeasuring it was
+  **made permanent as ON** (positive point estimate, shape matches the intent, fires 90/100). The A/B toggle
+  (`SUIKA_PACKED` / `set_packed_rule_enabled`) is removed
 
 The "ladder" that fires a corner big fruit in steps (a pear next to the inside of a corner peach, an apple and an orange on the **shoulders** of those two,
 firing with the final orange and cascading 4→5→6→7) is a shape that arises naturally as a result of this placement rule.
@@ -174,7 +174,7 @@ a qualitatively different change such as rebuilding the features and architectur
 |---|---|---|---|
 | directly above a different type | `_foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
 | blocking a waiting merge by burying | `_bury_block_penalty` | when a bigger fruit of another type blocks, directly above or on the shoulder, a fruit waiting for a same-type pair | 14.0 ×type gap (half on a shoulder) |
-| small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (orange or bigger) escapes to the small side (fires only when it physically cannot go on the small side) | fixed 8.0 (can be disabled with `SUIKA_PACKED=0`) |
+| small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (orange or bigger) escapes to the small side (fires only when it physically cannot go on the small side) | fixed 8.0 |
 
 The 2 below apply **only when held itself did not merge** (`held_merged`, not the merge count
 `merges`, so that an unrelated merge elsewhere on the board does not grant the exemption).
@@ -191,7 +191,8 @@ The 2 below apply **only when held itself did not merge** (`held_merged`, not th
 | bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by 0.15 at dangerous height) | variance×0.08 |
 
 Notes:
-- `PACKED_RULE_ENABLED` (environment variable `SUIKA_PACKED`) toggles only the small-side escape penalty after the floor fills ON/OFF (for A/B)
+- The rules above have no ON/OFF toggles. To A/B, in `compare_policy.py`
+  plug into `_apply_variant` and revert when done (toggles for permanent rules are not kept)
 - Ladder detection (`_ladder_*`) is currently unused by penalties (detection only)
 
 ## Training
@@ -208,9 +209,10 @@ Notes:
 - Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`. `--workers` default = logical cores/2)
 - A/B: `python scripts/compare_policy.py`. Pits two bootstrap variants against each other, reporting not just means but
   per-seed wins and losses, per-phase metrics (`early_score` / `early_crown` / `dead_early` / `cascades`), and
-  per-metric paired t values and 95% CIs. If every seed ties it warns "the change is not firing",
-  and if every episode is truncated at `max_steps` it warns about that too. Omitting `--seed` makes it random
-  (reusing fixed seeds invites misreading). `--out` saves raw data as JSON
+  per-metric paired t values and 95% CIs. **Plug the change you want to compare into `_apply_variant`**
+  (empty makes A and B identical, and a warning that every seed tied appears). A warning appears if even one `max_steps`
+  A warning appears on truncation. Omitting `--seed` makes it random (reusing fixed seeds invites misreading).
+  `--out` saves raw data as JSON
 - Searching for proxy metrics: `python scripts/analyze_ab.py <dump.json>` (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
 - Statistics are in `src/stats.py` (paired t / 95% CI / required n / correlation). scipy is not installed
 - Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=100 is a cap
