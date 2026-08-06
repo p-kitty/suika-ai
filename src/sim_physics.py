@@ -38,8 +38,14 @@ class _BodyFruit:
     fruit_type: int
     # shape.radius does not change after creation. Cached to avoid calls into C on the pymunk side.
     radius: float
-    # The fruit dropped this drop. Used for the direction of the held merge pull.
+    # The fruit dropped this drop. Used for the sideways pull of held merges. Cleared on contact with a different type
+    # (_on_fruit_begin). Its only purpose is the sideways pull from merge recoil, so this is not changed.
     is_held_drop: bool = False
+    # Whether it descends from held. Unlike is_held_drop it is not cleared on contact with a different type
+    # (only for the policy's held_merged check. Even if held grazes a different type and then merges with the same type,
+    # we want to catch it as 'held's own merge', but not propagate it to unrelated merges elsewhere on the board,
+    # so it is only handed over to the new fruit each time it disappears in a merge).
+    is_held_lineage: bool = False
 
 
 class _QuietGate:
@@ -107,7 +113,7 @@ def iter_simulate_drop(
     yield _export_fruits(bodies, clamp=False), merges, list(merge_types)
 
     for _ in range(MAX_STEPS):
-        stepped = _advance(space, bodies, merge_types)
+        stepped, _held_hit = _advance(space, bodies, merge_types)
         merges += stepped
         if stepped:
             quiet.reset()
@@ -125,50 +131,72 @@ def simulate_drop(
 
     The policy hot path. Only exports the final board (does not use the animation iter).
     """
+    after, merges, merge_types, _held_merged = simulate_drop_held(fruits, fruit_type, x)
+    return after, merges, merge_types
+
+
+def simulate_drop_held(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    fruit_type: int,
+    x: float,
+) -> tuple[list[Fruit], int, list[int], bool]:
+    """simulate_drop plus whether held (the fruit dropped this time) took part in a merge.
+
+    Used to tell merges involving held's lineage (`is_held_lineage`) from merges that happened by chance
+    elsewhere on the board unrelated to held (looking only at `merges >= 1`
+    mixes the two). Even if held grazes a different type and then merges with the same type
+    (`is_held_drop` is cleared on contact with a different type), the lineage can be tracked because it is handed over to the new fruit
+    each time it disappears in a merge. It does not propagate to unrelated merges.
+    """
     space, bodies = _build_space(fruits)
     r = fruit_radius(fruit_type)
     x = max(r, min(NORMALIZED_WIDTH - r, x))
     # Drop from slightly above the top of the board.
     dropped = _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
     dropped.is_held_drop = True
+    dropped.is_held_lineage = True
 
     merges = 0
     merge_types: list[int] = []
+    held_merged = False
     quiet = _QuietGate()
 
     for _ in range(MAX_STEPS):
-        stepped = _advance(space, bodies, merge_types)
+        stepped, held_hit = _advance(space, bodies, merge_types)
         merges += stepped
+        held_merged = held_merged or held_hit
         if stepped:
             quiet.reset()
         if quiet.update(bodies):
             break
 
-    return _export_fruits(bodies), merges, merge_types
+    return _export_fruits(bodies), merges, merge_types, held_merged
 
 
 def _advance(
     space: pymunk.Space,
     bodies: list[_BodyFruit],
     merge_types: list[int],
-) -> int:
+) -> tuple[int, bool]:
     """Physics for one displayed frame (= DT). Advanced in SUBSTEPS pieces.
 
     A coarse step lets a fast fall pass through a 1px graze with impulse 0.
-    Returns the merge count within that frame.
+    Returns (merge count, whether a merge involving held occurred) within that frame.
     """
     merges = 0
+    held_merged = False
     sub_dt = DT / SUBSTEPS
     for _ in range(SUBSTEPS):
         # Merge touching same types (at most 1 pair per substep).
         paired = _find_merge_pair(bodies)
         if paired is not None:
-            _merge_pair(space, bodies, paired[0], paired[1], merge_types)
+            if _merge_pair(space, bodies, paired[0], paired[1], merge_types):
+                held_merged = True
             merges += 1
             space.step(sub_dt)
         else:
             space.step(sub_dt)
-    return merges
+    return merges, held_merged
 
 
 def landed_xy(
@@ -177,16 +205,19 @@ def landed_xy(
     fruit_type: int,
     x: float,
     held_r: float,
-    merges: int,
+    held_merged: bool,
 ) -> tuple[float, float]:
     """Get the approximate landing (x, y) after rolling from a simulate_drop result.
 
-    It may disappear in a merge, so while leaning on the initial geometric estimate,
-    a same type remaining after the simulation is used if present.
+    Returns the initial geometric estimate only when held itself merged and disappeared. If it survived,
+    its actual resting position is picked from the same type remaining on the board. If only an unrelated merge
+    happened elsewhere on the board, held remains, so its actual position is returned
+    (cutting on the merge count `merges` would return a fabricated estimate in this case,
+    the penalties receiving it (`_bury_block_penalty` and so on) act on false coordinates).
     """
     x0 = max(held_r, min(NORMALIZED_WIDTH - held_r, x))
     est_y = land_y(fruits_before, x0, held_r)
-    if merges == 0:
+    if not held_merged:
         cands = [f for f in after if f.type == fruit_type]
         if cands:
             best = min(cands, key=lambda f: abs(f.x - x0) + abs(f.y - est_y))
@@ -202,8 +233,8 @@ def preview_land(
 ) -> tuple[float, float]:
     """Landing (x, y) for drop column x. Runs simulate_drop once internally."""
     x0 = max(held_r, min(NORMALIZED_WIDTH - held_r, x))
-    after, merges, _types = simulate_drop(fruits, fruit_type, x0)
-    return landed_xy(fruits, after, fruit_type, x0, held_r, merges)
+    after, _merges, _types, held_merged = simulate_drop_held(fruits, fruit_type, x0)
+    return landed_xy(fruits, after, fruit_type, x0, held_r, held_merged)
 
 
 def _on_fruit_begin(
@@ -319,8 +350,13 @@ def _merge_pair(
     a: _BodyFruit,
     b: _BodyFruit,
     merge_types: list[int],
-) -> None:
-    """Merge two of the same type. The new fruit appears at the midpoint of the two centers (same as the real game)."""
+) -> bool:
+    """Merge two of the same type. The new fruit appears at the midpoint of the two centers (same as the real game).
+
+    Returns whether held's lineage (`is_held_lineage`) was involved. It is handed over from a/b, which disappear in the merge,
+    to the new fruit, so it is caught even if held grazes a different type before merging
+    (`is_held_drop` for the sideways pull is cleared on contact with a different type, so it is handled separately).
+    """
     # Sideways pull of held merges. Stronger the larger the movement (a narrow side graze).
     side_min = 0.08
     travel_gain = 14.0
@@ -345,13 +381,15 @@ def _merge_pair(
     py = ma * va.y + mb * vb.y
     ang = ma * a.body.angular_velocity + mb * b.body.angular_velocity
     held = _held_in_merge(a, b)
+    held_lineage = a.is_held_lineage or b.is_held_lineage
 
     _remove_fruit(space, bodies, a)
     _remove_fruit(space, bodies, b)
     if new_type > MAX_FRUIT_TYPE:
-        return
+        return held_lineage
 
     new = _add_fruit(space, bodies, new_type, mid_x, mid_y)
+    new.is_held_lineage = held_lineage
     vx = px / parent_m
     vy = py / parent_m
     aw = ang / parent_m
@@ -372,6 +410,7 @@ def _merge_pair(
 
     new.body.velocity = (vx, vy)
     new.body.angular_velocity = aw
+    return held_lineage
 
 
 def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] | None:

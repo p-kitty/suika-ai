@@ -1,15 +1,19 @@
 """Smoke tests for the pymunk drop physics."""
 
+import math
+
 from src.sim_physics import (
     _add_fruit,
     _build_space,
     _merge_pair,
     land_y,
+    landed_xy,
     preview_land,
     simulate_drop,
+    simulate_drop_held,
 )
 from src.vision.classify import fruit_radius
-from src.vision.normalized import NORMALIZED_HEIGHT
+from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
 
 
@@ -360,3 +364,76 @@ def test_strawberry_at_left_wall_keeps_size_order_with_cherry_and_grape() -> Non
     # The cherry has not been knocked away to near the other side of the board.
     moved_cherry = next(f for f in after if f.type == 0)
     assert abs(moved_cherry.x - cherry.x) < 40.0
+
+
+def test_simulate_drop_held_true_when_dropped_fruit_merges() -> None:
+    r = fruit_radius(0)
+    a = Fruit(type=0, x=200, y=NORMALIZED_HEIGHT - r, radius=r, confidence=90)
+    _after, merges, _types, held_merged = simulate_drop_held((a,), 0, a.x)
+    assert merges >= 1
+    assert held_merged
+
+
+def test_simulate_drop_held_true_after_glancing_off_foreign_fruit() -> None:
+    # Even if held grazes a different type (pear) and then merges with the same type (grape),
+    # is_held_drop is cleared on the different-type contact but is_held_lineage survives and catches it.
+    pear_r = fruit_radius(6)
+    grape_r = fruit_radius(2)
+    left_pear = Fruit(type=6, x=160, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
+    gy = NORMALIZED_HEIGHT - grape_r
+    dy = gy - left_pear.y
+    gx = left_pear.x + math.sqrt((pear_r + grape_r) ** 2 - dy * dy)
+    existing_grape = Fruit(type=2, x=gx, y=gy, radius=grape_r, confidence=90)
+
+    _after, merges, _types, held_merged = simulate_drop_held(
+        (left_pear, existing_grape), 2, existing_grape.x
+    )
+    assert merges >= 1
+    assert held_merged
+
+
+def test_simulate_drop_held_false_for_unrelated_merge() -> None:
+    # Even if an existing pair unrelated to held merges (away from where held landed),
+    # held_merged stays False (it does not pick up unrelated merges).
+    r = fruit_radius(0)
+    a = Fruit(type=0, x=40, y=NORMALIZED_HEIGHT - r, radius=r, confidence=90)
+    b = Fruit(type=0, x=40 + r * 1.9, y=NORMALIZED_HEIGHT - r, radius=r, confidence=90)
+    held_r = fruit_radius(4)
+    far_x = NORMALIZED_WIDTH - held_r - 4
+    _after, merges, _types, held_merged = simulate_drop_held((a, b), 4, far_x)
+    assert merges >= 1
+    assert not held_merged
+
+
+def test_landed_xy_uses_real_position_when_only_unrelated_pair_merged() -> None:
+    # Even if an unrelated pair merges, if held itself survives its actual resting position is returned.
+    # Back when it was cut on merges, a geometric estimate was returned here, and the penalties receiving it
+    # (_bury_block_penalty and so on) acted on false coordinates.
+    cherry_r = fruit_radius(0)
+    melon_r = fruit_radius(9)
+    orange_r = fruit_radius(4)
+
+    a = Fruit(type=0, x=30, y=NORMALIZED_HEIGHT - cherry_r, radius=cherry_r, confidence=90)
+    b = Fruit(
+        type=0,
+        x=30 + cherry_r * 1.9,
+        y=NORMALIZED_HEIGHT - cherry_r,
+        radius=cherry_r,
+        confidence=90,
+    )
+    # A partner that held hits on the shoulder and rolls far.
+    melon = Fruit(type=9, x=300, y=NORMALIZED_HEIGHT - melon_r, radius=melon_r, confidence=90)
+    fruits = (a, b, melon)
+    drop_x = melon.x - melon_r * 0.75
+
+    after, merges, _types, held_merged = simulate_drop_held(fruits, 4, drop_x)
+    assert merges >= 1
+    assert not held_merged
+
+    land_x, land_y_ = landed_xy(fruits, after, 4, drop_x, orange_r, held_merged)
+    orange = next(f for f in after if f.type == 4)
+    assert abs(land_x - orange.x) < 1e-6
+    assert abs(land_y_ - orange.y) < 1e-6
+    # Differs a lot from the geometric estimate (the value the old gate returned).
+    est_y = land_y(fruits, drop_x, orange_r)
+    assert math.hypot(land_x - drop_x, land_y_ - est_y) > 50.0

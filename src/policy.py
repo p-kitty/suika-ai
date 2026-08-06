@@ -18,7 +18,7 @@ from concurrent.futures import Executor
 from .observe import Observation, clamp_drop_x
 from .reward import merge_score
 from .sim_physics import landed_xy
-from .sim_physics import simulate_drop
+from .sim_physics import simulate_drop_held
 from .vision.classify import fruit_radius
 from .vision.colors import MAX_FRUIT_TYPE, SPAWN_MAX_TYPE
 from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
@@ -202,14 +202,19 @@ def drop_scores(
     """
     held_r = fruit_radius(drop_type)
     before = list(fruits)
-    after, score, penalties, merges = _evaluate_drop(
+    after, score, penalties, merges, held_merged = _evaluate_drop(
         before,
         drop_type,
         clamp_drop_x(x, drop_type),
         held_r,
         next_type=next_type,
     )
-    penalties -= _board_penalties(before, sign=_order_sign(before))
+    # Subtract the pre-drop part on the same basis as the post-drop part. Excluding size_order on the after side
+    # while subtracting it included on the before side subtracts a penalty that does not exist, and merge moves
+    # become unfairly favored (a measured offset of 0.303).
+    penalties -= _board_penalties(
+        before, sign=_order_sign(before), exempt_size_order=held_merged
+    )
     return score, penalties, score - penalties, after, merges
 
 
@@ -217,7 +222,7 @@ def _held_eval(obs: Observation, x: float, held_r: float) -> tuple[list[Fruit], 
     """(board, score - penalties) after dropping held at x. Does not look at next."""
     assert obs.held_type is not None
     before = list(obs.fruits)
-    after, score, penalties, _merges = _evaluate_drop(
+    after, score, penalties, _merges, _held_merged = _evaluate_drop(
         before, obs.held_type, x, held_r, next_type=obs.next_type
     )
     return after, score - penalties
@@ -234,7 +239,9 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
 def _next_eval_job(fruits: list[Fruit], next_type: int, next_r: float, nx: float) -> float:
     """eval for one next candidate. The unit sent to the pool."""
     # The next after that is unknown. Only same-type fruit in a valley counts for the growing exemption.
-    _, score, penalties, _merges = _evaluate_drop(fruits, next_type, nx, next_r)
+    _, score, penalties, _merges, _held_merged = _evaluate_drop(
+        fruits, next_type, nx, next_r
+    )
     return score - penalties
 
 
@@ -272,26 +279,36 @@ def _evaluate_drop(
     held_r: float,
     *,
     next_type: int | None = None,
-) -> tuple[list[Fruit], float, float, int]:
-    """Board, real-game score, penalties and merge count after one drop."""
+) -> tuple[list[Fruit], float, float, int, bool]:
+    """Board, real-game score, penalties, merge count and whether held merged after one drop."""
     before = list(fruits)
     sign = _order_sign(before)
-    after, merges, merge_types = simulate_drop(before, drop_type, x)
-    land_x, land_y = landed_xy(before, after, drop_type, x, held_r, merges)
+    after, merges, merge_types, held_merged = simulate_drop_held(before, drop_type, x)
+    land_x, land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
 
     score = merge_score(merge_types)
-    penalties = _board_penalties(after, sign=sign)
+    # When held (this move) merged, size-order and burying penalties are not applied to unrelated fruits
+    # knocked by its recoil. Looking only at `merges >= 1` would also exempt merges that happened by chance elsewhere
+    # on the board unrelated to held,
+    # so judge by whether held itself took part in a merge (`held_merged`).
+    penalties = _board_penalties(after, sign=sign, exempt_size_order=held_merged)
     # FOREIGN_AIM looks at 'is the fruit directly below a different type', not merges.
     # A same type directly below is OK (waiting to merge). Rolling off a different type and merging on the floor is still penalized.
     penalties += _foreign_aim_penalty(before, x, drop_type, held_r)
-    if merges == 0:
+    if not held_merged:
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
         penalties += _packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
-    return after, score, penalties, merges
+    return after, score, penalties, merges, held_merged
 
 
-def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
-    """Board penalties after the drop (danger, burying, excess same type, size order, pushing big, bumpiness)."""
+def _board_penalties(
+    fruits: list[Fruit], *, sign: int = 1, exempt_size_order: bool = False
+) -> float:
+    """Board penalties after the drop (danger, burying, excess same type, size order, pushing big, bumpiness).
+
+    exempt_size_order: True when held merged this move. Unrelated fruits knocked by the merge recoil
+    unrelated fruits knocked away are not penalized as size-order violations (see `_evaluate_drop`).
+    """
     # Converted from the old basis of 90.0 by the amount the board moved to the inside-of-the-wall basis.
     danger_y = 70.9
     danger_crown_weight = 0.5
@@ -306,7 +323,8 @@ def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
 
     penalty += bury_weight * _bury_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
-    penalty += _size_order_penalty(fruits, sign)
+    if not exempt_size_order:
+        penalty += _size_order_penalty(fruits, sign)
     penalty += _big_layout_penalty(fruits, sign)
     variance = _height_variance(fruits)
     if crown < danger_y:
@@ -426,10 +444,10 @@ def _small_side_room_ok(
     if widest < held_r * 2.0:
         return False
     x = clamp_drop_x(center, drop_type)
-    after, merges, _merge_types = simulate_drop(fruits, drop_type, x)
+    after, merges, _merge_types, held_merged = simulate_drop_held(fruits, drop_type, x)
     if merges > 0:
         return True
-    land_x, land_y = landed_xy(fruits, after, drop_type, x, held_r, merges)
+    land_x, land_y = landed_xy(fruits, after, drop_type, x, held_r, held_merged)
     floor_y = NORMALIZED_HEIGHT - held_r
     return land_y >= floor_y - 4.0 and lo - MERGE_SLACK <= land_x <= hi + MERGE_SLACK
 

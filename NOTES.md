@@ -191,6 +191,9 @@ in NOTES", the code was rolled back and only the record kept).
 | blocking a waiting merge by burying | `_bury_block_penalty` | when a bigger fruit of another type blocks, directly above or on the shoulder, a fruit waiting for a same-type pair | 14.0 ×type gap (half on a shoulder) |
 | small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (orange or bigger) escapes to the small side (fires only when it physically cannot go on the small side) | fixed 8.0 (can be disabled with `SUIKA_PACKED=0`) |
 
+The 2 below apply **only when held itself did not merge** (`held_merged`, not the merge count
+`merges`, so that an unrelated merge elsewhere on the board does not grant the exemption).
+
 **Board-wide penalties (`_board_penalties`, on the post-drop board every time)**
 
 | Rule | Function | Content | Weight |
@@ -198,13 +201,45 @@ in NOTES", the code was rolled back and only the record kept).
 | dangerous height | inline | when the topmost crown is above danger_y(70.9) | (danger_y − crown) × 0.5 |
 | burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35) | bury_weight 20.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
-| size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (fruits being grown in a valley are exempt) | pair difference×1.5 + ideal_x deviation×0.004 |
+| size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (fruits being grown in a valley are exempt). **Exempt on moves where held merged** (so unrelated fruits knocked by merge recoil are not counted as violations) | pair difference×1.5 + ideal_x deviation×0.004 |
 | big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) gap×0.025×size factor |
 | bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by 0.15 at dangerous height) | variance×0.08 |
 
 Notes:
 - `PACKED_RULE_ENABLED` (environment variable `SUIKA_PACKED`) toggles only the small-side escape penalty after the floor fills ON/OFF (for A/B)
 - Ladder detection (`_ladder_*`) is currently unused by penalties (detection only)
+
+### Exempting held merges (`held_merged`) — score unconfirmed (2026-08-06)
+
+A merge knocks the fruits on either side by recoil, and `_size_order_penalty` counted the resulting layout
+as "size-order violations", so there were positions where **merging moves lost to non-merging moves**
+(a grape between two pears with a gap of 40: merge score 6.0 against a penalty of 4.94 on top, reversing it).
+`simulate_drop_held` tracks "whether held's lineage took part in a merge", and moves where it did
+are exempt from `_size_order_penalty`. At the same time the gates of `_bury_block_penalty` /
+`_packed_small_side_penalty` changed from `merges == 0` to `not held_merged`
+(to avoid exemption by unrelated merges. `is_held_drop` is cleared on contact with a different type, so
+it is followed with a separate flag `is_held_lineage`).
+
+**The effect has not been confirmed.**
+
+- Paired comparison over 20 episodes (same seeds, natural ends with `max_steps=400`):
+  old 2046.9 → new 1942.9 (**-104.0**, t=-0.94, 95%CI -326 to +118, 7 wins 13 losses).
+  The confidence interval crosses zero, so not significant, but the point estimate is negative. A truncated run at 120 moves on other seeds also gave
+  -40.4 / 7 wins 13 losses, negative both times. **There is no evidence it "got stronger"**
+- The SD of the paired difference is a large 496, and detecting ±100 points needs n≈100
+- The firing volume is small to begin with. Over 1001 measured candidates,
+  `merges>0 and held_merged=False` (where the bury gate change matters) is **0**,
+  and the exempted `_size_order_penalty` is also median 0.19 / max 1.77 (merge scores are 1-65)
+
+At the same time, two long-standing inconsistencies were fixed (these are about correctness, unrelated to score):
+
+- `landed_xy` cut on `merges`, so when merely an unrelated merge happened
+  **it returned a geometric estimate instead of the actual resting position**. The receiving
+  `_bury_block_penalty` acted on false coordinates (a measured offset of 149.6).
+  Fixed to cut on `held_merged` (with a regression UT that fails if removed)
+- `drop_scores` excluded `_size_order_penalty` on the after side yet
+  subtracted it included on the before side, subtracting a penalty that did not exist and favoring merge moves
+  (measured 0.303). Both sides were put on the same basis
 
 ## Training
 
