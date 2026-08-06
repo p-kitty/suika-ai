@@ -38,8 +38,14 @@ class _BodyFruit:
     fruit_type: int
     # shape.radius は生成後に変わらない。pymunk 側の C 呼び出しを避けるためキャッシュ。
     radius: float
-    # このドロップで投下した実。held 合体のひっぱ向きに使う。
+    # このドロップで投下した実。held 合体のひっぱ向きに使う。異種接触で消える
+    # (_on_fruit_begin)。合体の反動での横ひっぱだけが目的なので、これは変えない。
     is_held_drop: bool = False
+    # held に由来する系譜か。is_held_drop と違い異種接触では消えない
+    # (方策の held_merged 判定専用。held が異種をかすってから同種に合体しても
+    # 「held 自身の合体」として拾いたいが、盤の別の場所の無関係な合体には
+    # 伝播させたくないので、合体で消えるたび新しい実へ引き継ぐだけにする)。
+    is_held_lineage: bool = False
 
 
 class _QuietGate:
@@ -107,7 +113,7 @@ def iter_simulate_drop(
     yield _export_fruits(bodies, clamp=False), merges, list(merge_types)
 
     for _ in range(MAX_STEPS):
-        stepped = _advance(space, bodies, merge_types)
+        stepped, _held_hit = _advance(space, bodies, merge_types)
         merges += stepped
         if stepped:
             quiet.reset()
@@ -125,50 +131,72 @@ def simulate_drop(
 
     方策ホットパス。最終盤面だけ export する (アニメ用 iter は使わない)。
     """
+    after, merges, merge_types, _held_merged = simulate_drop_held(fruits, fruit_type, x)
+    return after, merges, merge_types
+
+
+def simulate_drop_held(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    fruit_type: int,
+    x: float,
+) -> tuple[list[Fruit], int, list[int], bool]:
+    """simulate_drop に、held (今回落とした実自身) が合体に絡んだかを足したもの。
+
+    held の系譜 (`is_held_lineage`) が関わる合体と、held とは無関係に盤の
+    別の場所でたまたま起きた合体を区別するのに使う (`merges >= 1` だけで
+    見ると両者が混ざる)。held が異種をかすってから同種に合体しても
+    (`is_held_drop` は異種接触で消える) 系譜は追跡できるよう、合体で消える
+    たび新しい実へ引き継ぐ。無関係な合体には伝播しない。
+    """
     space, bodies = _build_space(fruits)
     r = fruit_radius(fruit_type)
     x = max(r, min(NORMALIZED_WIDTH - r, x))
     # 盤上端より少し上から落とす。
     dropped = _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
     dropped.is_held_drop = True
+    dropped.is_held_lineage = True
 
     merges = 0
     merge_types: list[int] = []
+    held_merged = False
     quiet = _QuietGate()
 
     for _ in range(MAX_STEPS):
-        stepped = _advance(space, bodies, merge_types)
+        stepped, held_hit = _advance(space, bodies, merge_types)
         merges += stepped
+        held_merged = held_merged or held_hit
         if stepped:
             quiet.reset()
         if quiet.update(bodies):
             break
 
-    return _export_fruits(bodies), merges, merge_types
+    return _export_fruits(bodies), merges, merge_types, held_merged
 
 
 def _advance(
     space: pymunk.Space,
     bodies: list[_BodyFruit],
     merge_types: list[int],
-) -> int:
+) -> tuple[int, bool]:
     """表示 1 フレーム (= DT) 分の物理。SUBSTEPS に分割して進める。
 
     粗い step だと高速落下が 1px かすりを貫通して impulse 0 になる。
-    戻り値はそのフレーム内の合成回数。
+    戻り値はそのフレーム内の (合成回数, held が絡む合体があったか)。
     """
     merges = 0
+    held_merged = False
     sub_dt = DT / SUBSTEPS
     for _ in range(SUBSTEPS):
         # 接触中の同種を合成 (1 サブステップ 1 ペアまで)。
         paired = _find_merge_pair(bodies)
         if paired is not None:
-            _merge_pair(space, bodies, paired[0], paired[1], merge_types)
+            if _merge_pair(space, bodies, paired[0], paired[1], merge_types):
+                held_merged = True
             merges += 1
             space.step(sub_dt)
         else:
             space.step(sub_dt)
-    return merges
+    return merges, held_merged
 
 
 def landed_xy(
@@ -177,16 +205,19 @@ def landed_xy(
     fruit_type: int,
     x: float,
     held_r: float,
-    merges: int,
+    held_merged: bool,
 ) -> tuple[float, float]:
     """simulate_drop 結果から、転がり後のおおよその着地 (x, y) を取る。
 
-    合成で消える場合もあるので、幾何の初期推定に寄せつつ
-    シミュレーション後に同 type が残っていればそれを使う。
+    held 自身が合体して消えたときだけ幾何の初期推定を返す。生き残っていれば
+    盤に残っている同 type から実際の静止位置を拾う。盤の別の場所で無関係な
+    合体が起きただけなら held は残っているので、そちらは実位置を返す
+    (合体の有無 `merges` で切ると、この場合に捏造した推定値を返してしまい、
+    それを受け取る側の減点 (`_bury_block_penalty` など) が嘘の座標で動く)。
     """
     x0 = max(held_r, min(NORMALIZED_WIDTH - held_r, x))
     est_y = land_y(fruits_before, x0, held_r)
-    if merges == 0:
+    if not held_merged:
         cands = [f for f in after if f.type == fruit_type]
         if cands:
             best = min(cands, key=lambda f: abs(f.x - x0) + abs(f.y - est_y))
@@ -202,8 +233,8 @@ def preview_land(
 ) -> tuple[float, float]:
     """落下列 x の着地 (x, y)。内部で 1 回 simulate_drop する。"""
     x0 = max(held_r, min(NORMALIZED_WIDTH - held_r, x))
-    after, merges, _types = simulate_drop(fruits, fruit_type, x0)
-    return landed_xy(fruits, after, fruit_type, x0, held_r, merges)
+    after, _merges, _types, held_merged = simulate_drop_held(fruits, fruit_type, x0)
+    return landed_xy(fruits, after, fruit_type, x0, held_r, held_merged)
 
 
 def _on_fruit_begin(
@@ -319,8 +350,13 @@ def _merge_pair(
     a: _BodyFruit,
     b: _BodyFruit,
     merge_types: list[int],
-) -> None:
-    """同種 2 個を合成。新実は両中心の中点に出す (実機と同じ)。"""
+) -> bool:
+    """同種 2 個を合成。新実は両中心の中点に出す (実機と同じ)。
+
+    戻り値は held の系譜 (`is_held_lineage`) が絡んだか。合体で消える a/b から
+    新実へ引き継ぐので、held が異種をかすってから合体しても拾える
+    (横ひっぱ用の `is_held_drop` は異種接触で消えるので別扱い)。
+    """
     # held 合体の横ひっぱ。移動量大 (ギリギリ側面) ほど強い。
     side_min = 0.08
     travel_gain = 14.0
@@ -345,13 +381,15 @@ def _merge_pair(
     py = ma * va.y + mb * vb.y
     ang = ma * a.body.angular_velocity + mb * b.body.angular_velocity
     held = _held_in_merge(a, b)
+    held_lineage = a.is_held_lineage or b.is_held_lineage
 
     _remove_fruit(space, bodies, a)
     _remove_fruit(space, bodies, b)
     if new_type > MAX_FRUIT_TYPE:
-        return
+        return held_lineage
 
     new = _add_fruit(space, bodies, new_type, mid_x, mid_y)
+    new.is_held_lineage = held_lineage
     vx = px / parent_m
     vy = py / parent_m
     aw = ang / parent_m
@@ -372,6 +410,7 @@ def _merge_pair(
 
     new.body.velocity = (vx, vy)
     new.body.angular_velocity = aw
+    return held_lineage
 
 
 def _find_merge_pair(bodies: list[_BodyFruit]) -> tuple[_BodyFruit, _BodyFruit] | None:

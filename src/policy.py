@@ -18,7 +18,7 @@ from concurrent.futures import Executor
 from .observe import Observation, clamp_drop_x
 from .reward import merge_score
 from .sim_physics import landed_xy
-from .sim_physics import simulate_drop
+from .sim_physics import simulate_drop_held
 from .vision.classify import fruit_radius
 from .vision.colors import MAX_FRUIT_TYPE, SPAWN_MAX_TYPE
 from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
@@ -202,14 +202,19 @@ def drop_scores(
     """
     held_r = fruit_radius(drop_type)
     before = list(fruits)
-    after, score, penalties, merges = _evaluate_drop(
+    after, score, penalties, merges, held_merged = _evaluate_drop(
         before,
         drop_type,
         clamp_drop_x(x, drop_type),
         held_r,
         next_type=next_type,
     )
-    penalties -= _board_penalties(before, sign=_order_sign(before))
+    # 落下前ぶんは落下後と同じ基準で引く。after 側で size_order を除外したのに
+    # before 側で込みのまま引くと、存在しない減点を差し引いて merge 手が
+    # 不当に有利になる (実測 0.303 のずれ)。
+    penalties -= _board_penalties(
+        before, sign=_order_sign(before), exempt_size_order=held_merged
+    )
     return score, penalties, score - penalties, after, merges
 
 
@@ -217,7 +222,7 @@ def _held_eval(obs: Observation, x: float, held_r: float) -> tuple[list[Fruit], 
     """held を x に落としたあとの (盤面, score - penalties)。next は見ない。"""
     assert obs.held_type is not None
     before = list(obs.fruits)
-    after, score, penalties, _merges = _evaluate_drop(
+    after, score, penalties, _merges, _held_merged = _evaluate_drop(
         before, obs.held_type, x, held_r, next_type=obs.next_type
     )
     return after, score - penalties
@@ -234,7 +239,9 @@ def _score(obs: Observation, x: float, held_r: float) -> float:
 def _next_eval_job(fruits: list[Fruit], next_type: int, next_r: float, nx: float) -> float:
     """next 候補 1 個ぶんの eval。プールに投げる単位。"""
     # その先の next は未知。育成免除は谷内同種だけが効く。
-    _, score, penalties, _merges = _evaluate_drop(fruits, next_type, nx, next_r)
+    _, score, penalties, _merges, _held_merged = _evaluate_drop(
+        fruits, next_type, nx, next_r
+    )
     return score - penalties
 
 
@@ -272,26 +279,36 @@ def _evaluate_drop(
     held_r: float,
     *,
     next_type: int | None = None,
-) -> tuple[list[Fruit], float, float, int]:
-    """1 手落としたあとの盤面・本家点・減点・合成回数。"""
+) -> tuple[list[Fruit], float, float, int, bool]:
+    """1 手落としたあとの盤面・本家点・減点・合成回数・held が合体したか。"""
     before = list(fruits)
     sign = _order_sign(before)
-    after, merges, merge_types = simulate_drop(before, drop_type, x)
-    land_x, land_y = landed_xy(before, after, drop_type, x, held_r, merges)
+    after, merges, merge_types, held_merged = simulate_drop_held(before, drop_type, x)
+    land_x, land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
 
     score = merge_score(merge_types)
-    penalties = _board_penalties(after, sign=sign)
+    # held (今回の手) が合体したときは、その反動で弾かれた無関係の実に対する
+    # 大小順・埋め込み系の減点を掛けない。`merges >= 1` だけで見ると、held とは
+    # 無関係に盤の別の場所でたまたま起きた合体まで一緒に免除してしまうので、
+    # held 自身が合体に絡んだか (`held_merged`) で判定する。
+    penalties = _board_penalties(after, sign=sign, exempt_size_order=held_merged)
     # FOREIGN_AIM は merges ではなく「真下の実が異種か」で見る。
     # 同種が真下なら合体待ちで OK。異種真上から転がって床で合体しても減点。
     penalties += _foreign_aim_penalty(before, x, drop_type, held_r)
-    if merges == 0:
+    if not held_merged:
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
         penalties += _packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
-    return after, score, penalties, merges
+    return after, score, penalties, merges, held_merged
 
 
-def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
-    """落としたあとの盤面減点（危険・埋め込み・同種過多・サイズ順・大寄せ・凸凹）。"""
+def _board_penalties(
+    fruits: list[Fruit], *, sign: int = 1, exempt_size_order: bool = False
+) -> float:
+    """落としたあとの盤面減点（危険・埋め込み・同種過多・サイズ順・大寄せ・凸凹）。
+
+    exempt_size_order: held がこの手で合体したとき True。合体の反動で
+    弾かれた無関係の実まで大小順違反として減点しない (`_evaluate_drop` 参照)。
+    """
     # 盤面が壁の内側基準になった分だけ、旧基準の 90.0 を座標変換してある。
     danger_y = 70.9
     danger_crown_weight = 0.5
@@ -306,7 +323,8 @@ def _board_penalties(fruits: list[Fruit], *, sign: int = 1) -> float:
 
     penalty += bury_weight * _bury_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
-    penalty += _size_order_penalty(fruits, sign)
+    if not exempt_size_order:
+        penalty += _size_order_penalty(fruits, sign)
     penalty += _big_layout_penalty(fruits, sign)
     variance = _height_variance(fruits)
     if crown < danger_y:
@@ -426,10 +444,10 @@ def _small_side_room_ok(
     if widest < held_r * 2.0:
         return False
     x = clamp_drop_x(center, drop_type)
-    after, merges, _merge_types = simulate_drop(fruits, drop_type, x)
+    after, merges, _merge_types, held_merged = simulate_drop_held(fruits, drop_type, x)
     if merges > 0:
         return True
-    land_x, land_y = landed_xy(fruits, after, drop_type, x, held_r, merges)
+    land_x, land_y = landed_xy(fruits, after, drop_type, x, held_r, held_merged)
     floor_y = NORMALIZED_HEIGHT - held_r
     return land_y >= floor_y - 4.0 and lo - MERGE_SLACK <= land_x <= hi + MERGE_SLACK
 

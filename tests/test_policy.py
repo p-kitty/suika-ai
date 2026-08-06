@@ -16,7 +16,7 @@ from src.policy import (
     _score,
     choose_x,
 )
-from src.sim_physics import landed_xy, preview_land, simulate_drop
+from src.sim_physics import landed_xy, preview_land, simulate_drop, simulate_drop_held
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
@@ -99,8 +99,8 @@ def test_sets_up_next_when_no_immediate_merge() -> None:
     fruits = (target, wall)
     x = choose_x(_obs(held_type=2, fruits=fruits, next_type=0))
     # 衝突で弾かれるので、狙った列 x ではなく実際の着地位置で判定する。
-    after, merges, _merge_types = simulate_drop(fruits, 2, x)
-    land_x, _land_y = landed_xy(fruits, after, 2, x, grape_r, merges)
+    after, _merges, _merge_types, held_merged = simulate_drop_held(fruits, 2, x)
+    land_x, _land_y = landed_xy(fruits, after, 2, x, grape_r, held_merged)
     assert abs(land_x - target.x) < cherry_r + grape_r * 2 + 40
 
 
@@ -285,7 +285,7 @@ def test_chooses_merge_for_sandwiched_same_type() -> None:
     left = Fruit(type=6, x=160, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
     right = Fruit(
         type=6,
-        x=160 + pear_r * 2 + 60,
+        x=160 + pear_r * 2 + 40,
         y=NORMALIZED_HEIGHT - pear_r,
         radius=pear_r,
         confidence=90,
