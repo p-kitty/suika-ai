@@ -150,7 +150,7 @@ def test_grows_apple_in_pear_valley_when_held_and_next_are_one_smaller() -> None
     assert left.x < land_x < right.x
     assert _valley_grow_ok(fruits, land_x, 5, 5)
     far = NORMALIZED_WIDTH - apple_r - 8
-    # A valley where the growing exemption applies does not lose badly to placing by the wall through wrong_side.
+    # A valley where the growing exemption applies does not lose badly to placing by the wall.
     assert _score(obs, mid, apple_r) > _score(obs, far, apple_r) - 20.0
 
 

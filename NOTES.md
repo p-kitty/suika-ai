@@ -168,8 +168,6 @@ in NOTES", the code was rolled back and only the record kept).
   Other gap filling gets the usual penalties (`GAP_JUNK` stays retired)
 - Layout: big fruits stay close together. On the big side (`sign`), the corner pocket outside an edge-anchored L and below L's center
   is heavily penalized (`_big_layout_penalty`)
-- Rolling accidents onto the big-side floor (`_wrong_side_roll_penalty`): penalized when rolling into the big-side floor of a big fruit.
-  A separate function from the layout penalty above, but with the same aim of preventing big-side accidents
 - Not included: push-in merges, restoring pushes, cascade gap opening, forced moves one tier up, hard-coded ladder firing
 - Do not add UTs for concrete procedures. When something breaks, look at accident prevention or the observation side
 - The search cost is essentially the number of `simulate_drop` calls. `HELD_TOP` / `NEXT_CANDIDATE_STEP` decide the run time
@@ -191,7 +189,6 @@ in NOTES", the code was rolled back and only the record kept).
 | Rule | Function | Content | Weight |
 |---|---|---|---|
 | directly above a different type | `_foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
-| wrong-side roll | `_wrong_side_roll_penalty` | when it rolls and lands on the floor on the "big side" of a bigger fruit of another type (only moves with 0 merges and outside the growing exemption) | base 8.0 + difference×2.0 |
 | blocking a waiting merge by burying | `_bury_block_penalty` | when a bigger fruit of another type blocks, directly above or on the shoulder, a fruit waiting for a same-type pair | 14.0 ×type gap (half on a shoulder) |
 | small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (orange or bigger) escapes to the small side (fires only when it physically cannot go on the small side) | fixed 8.0 (can be disabled with `SUIKA_PACKED=0`) |
 
