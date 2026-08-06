@@ -609,3 +609,31 @@ def test_avoids_under_max_center_on_outer_edge() -> None:
     land_x, land_y = preview_land((peach,), 4, x, orange_r)
     # Do not drop into the floor pocket of the big-side corner.
     assert not (land_x < peach.x and land_y > peach.y)
+
+
+def test_leaves_room_for_missing_rung_between_neighbours() -> None:
+    """Pairs with a missing type in between are placed leaving that much gap.
+
+    Pulling a grape right beside an opening orange leaves no place when a dekopon comes next,
+    and it goes outside the grape, giving the order 4-2-3 (measured).
+    """
+    orange_r = fruit_radius(4)
+    dekopon_r = fruit_radius(3)
+    grape_r = fruit_radius(2)
+
+    # Move 1 orange, move 2 grape (next is dekopon).
+    x1 = choose_x(_obs(held_type=4, fruits=(), next_type=2))
+    board1, _m, _t = simulate_drop((), 4, x1)
+    x2 = choose_x(_obs(held_type=2, fruits=tuple(board1), next_type=3))
+    board2, _m, _t = simulate_drop(board1, 2, x2)
+
+    orange = next(f for f in board2 if f.type == 4)
+    grape = next(f for f in board2 if f.type == 2)
+    gap = abs(orange.x - grape.x) - orange_r - grape_r
+    # Leave a gap close to one dekopon (80%, allowing for push-in margin).
+    assert gap > dekopon_r * 2 * 0.8
+
+    # Placing the dekopon on move 3 does not break size order.
+    x3 = choose_x(_obs(held_type=3, fruits=tuple(board2)))
+    board3, _m, _t = simulate_drop(board2, 3, x3)
+    assert [f.type for f in sorted(board3, key=lambda f: f.x)] == [2, 3, 4]

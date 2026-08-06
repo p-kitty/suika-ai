@@ -16,9 +16,6 @@
 **Vision**
 - `10.png`: similar-color mask fusion + a strawberry outside the frame. Needs a redesign of the cropping; worse value for effort than policy / held
 
-**Policy behavior**
-- Packing too tight early: neighbors by size order and proximity (e.g. apple and dekopon) have too little gap between them. When stacking an orange only order-breaking moves remain. Some space is wanted
-
 **Physics simulation**
 - Friction between fruits seems low: fruits slide in far more than in the real game.
 
@@ -119,6 +116,9 @@ a qualitatively different change such as rebuilding the features and architectur
   Other gap filling gets the usual penalties (`GAP_JUNK` stays retired)
 - Layout: big fruits stay close together. On the big side (`sign`), the corner pocket outside an edge-anchored L and below L's center
   is heavily penalized (`_big_layout_penalty`)
+- But if a type is missing between two neighbors, that much gap is not closed. Closing it leaves
+  no place for the missing type when it is drawn, and the only option is to send it outside and break the order
+  (pulling a grape right beside an opening orange made the next dekopon fall outside, giving 4-2-3)
 - Not included: push-in merges, restoring pushes, cascade gap opening, forced moves one tier up, hard-coded ladder firing
 - Do not add UTs for concrete procedures. When something breaks, look at accident prevention or the observation side
 - The search cost is essentially the number of `simulate_drop` calls. `HELD_TOP` / `NEXT_CANDIDATE_STEP` decide the run time
@@ -154,34 +154,12 @@ The 2 below apply **only when held itself did not merge** (`held_merged`, not th
 | burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35) | bury_weight 20.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
 | size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (fruits being grown in a valley are exempt). **Exempt on moves where held merged** (so unrelated fruits knocked by merge recoil are not counted as violations) | pair difference×1.5 + ideal_x deviation×0.004 |
-| big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) gap×0.025×size factor |
+| big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough (exempt for the diameter of the missing type in between) | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) (gap−diameter of the missing type)×0.025×size factor |
 | bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by 0.15 at dangerous height) | variance×0.08 |
 
 Notes:
 - `PACKED_RULE_ENABLED` (environment variable `SUIKA_PACKED`) toggles only the small-side escape penalty after the floor fills ON/OFF (for A/B)
 - Ladder detection (`_ladder_*`) is currently unused by penalties (detection only)
-
-### Exempting held merges (`held_merged`) — effect unconfirmed (2026-08-06)
-
-`_size_order_penalty` counted layouts knocked by merge recoil as violations, and there were positions where **merging moves
-lost to non-merging moves** (a grape between two pears with a gap of 40: merge score 6.0 with
-a penalty of 4.94 on top, reversing it). `simulate_drop_held` tracks whether held's lineage took part in a merge, and
-moves where it did are now exempt. See the code comments for the mechanism.
-
-**There is no score support. Whether to keep or remove it is undecided.**
-
-- n=20 paired comparison (same seeds, `max_steps=400`): 2046.9 → 1942.9
-  (**-104.0**, t=-0.94, 95%CI -326 to +118, 7 wins 13 losses). Not significant, but the point estimate is negative.
-  A truncated run on other seeds also gave -40.4 / 7 wins 13 losses, negative both times. **No evidence it got stronger**
-- The firing volume is small too. Over 1001 measured candidates, `merges>0 and held_merged=False` is **0**,
-  and the exempted `_size_order_penalty` is median 0.19 / max 1.77 (merge scores are 1-65)
-
-Two existing inconsistencies fixed at the same time (these are correct fixes regardless of score):
-
-- `landed_xy` cut on `merges`, so when merely an unrelated merge happened it returned a geometric estimate instead of
-  the actual resting position, and `_bury_block_penalty` acted on false coordinates (a measured offset of 149.6)
-- `drop_scores` excluded `_size_order_penalty` on the after side while subtracting it included on the before side,
-  subtracting a penalty that did not exist (measured 0.303)
 
 ## Training
 

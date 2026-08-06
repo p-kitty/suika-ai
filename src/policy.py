@@ -375,6 +375,17 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
         gap = (right.x - left.x) - left.radius - right.radius
         if gap <= 0:
             continue
+        # Keep open the place for growing the tier in between. Closing it leaves no place when the type
+        # that fits between is drawn later, and the only option is to send it outside and break the order
+        # (measured: pulling a grape right beside an opening orange makes the next dekopon
+        # fall outside the grape, giving the order 4-2-3). What is kept open is only 'one fruit needed
+        # next' = the diameter of the largest missing type, and
+        # any excess beyond that is penalized as before.
+        missing = range(min(left.type, right.type) + 1, max(left.type, right.type))
+        want = 2.0 * max((fruit_radius(t) for t in missing), default=0.0)
+        gap -= want
+        if gap <= 0:
+            continue
         gap = min(gap, left.radius + right.radius)
         size = 0.5 + 0.05 * (left.type + right.type)
         penalty += cluster_weight * gap * size
