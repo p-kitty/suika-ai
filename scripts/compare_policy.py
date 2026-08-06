@@ -188,7 +188,9 @@ def main() -> None:
         default=None,
         help="省略時は毎回ランダム。固定シードの使い回しは避けること。",
     )
-    parser.add_argument("--max-steps", type=int, default=100)
+    # 既定 100 は自然終了 (中央 210 手) の半分で、実測 200 本すべてが打ち切りだった。
+    # 仕込みのコストだけ測ってリターンを測らない既定になっていたので 400 にする。
+    parser.add_argument("--max-steps", type=int, default=400)
     parser.add_argument("--workers", type=int, default=None)
     parser.add_argument(
         "--out",
@@ -229,14 +231,21 @@ def main() -> None:
     )
     print("  A = 床埋め後の置き分け OFF (現状)   B = ON")
 
-    # 全部が打ち切りだと、伸びしろも死亡率も測れていない。
-    # 仕込みのコストだけ見てリターンを見ない測定になるので、先に警告する。
+    # 打ち切りは伸びた側の頭を押さえるので、良い変更ほど過小評価される。
+    # 「全部打ち切り」だけを警告していると、部分的な打ち切りが無警告で通ってしまう。
+    total = len(base) + len(new)
     capped = sum(1 for row in base + new if row["steps"] >= args.max_steps)
-    if capped == len(base) + len(new):
+    if capped == total:
         print(
             f"\n  ** 全 {capped} エピソードが max_steps={args.max_steps} で打ち切り。**\n"
             "  ** 自然終了が 1 つも無く、生存時間も到達段階も測れていない。**\n"
             "  ** --max-steps を増やして測り直すこと。以下の数字は信用しない。**"
+        )
+    elif capped:
+        print(
+            f"\n  ** {capped}/{total} エピソードが max_steps={args.max_steps} で打ち切り"
+            f" ({capped / total * 100:.0f}%)。**\n"
+            "  ** 打ち切られたのは伸びた対局なので、差はその分だけ圧縮されている。**"
         )
     print()
     for key, digits in (
