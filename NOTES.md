@@ -21,8 +21,8 @@
 
 **学習パイプライン**
 - 学習エピソード長: `max_steps` を増やし、`episodes` を減らす（長い対局を少なめに）。
-  `train_sim.py` の既定 max-steps=100 は**実測で 100% が打ち切りになる値**（自然終了は中央 210 手）。
-  教師データが典型的な対局の前半しか見ていないことになる。320 以上で打ち切り率 0%
+  `train_sim.py` の既定は 300（実測の自然終了は中央 210 手・最大 311 手なので、
+  打ち切りは 2% ほど。0% にしたいなら 320）
 
 ## 進行中: 床埋め後の大ツモ・梯子
 
@@ -215,7 +215,7 @@ cherry 5〜8 個・grape 3 個・dekopon 4 個など低段位の実が合成さ�
   `--out` で生データを JSON 保存
 - 代理指標の探索: `python scripts/analyze_ab.py <dump.json>`（→[測定のしかた](#測定のしかた何度も踏んでいる罠)）
 - 統計は `src/stats.py`（ペア差の t / 95% CI / 必要 n / 相関）。scipy は入れていない
-- 学習: `python scripts/train_sim.py`（収集 → オフライン BC。既定 max-steps=100 は打ち切りであり
+- 学習: `python scripts/train_sim.py`（収集 → オフライン BC。既定 max-steps=300 は打ち切りであり
   負けラインではない）。best は score → 手数 → match
 - 教師収集は `ProcessPool` 並列（既定 workers=論理コア/2。9700X なら 8。`--workers 1` で直列）
 - `src/agent.py`: 離散列 32 ビン / hidden 128 の MLP（旧 20/64 の npz は再学習が必要）
