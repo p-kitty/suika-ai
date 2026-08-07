@@ -2,8 +2,6 @@
 
 具体手順 (押し込み・復元押し・連鎖隙間空け・梯子発火など) は持たない。
 合成・危険高さ・埋め込み・薄い大小順・転がり事故防止だけ見る。
-大きい実どうしは近接、大側端の角ポケット (L 中心より下) は避ける。
-谷育成は同種待ちか held/next が両方とも壁よりひとつ小さいときに限る。
 手の採点は eval = score (本家の合成点) - penalties (事故・悪手の減点)。
 """
 
@@ -32,6 +30,10 @@ NEXT_DISCOUNT = 0.55
 FOREIGN_AIM_CENTER_FRAC = 0.20
 # 真下の異種中心帯に着地したときの減点。
 FOREIGN_AIM_PENALTY = 100.0
+# 谷育成ボーナス (減点から引く形で入れる)。`_valley_grow_ok` が成立する着地だけ。
+# 実合体より強くしない。8.0 だと grape 合体 (6 点) を蹴って非合体の谷を選んだ。
+# 2.0 で育成側に倒れ、3.0 でも合体は取り続ける (実測)。
+VALLEY_GROW_BONUS = 3.0
 # 探索の粗さ。物理 (simulate_drop) が支配的で、ここが実行時間をほぼ決める。
 # 旧 8/16 は 1 手 3.8 秒で収集が回らない。1.2 秒 / score -3.4% で取り引き。
 # next 先読みを回す held 候補の本数。物理が重いので上位だけ。
@@ -288,6 +290,10 @@ def _evaluate_drop(
     if not held_merged:
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
         penalties += _packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
+        # 谷育成。合体しない手の中では、育つ見込みのある谷への着地を選ばせる。
+        # 合体した手は本家点が付くので、そちらには足さない。
+        if _valley_grow_ok(before, land_x, drop_type, next_type):
+            penalties -= VALLEY_GROW_BONUS
     return after, score, penalties, merges, held_merged
 
 
@@ -695,24 +701,36 @@ def _valley_grow_ok(
     drop_type: int,
     next_type: int | None,
 ) -> bool:
-    """谷への育成免除をしてよいか。
+    """谷を育てにいく手か。基準は谷に入っている実で、壁の型は見ない。
 
-    - 谷の間に同種がある (掃除・合体待ち)
-    - または held と next が両方とも、左右の壁よりひとつ小さい
+    谷の実 (より大きい実に挟まれている実) を的にして、
+    - その実が held と同種 → 落とせばそのまま合体する
+    - その実が held よりひとつ大きく、held と next が同種 → 2 枚落とせば
+      合体してその実と同じ型になり、更に合体する
+
+    落下前の盤 (`before`) に対して呼ぶ。held はまだ盤に乗っていないので、
+    的の実に自分自身が混ざることはない。
     """
-    flanks = _valley_flanks(fruits, land_x, drop_type)
-    if flanks is None:
-        return False
-    left, right = flanks
     for fruit in fruits:
-        if fruit.type == drop_type and left.x < fruit.x < right.x:
+        if fruit.type == drop_type:
+            pass
+        elif (
+            next_type is not None
+            and drop_type == next_type
+            and fruit.type == drop_type + 1
+        ):
+            pass
+        else:
+            continue
+        # 谷は的の実を基準に取る。held を基準にすると、的の実そのものが
+        # 「より大きい実」として壁側に回ってしまう (いちごから見た谷のぶどう)。
+        flanks = _valley_flanks(fruits, fruit.x, fruit.type)
+        if flanks is None:
+            continue
+        left, right = flanks
+        if left.x < land_x < right.x:
             return True
-    wall = min(left.type, right.type)
-    return (
-        next_type is not None
-        and drop_type == next_type
-        and drop_type == wall - 1
-    )
+    return False
 
 
 def _is_nestled(
@@ -764,7 +782,9 @@ def _order_sign(fruits: list[Fruit] | tuple[Fruit, ...]) -> int:
 def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
     """左右の大小が逆転しているペアを減点。絶対 ideal より相対順を見る。
 
-    谷に育てている小さい実は大小順の対象外 (育成をレイアウト減点で潰さない)。
+    より大きい実の谷にはまっている実は大小順の対象外 (谷育成をレイアウト減点で
+    潰さない)。育成が成立しているかまでは見ない (それは手ごとの
+    `_valley_grow_ok` 側の判断)。
     """
     if not fruits:
         return 0.0
