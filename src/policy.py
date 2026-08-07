@@ -2,8 +2,6 @@
 
 It has no concrete procedures (push-ins, restoring pushes, cascade gap opening, ladder firing and the like).
 It only looks at merging, dangerous height, burying, light size order and rolling accident prevention.
-Big fruits stay close, and the corner pocket at the big-side edge (below L's center) is avoided.
-Valley growing is limited to waiting for a same type, or held/next both one smaller than the walls.
 Moves are scored as eval = score (the real game's merge points) - penalties (penalties for accidents and bad moves).
 """
 
@@ -32,6 +30,10 @@ NEXT_DISCOUNT = 0.55
 FOREIGN_AIM_CENTER_FRAC = 0.20
 # Penalty for landing in the center band of a different type directly below.
 FOREIGN_AIM_PENALTY = 100.0
+# Valley-growing bonus (applied by subtracting from penalties). Only for landings where `_valley_grow_ok` holds.
+# Not stronger than a real merge. At 8.0 it rejected a grape merge (6 points) for a non-merging valley.
+# At 2.0 it tips toward growing, and at 3.0 it still keeps taking merges (measured).
+VALLEY_GROW_BONUS = 3.0
 # Search coarseness. The physics (simulate_drop) dominates, and this nearly decides the run time.
 # The old 8/16 took 3.8 seconds per move and collection could not keep up. Traded for 1.2 seconds / score -3.4%.
 # Number of held candidates that get the next lookahead. The physics is heavy, so only the top.
@@ -288,6 +290,10 @@ def _evaluate_drop(
     if not held_merged:
         penalties += _bury_block_penalty(before, land_x, land_y, drop_type, held_r)
         penalties += _packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
+        # Valley growing. Among non-merging moves, choose landings in valleys likely to grow.
+        # Merging moves get the real-game score, so it is not added to them.
+        if _valley_grow_ok(before, land_x, drop_type, next_type):
+            penalties -= VALLEY_GROW_BONUS
     return after, score, penalties, merges, held_merged
 
 
@@ -695,24 +701,36 @@ def _valley_grow_ok(
     drop_type: int,
     next_type: int | None,
 ) -> bool:
-    """Whether the growing exemption for a valley may apply.
+    """Whether it is a move that goes to grow a valley. The reference is the fruit in the valley; the wall types are not looked at.
 
-    - there is a same type between the valley walls (cleanup, waiting to merge)
-    - or held and next are both one smaller than the left and right walls
+    Targeting the valley fruit (a fruit squeezed between bigger fruits),
+    - the fruit is the same type as held → dropping merges immediately
+    - the fruit is one bigger than held, and held and next are the same type → dropping two
+      merges into that fruit's type, which merges again
+
+    Called on the pre-drop board (`before`). held is not on the board yet, so
+    it never mixes itself into the target fruits.
     """
-    flanks = _valley_flanks(fruits, land_x, drop_type)
-    if flanks is None:
-        return False
-    left, right = flanks
     for fruit in fruits:
-        if fruit.type == drop_type and left.x < fruit.x < right.x:
+        if fruit.type == drop_type:
+            pass
+        elif (
+            next_type is not None
+            and drop_type == next_type
+            and fruit.type == drop_type + 1
+        ):
+            pass
+        else:
+            continue
+        # The valley is taken with the target fruit as the reference. With held as the reference, the target fruit itself
+        # ends up on the wall side as 'a bigger fruit' (the grape in a valley seen from a strawberry).
+        flanks = _valley_flanks(fruits, fruit.x, fruit.type)
+        if flanks is None:
+            continue
+        left, right = flanks
+        if left.x < land_x < right.x:
             return True
-    wall = min(left.type, right.type)
-    return (
-        next_type is not None
-        and drop_type == next_type
-        and drop_type == wall - 1
-    )
+    return False
 
 
 def _is_nestled(
@@ -764,7 +782,9 @@ def _order_sign(fruits: list[Fruit] | tuple[Fruit, ...]) -> int:
 def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
     """Penalize pairs whose left-right size order is inverted. Looks at relative order rather than absolute ideal positions.
 
-    Small fruits being grown in a valley are excluded from size order (layout penalties do not crush growing).
+    Fruits stuck in a valley of bigger fruits are excluded from size order (so layout penalties
+    do not crush valley growing). Whether growing actually holds is not checked (that is judged per move
+    on the `_valley_grow_ok` side).
     """
     if not fruits:
         return 0.0

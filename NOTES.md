@@ -145,8 +145,9 @@ a qualitatively different change such as rebuilding the features and architectur
   `FOREIGN_AIM_PENALTY`. OK if it is the same type. Not cut by `merges` (closes the loophole of rolling off a different type
   and merging). Stacking a different type in valleys or on shoulders is not itself forbidden (this penalty is only the center band)
 - Excess same type (`EXCESS_SAME`): once 3 or more of a type accumulate, a penalty of 20 per excess fruit
-- Valley growing for big fruits is limited to when the valley has a same type, or held/next are both one smaller than the walls.
-  Other gap filling gets the usual penalties (`GAP_JUNK` stays retired)
+- Valley growing (`_valley_grow_ok`): the valley fruit is the same type as held, or the valley fruit is one above held and
+  held and next are the same type: a bonus of `VALLEY_GROW_BONUS` for landing in that valley. The reference is the valley fruit;
+  the wall types are not looked at. Other gap filling gets the usual penalties (`GAP_JUNK` stays retired)
 - Layout: big fruits stay close together. On the big side (`sign`), the corner pocket outside an edge-anchored L and below L's center
   is heavily penalized (`_big_layout_penalty`)
 - But if a type is missing between two neighbors, that much gap is not closed. Closing it leaves
@@ -175,8 +176,9 @@ a qualitatively different change such as rebuilding the features and architectur
 | directly above a different type | `_foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
 | blocking a waiting merge by burying | `_bury_block_penalty` | when a bigger fruit of another type blocks, directly above or on the shoulder, a fruit waiting for a same-type pair | 14.0 ×type gap (half on a shoulder) |
 | small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (orange or bigger) escapes to the small side (fires only when it physically cannot go on the small side) | fixed 8.0 |
+| valley-growing bonus | `_valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type | **−3.0** (`VALLEY_GROW_BONUS`. The only bonus in this table) |
 
-The 2 below apply **only when held itself did not merge** (`held_merged`, not the merge count
+The 3 below apply **only when held itself did not merge** (`held_merged`, not the merge count
 `merges`, so that an unrelated merge elsewhere on the board does not grant the exemption).
 
 **Board-wide penalties (`_board_penalties`, on the post-drop board every time)**
@@ -186,7 +188,7 @@ The 2 below apply **only when held itself did not merge** (`held_merged`, not th
 | dangerous height | inline | when the topmost crown is above danger_y(70.9) | (danger_y − crown) × 0.5 |
 | burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35) | bury_weight 20.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
-| size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (fruits being grown in a valley are exempt). **Exempt on moves where held merged** (so unrelated fruits knocked by merge recoil are not counted as violations) | pair difference×1.5 + ideal_x deviation×0.004 |
+| size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (fruits stuck in a valley of bigger fruits are exempt = `_is_nestled`. Whether growing succeeds is not checked). **Exempt on moves where held merged** (so unrelated fruits knocked by merge recoil are not counted as violations) | pair difference×1.5 + ideal_x deviation×0.004 |
 | big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough (exempt for the diameter of the missing type in between) | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) (gap−diameter of the missing type)×0.025×size factor |
 | bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by 0.15 at dangerous height) | variance×0.08 |
 

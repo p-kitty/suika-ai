@@ -129,29 +129,39 @@ def test_prefers_held_that_enables_next_merge() -> None:
     assert abs(x - cherry.x) < cherry_r + grape_r * 2 + 50
 
 
-def test_grows_apple_in_pear_valley_when_held_and_next_are_one_smaller() -> None:
-    # When held/next are both fruits one smaller than the walls, it can land stably in the pear valley.
+def test_grows_valley_fruit_when_held_and_next_are_one_smaller() -> None:
+    # Grape in the valley, held/next are strawberries (one below the valley fruit). Dropping both makes a grape
+    # that merges with the grape in the valley, so place it in the valley instead of escaping to the corner.
     from src.policy import _valley_grow_ok
 
-    pear_r = fruit_radius(6)
+    orange_r = fruit_radius(4)
     apple_r = fruit_radius(5)
-    left = Fruit(type=6, x=150, y=NORMALIZED_HEIGHT - pear_r, radius=pear_r, confidence=90)
-    right = Fruit(
-        type=6,
-        x=150 + pear_r * 2 + apple_r * 1.2,
-        y=NORMALIZED_HEIGHT - pear_r,
-        radius=pear_r,
+    grape_r = fruit_radius(2)
+    straw_r = fruit_radius(1)
+    sep = orange_r + apple_r + grape_r * 2 + 20.0
+    center = 150.0
+    left = Fruit(
+        type=4,
+        x=center - sep / 2,
+        y=NORMALIZED_HEIGHT - orange_r,
+        radius=orange_r,
         confidence=90,
     )
-    fruits = (left, right)
-    obs = _obs(held_type=5, fruits=fruits, next_type=5)
-    mid = (left.x + right.x) / 2
-    land_x, _land_y = preview_land(fruits, 5, mid, apple_r)
+    right = Fruit(
+        type=5,
+        x=center + sep / 2,
+        y=NORMALIZED_HEIGHT - apple_r,
+        radius=apple_r,
+        confidence=90,
+    )
+    grape = Fruit(
+        type=2, x=center, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90
+    )
+    fruits = (left, right, grape)
+    obs = _obs(held_type=1, fruits=fruits, next_type=1)
+    land_x, _land_y = preview_land(fruits, 1, choose_x(obs), straw_r)
     assert left.x < land_x < right.x
-    assert _valley_grow_ok(fruits, land_x, 5, 5)
-    far = NORMALIZED_WIDTH - apple_r - 8
-    # A valley where the growing exemption applies does not lose badly to placing by the wall.
-    assert _score(obs, mid, apple_r) > _score(obs, far, apple_r) - 20.0
+    assert _valley_grow_ok(fruits, land_x, 1, 1)
 
 
 def test_does_not_grow_smaller_junk_in_valley() -> None:
