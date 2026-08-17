@@ -45,7 +45,7 @@ Handled by `_packed_small_side_penalty` (`src/policy.py`). **Always on** (the to
 
 The "ladder" that fires a corner big fruit in steps (a pear next to the inside of a corner peach, an apple and an orange on the **shoulders** of those two,
 firing with the final orange and cascading 4→5→6→7) is a shape that arises naturally as a result of this placement rule.
-Only detection is written in `_ladder_anchor` / `_ladder_rungs`, and **it has never been called from the production path**
+Only detection is written in `find_anchor` / `rungs` of `src/ladder.py`, and **it has never been called from the production path**
 (only `tests/test_policy.py` calls it). It is kept as groundwork for using it in move selection.
 
 ### What we know
@@ -195,7 +195,7 @@ The 3 below apply **only when held itself did not merge** (`held_merged`, not th
 Notes:
 - The rules above have no ON/OFF toggles. To A/B, in `compare_policy.py`
   plug into `_apply_variant` and revert when done (toggles for permanent rules are not kept)
-- Ladder detection (`_ladder_*`) is currently unused by penalties (detection only)
+- Ladder detection (`src/ladder.py`) is currently unused by penalties (detection only)
 
 ## Training
 
