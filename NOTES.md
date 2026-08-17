@@ -91,9 +91,10 @@ got buried here. Read this section before reporting numbers.
   To compare distributions, compare quantiles directly
 - Do not fix seeds (omitting `--seed` makes them random). Reusing fixed seeds makes a chance collapse
   easy to misread as "reproduced". Compare changes paired on the same seeds
-- Do not build automation scripts that run `git stash` / `checkout` against the live working tree.
-  It once caused an accident that left uncommitted changes stranded in the stash (recovered with `git fsck --unreachable`).
-  To compare another commit with the current working tree, isolate it with `git worktree add`
+
+The measuring procedures themselves (how to plug in an A/B is in [AGENTS.md](AGENTS.md#when-touching-the-policy-or-training),
+comparisons that do not dirty the working tree are in [git in AGENTS.md](AGENTS.md#git)) live there.
+Only what can be trusted is written here.
 
 ## Investigated: sudden death from scattered low-tier fruits late in the game
 
@@ -193,8 +194,8 @@ The 3 below apply **only when held itself did not merge** (`held_merged`, not th
 | bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by 0.15 at dangerous height) | variance×0.08 |
 
 Notes:
-- The rules above have no ON/OFF toggles. To A/B, in `compare_policy.py`
-  plug into `_apply_variant` and revert when done (toggles for permanent rules are not kept)
+- The rules above have no ON/OFF toggles (the policy is not to keep toggles for permanent rules.
+  The A/B procedure is in [AGENTS.md](AGENTS.md#when-touching-the-policy-or-training))
 - Ladder detection (`src/ladder.py`) is currently unused by penalties (detection only)
 
 ## Training

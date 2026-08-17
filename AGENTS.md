@@ -1,0 +1,106 @@
+# AGENTS.md — how to work in this repo
+
+## Who owns which document
+
+Each of the three has a separate role. **Do not write the same thing in two places**.
+
+- **AGENTS.md (this file)** … how to work. Commands, code conventions, how changes proceed,
+  repo-specific traps. Write it so "the next person can follow the same steps". No numbers
+- **[NOTES.md](NOTES.md)** … domain knowledge and experiment log for the game and the policy. What measurements showed,
+  failed attempts, the current penalty rules, open tasks. "Why this design", "what did it score"
+- **[README.md](README.md)** … the entry point for humans (English). Setup, how to run, layout
+
+Where things go when unsure:
+
+| What you want to write | Where it goes |
+|---|---|
+| How to run tests / lint / scripts | AGENTS.md |
+| Measurement results and conclusions such as score, n, CI | NOTES.md |
+| Penalty weights and their meaning, policy design decisions | NOTES.md |
+| Procedures such as "plug A/B changes into `_apply_variant`" | AGENTS.md (the resulting numbers go to NOTES.md) |
+| Attempts that had no effect, things decided against | NOTES.md |
+| A module / script was added or renamed | README.md Layout (AGENTS.md if it needs a convention) |
+
+If you feel like writing details in AGENTS.md, do not; link to a NOTES.md section instead.
+
+## Environment
+
+- Windows / PowerShell. `.venv` sits at the repo root, and `python` and `pytest` point there
+- **`ruff` / `basedpyright` / `vulture` are not in the venv**. They live in the global
+  `Python310\Scripts`, so the bare names work even with the venv active
+- `main.py` grabs the real game screen and input. Agents do not launch it on their own.
+  Check behavior on the sim side under `scripts/`
+
+## Common commands
+
+```powershell
+pytest                 # about 160 tests, just under 8 seconds. Every time you change something
+basedpyright           # types. Pre-existing errors may remain, so check whether they come from your diff
+ruff check --fix       # unused imports / variables only (select = F401, F841)
+vulture                # unreferenced functions and constants. False positives; check callers before deleting
+```
+
+Examples of sim evaluation, A/B and training runs are in the README Scripts section and
+[Training in NOTES.md](NOTES.md#training). Long ones take hours.
+
+## Code conventions
+
+- Docstrings, comments, identifiers and commit messages are all in **English**
+- Comments say **why this value or this shape**, not "what it does"
+  (measured values, traps hit, alternatives discarded). The top of `src/policy.py` and its constants are the model
+- `from __future__ import annotations` + type annotations. `typeCheckingMode = "basic"`
+- Prefix module-internal names with `_`. Only names called across modules are public
+- **Do not bind weights or functions of `src/penalties.py` with `from .penalties import X`.**
+  Reference them as `pen.X` like `src/policy.py` does. The A/B in `compare_policy.py`
+  swaps them by rewriting module attributes, so binding makes A and B run the same policy
+- `scripts/*.py` follow the pattern of `sys.path.insert` → `from scripts._bootstrap import ROOT`
+  at the top (do not write a function that adds the path)
+- Tests do not pin concrete procedures. Assert **properties of the policy** such as merging, danger avoidance and
+  assert (the policy at the top of `tests/test_policy.py`). Fall physics lives in `tests/test_sim_physics.py`
+
+## When touching the policy or training
+
+- **Read [How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in) before reporting numbers.**
+  Score noise is large; a rise or fall in the mean alone says nothing
+- Run an A/B by plugging the change into `_apply_variant` in `scripts/compare_policy.py`.
+  When making it permanent, revert the variant and **leave no ON/OFF toggle in the code**.
+  To compare with another commit, see the worktree item under [git](#git)
+- When adding or removing a penalty rule or changing a weight, update NOTES.md's
+  [Current penalty rules](NOTES.md#current-penalty-rules) in the same diff
+- **Keep attempts that had no effect in NOTES.md too.** Write the content, n, conclusion and that it was reverted.
+  The record exists so nobody walks the same road twice; keeping only the successes makes it pointless
+- For a pure refactor, confirm play does not change
+  (whether x / score / penalties / merge match over a few hundred moves on the same seeds)
+
+## git
+
+All git operations are collected in this section. Do not scatter them into other sections.
+
+**branch**
+
+- **Do not work on `master`.** Cut a branch before touching anything:
+  `git switch -c <topic>` (e.g. `fix-wall-friction`, `docs-agents-md`)
+- PRs target `main`
+
+**commit**
+
+- As long as you are on a branch, **you may commit without asking**. Commit at each checkpoint.
+  Conversely, if you notice you are on `master`, do not commit; cut a branch first
+- Conventional Commits (`feat:` `fix:` `refactor:` `docs:` `perf:`), in English,
+  with an imperative one-line summary
+- The body says **why** and **how it was checked**. For a pure refactor, include
+  how play invariance was verified. Recent commits are the model
+- Run `pytest` before committing (just under 8 seconds). If you changed the policy, report numbers following
+  [How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in)
+
+**What is tracked and what is not**
+
+- `screenshots/` is ground truth transcribed by eye, so it is tracked
+- `artifacts/` `debug/` change on every run, so they are ignored
+
+**When comparing with another commit**
+
+- Do not write automation that runs `git stash` / `git checkout` in the live working tree.
+  It once caused an accident that left uncommitted changes stranded in the stash
+  (recovered with `git fsck --unreachable`)
+- Use a separate isolated tree with `git worktree add`
