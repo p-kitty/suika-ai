@@ -8,14 +8,13 @@ The fall physics itself is in tests/test_sim_physics.py.
 import math
 
 from src.observe import Observation
-from src.policy import (
+from src.penalties import (
     FOREIGN_AIM_CENTER_FRAC,
     FOREIGN_AIM_PENALTY,
-    _foreign_aim_penalty,
-    _ideal_x,
-    _score,
-    choose_x,
+    foreign_aim_penalty,
+    ideal_x,
 )
+from src.policy import _score, choose_x
 from src.sim_physics import landed_xy, preview_land, simulate_drop, simulate_drop_held
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
@@ -35,7 +34,7 @@ def _obs(*, held_type: int, fruits: tuple[Fruit, ...] = (), next_type: int | Non
 
 def test_empty_board_drops_near_ideal_for_size() -> None:
     x = choose_x(_obs(held_type=0))
-    assert abs(x - _ideal_x(0)) < 40
+    assert abs(x - ideal_x(0)) < 40
 
 
 def test_prefers_same_type_over_empty_low_column() -> None:
@@ -132,7 +131,7 @@ def test_prefers_held_that_enables_next_merge() -> None:
 def test_grows_valley_fruit_when_held_and_next_are_one_smaller() -> None:
     # Grape in the valley, held/next are strawberries (one below the valley fruit). Dropping both makes a grape
     # that merges with the grape in the valley, so place it in the valley instead of escaping to the corner.
-    from src.policy import _valley_grow_ok
+    from src.penalties import valley_grow_ok
 
     orange_r = fruit_radius(4)
     apple_r = fruit_radius(5)
@@ -161,7 +160,7 @@ def test_grows_valley_fruit_when_held_and_next_are_one_smaller() -> None:
     obs = _obs(held_type=1, fruits=fruits, next_type=1)
     land_x, _land_y = preview_land(fruits, 1, choose_x(obs), straw_r)
     assert left.x < land_x < right.x
-    assert _valley_grow_ok(fruits, land_x, 1, 1)
+    assert valley_grow_ok(fruits, land_x, 1, 1)
 
 
 def test_does_not_grow_smaller_junk_in_valley() -> None:
@@ -346,9 +345,9 @@ def test_foreign_aim_ignores_buried_foreign() -> None:
     grape_y = apple.y - math.sqrt((apple_r + grape_r) ** 2 - (grape_x - apple.x) ** 2)
     grape = Fruit(type=2, x=grape_x, y=grape_y, radius=grape_r, confidence=90)
     # Aim at the apple's center column, but what it touches directly below is the offset grape.
-    assert _foreign_aim_penalty((apple, grape), apple.x, 4, orange_r) == 0.0
+    assert foreign_aim_penalty((apple, grape), apple.x, 4, orange_r) == 0.0
     # Aiming straight down onto the head of a different type is penalized.
-    assert _foreign_aim_penalty((apple,), apple.x, 4, orange_r) == FOREIGN_AIM_PENALTY
+    assert foreign_aim_penalty((apple,), apple.x, 4, orange_r) == FOREIGN_AIM_PENALTY
 
 
 def test_foreign_aim_ok_when_same_type_below() -> None:
@@ -356,7 +355,7 @@ def test_foreign_aim_ok_when_same_type_below() -> None:
     orange_r = fruit_radius(4)
     floor = NORMALIZED_HEIGHT - orange_r
     mate = Fruit(type=4, x=200, y=floor, radius=orange_r, confidence=90)
-    assert _foreign_aim_penalty((mate,), mate.x, 4, orange_r) == 0.0
+    assert foreign_aim_penalty((mate,), mate.x, 4, orange_r) == 0.0
 
 
 def test_foreign_aim_penalizes_foreign_below_even_if_near_same_type() -> None:
@@ -371,7 +370,7 @@ def test_foreign_aim_penalizes_foreign_below_even_if_near_same_type() -> None:
         radius=orange_r,
         confidence=90,
     )
-    assert _foreign_aim_penalty((apple, mate), apple.x, 4, orange_r) == FOREIGN_AIM_PENALTY
+    assert foreign_aim_penalty((apple, mate), apple.x, 4, orange_r) == FOREIGN_AIM_PENALTY
 
 
 def test_merges_when_three_same_type_waiting() -> None:
@@ -431,7 +430,7 @@ def _floor(fruit_type: int, x: float) -> Fruit:
 
 def test_floor_packed_allows_gaps_up_to_an_orange() -> None:
     # It need not be connected from wall to wall. A gap an orange does not fit counts as filled.
-    from src.policy import FLOOR_PACKED_GAP, _floor_packed
+    from src.penalties import FLOOR_PACKED_GAP, _floor_packed
 
     assert not _floor_packed(())
 
@@ -456,7 +455,7 @@ def test_floor_packed_allows_gaps_up_to_an_orange() -> None:
 def test_small_side_room_ignores_gap_blocked_by_overhang() -> None:
     # Even if a floor gap is geometrically wide, it does not fit when a roof (another fruit) spans above it.
     # Judging by geometry alone wrongly says there is room (changed to a physics check after it was pointed out).
-    from src.policy import _small_side_room_ok
+    from src.penalties import _small_side_room_ok
 
     peach_r = fruit_radius(7)
     peach = _floor(7, peach_r + 2)
@@ -568,7 +567,7 @@ def test_ladder_needs_no_ignition_hint() -> None:
 
 def test_avoids_under_max_center_on_outer_edge() -> None:
     # Placing a small fruit at the big-side edge beyond the biggest is fine, but avoid the corner pocket below L's center.
-    from src.policy import _big_layout_penalty
+    from src.penalties import _big_layout_penalty
 
     peach_r = fruit_radius(7)
     orange_r = fruit_radius(4)

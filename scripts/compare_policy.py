@@ -51,9 +51,12 @@ def _apply_variant(enabled: bool) -> None:
     adds dead branches, so empty the body once the experiment is over.
     Left empty, A and B are the same policy and a warning that every seed tied appears.
 
+    Weights are swapped by rewriting module attributes. Penalty constants are in src.penalties,
+    search coarseness and the lookahead discount in src.policy.
+
     Example:
-        from src import policy
-        policy.SOME_WEIGHT = 12.0 if enabled else 8.0
+        from src import penalties
+        penalties.PACKED_SMALL_SIDE_WEIGHT = 12.0 if enabled else 8.0
     """
 
 
