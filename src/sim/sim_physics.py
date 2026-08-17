@@ -40,6 +40,9 @@ SCAN_SPEED_MARGIN = 60.0
 # drift from the estimate's premise (speed only increases through gravity).
 MAX_SCAN_SKIP = 16
 
+# Moment of inertia per type (_add_fruit). With mass 1.0 it is a function of radius only, so it can be reused.
+_MOMENTS: dict[int, float] = {}
+
 
 @dataclass
 class _BodyFruit:
@@ -110,7 +113,8 @@ class _QuietGate:
 
     def __init__(self) -> None:
         self.frames = 0
-        self.anchor: tuple[tuple[float, float], ...] | None = None
+        # A flat list alternating x, y. Avoids creating a small tuple per fruit.
+        self.anchor: tuple[float, ...] | None = None
 
     def reset(self) -> None:
         self.frames = 0
@@ -121,11 +125,9 @@ class _QuietGate:
         if not _all_quiet(bodies):
             self.reset()
             return False
-        snap = tuple(_position_tuple(item.body) for item in bodies)
-        if self.anchor is None:
-            self.anchor = snap
-            self.frames = 1
-        elif _max_pos_drift(self.anchor, snap) > SLEEP_DRIFT:
+        snap = _position_snapshot(bodies)
+        anchor = self.anchor
+        if anchor is None or _drifted(anchor, snap):
             self.anchor = snap
             self.frames = 1
         else:
@@ -369,7 +371,12 @@ def _add_fruit(
     fruit_mass = 1.0
 
     r = fruit_radius(fruit_type)
-    moment = pymunk.moment_for_circle(fruit_mass, 0.0, r)
+    # The moment of inertia depends only on radius, so compute it once per type
+    # (simulate_drop rebuilds the board per candidate, so it is called hundreds of times per move).
+    moment = _MOMENTS.get(fruit_type)
+    if moment is None:
+        moment = pymunk.moment_for_circle(fruit_mass, 0.0, r)
+        _MOMENTS[fruit_type] = moment
     body = pymunk.Body(fruit_mass, moment)
     body.position = (x, y)
     if not wake:
@@ -547,34 +554,43 @@ def _scan_merge_pair(
     return best, min_gap, max_speed
 
 
-def _position_tuple(body: pymunk.Body) -> tuple[float, float]:
-    """Read position once and make it (x, y) (avoids reading .x/.y twice)."""
-    pos = body.position
-    return float(pos.x), float(pos.y)
+def _position_snapshot(bodies: list[_BodyFruit]) -> tuple[float, ...]:
+    """Turn every fruit's position into a flat list alternating x, y."""
+    snap: list[float] = []
+    for item in bodies:
+        pos = item.body.position
+        snap.append(pos.x)
+        snap.append(pos.y)
+    return tuple(snap)
 
 
-def _max_pos_drift(
-    anchor: tuple[tuple[float, float], ...],
-    current: tuple[tuple[float, float], ...],
-) -> float:
-    """The max displacement from the position at the start of quiet. Infinity if the count changed (start over)."""
+def _drifted(anchor: tuple[float, ...], current: tuple[float, ...]) -> bool:
+    """Whether any fruit moved more than SLEEP_DRIFT from the position at the start of quiet.
+
+    If the count changed, treat it as drift (start over).
+    """
     if len(anchor) != len(current):
-        return math.inf
-    best = 0.0
-    for (ax, ay), (bx, by) in zip(anchor, current):
-        best = max(best, math.hypot(ax - bx, ay - by))
-    return best
+        return True
+    for i in range(0, len(anchor), 2):
+        if math.hypot(anchor[i] - current[i], anchor[i + 1] - current[i + 1]) > SLEEP_DRIFT:
+            return True
+    return False
 
 
 def _all_quiet(bodies: list[_BodyFruit]) -> bool:
-    if not bodies:
-        return True
-    for item in bodies:
-        v = item.body.velocity
-        speed = math.hypot(v.x, v.y)
-        if speed > SLEEP_VEL:
+    """Whether every fruit is below the threshold in both speed and angular speed.
+
+    Looks from the back. bodies are in insertion order, and the falling fruit (this drop) is at the end, so
+    while it is falling False can be returned on the first one. Every fruit's velocity calls into C
+    through pymunk properties, so the whole read is saved. It is just a predicate taking the AND over all fruits,
+    so the order of looking does not change the result.
+    """
+    for item in reversed(bodies):
+        body = item.body
+        v = body.velocity
+        if math.hypot(v.x, v.y) > SLEEP_VEL:
             return False
-        if abs(item.body.angular_velocity) > SLEEP_ANG:
+        if abs(body.angular_velocity) > SLEEP_ANG:
             return False
     return True
 
