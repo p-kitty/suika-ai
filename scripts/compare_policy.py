@@ -45,7 +45,9 @@ CASCADE_MERGES = 3
 
 
 def _apply_variant(enabled: bool) -> None:
-    """Switch the change to compare here (side B is enabled=True).
+    """Search width A=HELD_TOP 2/NEXT_CANDIDATE_STEP 32 (current) / B=8/16 (old setting).
+
+    Switch the change to compare here (side B is enabled=True).
 
     Called in each worker process before running episodes. Leaving toggles for permanent rules
     adds dead branches, so empty the body once the experiment is over.
@@ -58,6 +60,12 @@ def _apply_variant(enabled: bool) -> None:
         from src import penalties
         penalties.PACKED_SMALL_SIDE_WEIGHT = 12.0 if enabled else 8.0
     """
+    from src import policy
+
+    # Search width: A=current (HELD_TOP=2 / NEXT_CANDIDATE_STEP=32) B=old 8 / 16.
+    # The physics became 2.44x faster, bringing the abandoned old setting back to a realistic cost, so remeasure.
+    policy.HELD_TOP = 8 if enabled else 2
+    policy.NEXT_CANDIDATE_STEP = 16.0 if enabled else 32.0
 
 
 def _episode(
