@@ -79,6 +79,13 @@ got buried here. Read this section before reporting numbers.
   needed to move that difference away from 0). It is unit-independent, so score and moves survived can be
   compared directly. But **picking the metric that looked best in the same dump is selection bias**.
   Adopt it only after confirming it also ranks high on a second dump taken with a different change and different seeds
+- **The proxy metric was settled as `cascades` (number of moves with 3+ merges) (2026-08-17).**
+  It ranked near the top in all three independent dumps (packed / valley_grow / wider_lookahead),
+  stable with sensitivity ratios 1.34 / 1.28 / 1.40 and r(score) 0.83. In wider_lookahead
+  **only cascades detected the difference that score could not make significant** (t=2.36).
+  Other candidates drop out: `early_crown` is 1st in packed but r≒-0.05, unrelated to score, and
+  `steps` / `merges` have a high r=0.97 but about the same sensitivity as score, so no gain.
+  It reduces n only by the sensitivity ratio (at 1.4x the required n is about halved), so it is no silver bullet
 - **Discount the numbers when truncation happens.** Truncated games are the ones that went long, so
   the better the change the more it is underestimated. Natural ends were **measured over 200 runs: mean 213 / median 210 / max 311 moves**
   (the old "300-400 moves" came from one favorable game and was an overestimate).
@@ -159,7 +166,8 @@ a qualitatively different change such as rebuilding the features and architectur
 - The search cost is essentially the number of `simulate_drop` calls. `HELD_TOP` / `NEXT_CANDIDATE_STEP` decide the run time
   (the old 8/16 took 3.8 seconds per move and collection could not keep up. 2/32 gave 1.2 seconds and score -3.4%).
   But the unit cost per call became 2.44x faster on 2026-08-17
-  → [Faster physics](#faster-physics-2026-08-17)
+  → [Faster physics](#faster-physics-2026-08-17). 8/16 was remeasured after speeding up, but
+  **not adopted** → [Re-measuring search width 8/16](#re-measuring-search-width-816-2026-08-17)
 - Do not make `CANDIDATE_STEP` coarser. At 20 the spot directly above a dangerous pile lands on the grid and
   `test_avoids_dangerous_tall_stack` fails. Speed is earned on the lookahead side
 - Cutting `SLEEP_FRAMES` does not work. A single `choose_x` gets faster, but the board settles differently and
@@ -198,6 +206,35 @@ a merge shifts and every later trajectory changes, so it is a sensitive check, n
 **Little headroom remains.** The breakdown is physics ~62% / quiet gate 18.5% / scan 10.8% /
 board setup 5.9%. Cutting physics means fewer substeps or frames,
 which changes play (see the `SLEEP_FRAMES` item too).
+
+### Re-measuring search width 8/16 (2026-08-17)
+
+With the physics 2.44x faster, the settings given up for cost, `HELD_TOP=8` /
+`NEXT_CANDIDATE_STEP=16`, were remeasured. **The effect is positive but not significant, and it was judged not worth
+the cost, so it was not adopted** (the variant in `_apply_variant` was reverted).
+
+**A cheap screening came first.** If widening does not change moves there can be no score difference,
+so the agreement of the x chosen by A and B on the same positions was checked first (deterministic,
+no noise, minutes). On 210 positions, **75.2% agreement** (the x difference when they disagree has a median of 24px,
+max 248px). One move in four differs, so it was judged worth measuring and went to the A/B.
+**Follow this order from now on too.** Minutes of screening before betting hours.
+
+**Result at n=100** (`--max-steps 400`, 0 truncated, 2.4 hours):
+
+- score 2105.7 → 2185.3 (**+79.6 / +3.8%**, t=1.68, 95% CI **[-14.3, +173.5]**). **Not significant**
+- But **all 9 metrics leaned toward B**. Only `cascades` +6.6% is significant
+  (t=2.36, CI [+0.2, +2.2]). Seed head-to-head win 59 / loss 41 / tie 0 (sign test p≒0.07)
+- The point estimate of +3.8% **nearly matches, in an independent measurement,** the old record of "-3.4% for 2/32".
+  Two measurements not significant alone point to the same size
+- Significance needs n≈136. It was within reach, 36 more runs (about 50 minutes)
+- **A direct quantile comparison shows it lifts the bottom and trims the top**:
+  min 1148→1499, 10% 1531→1816, median 2076→2179, 90% 2722→2620, max 3489→3215.
+  Widening the lookahead reduces accidents but also makes big runs less likely. But **type10 reached rose from 12→20 runs**,
+  and the drop in the maximum is largely due to no single standout game appearing
+
+**Reason for not adopting**: 233ms → 856ms per move (**3.68x**) for +3.8%.
+Teacher collection (`train_sim.py`) becoming 3.68x more expensive across the board is heavy. The effect itself is positive, so
+**it is worth reconsidering if a cheaper lookahead can be written in the future** (not a refuted idea).
 
 ### Current penalty rules
 
