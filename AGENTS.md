@@ -123,6 +123,17 @@ All git operations are collected in this section. Do not scatter them into other
 - Run `pytest` before committing (just under 8 seconds). If you changed the policy, report numbers following
   [How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in)
 
+**merge**
+
+- **Do not fast-forward.** When merging into `master`, always use
+  `git merge --no-ff <topic>`. Create a merge commit even if the branches have not diverged
+- Why: it shows afterwards where one piece of work began and ended. Squashing with ff
+  just lines the topic commits up on master, and neither the target for reverting as a unit (`git revert -m 1`)
+  nor the extent of that work can be read any more
+- The merge commit summary can be the default `Merge branch '<topic>'`.
+  If the series of changes needs explaining, write it in the body
+- Run `pytest` on the topic branch before merging
+
 **What is tracked and what is not**
 
 - `screenshots/` is ground truth transcribed by eye, so it is tracked
