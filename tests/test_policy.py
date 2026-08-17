@@ -512,18 +512,20 @@ def _ladder_board() -> tuple[Fruit, ...]:
 
 def test_ladder_detects_full_stack() -> None:
     # 桃→梨→リンゴ→オレンジ が全部段として拾える。
-    from src.policy import _ladder_anchor, _ladder_rungs, _order_sign
+    from src.ladder import find_anchor, rungs
+    from src.policy import _order_sign
 
     fruits = _ladder_board()
     sign = _order_sign(fruits)
-    anchor = _ladder_anchor(fruits, sign)
+    anchor = find_anchor(fruits, sign)
     assert anchor is not None and anchor.type == 7
-    assert sorted(_ladder_rungs(fruits, anchor, sign)) == [4, 5, 6, 7]
+    assert sorted(rungs(fruits, anchor, sign)) == [4, 5, 6, 7]
 
 
 def test_ladder_ignores_vertical_tower() -> None:
     # 桃の真上に梨を積んだ形は梯子ではない (崩れる形なので段に数えない)。
-    from src.policy import _ladder_anchor, _ladder_rungs, _order_sign
+    from src.ladder import find_anchor, rungs
+    from src.policy import _order_sign
 
     peach_r, pear_r = fruit_radius(7), fruit_radius(6)
     peach = Fruit(
@@ -534,9 +536,9 @@ def test_ladder_ignores_vertical_tower() -> None:
     )
     fruits = (peach, tower)
     sign = _order_sign(fruits)
-    anchor = _ladder_anchor(fruits, sign)
+    anchor = find_anchor(fruits, sign)
     assert anchor is not None
-    assert sorted(_ladder_rungs(fruits, anchor, sign)) == [7]
+    assert sorted(rungs(fruits, anchor, sign)) == [7]
 
 
 def test_ladder_needs_no_ignition_hint() -> None:
