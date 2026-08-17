@@ -86,7 +86,7 @@ Examples of sim evaluation, A/B and training runs are in the README Scripts sect
 - `scripts/*.py` follow the pattern of `sys.path.insert` → `from scripts._bootstrap import ROOT`
   at the top (do not write a function that adds the path)
 - Tests do not pin concrete procedures. Assert **properties of the policy** such as merging, danger avoidance and
-  assert (the policy at the top of `tests/test_policy.py`). Fall physics lives in `tests/test_sim_physics.py`
+  accident prevention (the policy at the top of `tests/test_policy.py`). Fall physics lives in `tests/sim/test_sim_physics.py`
 
 ## When touching the policy or training
 

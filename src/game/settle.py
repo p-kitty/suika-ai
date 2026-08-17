@@ -7,8 +7,8 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 
-from .observe import Observation
-from .vision.state import Fruit
+from ..observe import Observation
+from ..vision.state import Fruit
 
 # The settle check looks at raw_fruits (before Tracker smoothing).
 # Waiting is more stable than deciding x on a moving board. Do not compensate with lookahead.

@@ -71,7 +71,7 @@ got buried here. Read this section before reporting numbers.
   Seeing ±100 points as significant needs **n≈100**. Tens of episodes are not enough.
   it is faster to look for a proxy metric with lower variance than score (moves survived, the number of isolated fruits in specific positions and so on)
 - **Do not judge by a rise or fall in the mean alone.** `compare_policy.py` prints, per metric, the paired t value and
-  95% CI (`src/stats.py`). A row whose CI crosses 0 says nothing at that n.
+  95% CI (`src/util/stats.py`). A row whose CI crosses 0 says nothing at that n.
   When not significant it also shows "the n needed to speak to ±100 points"
 - Add `--out artifacts/xxx.json` to long runs to keep per-seed raw data.
   It is written before aggregation, so a bug on the aggregation side does not lose hours of work
@@ -130,13 +130,13 @@ a qualitatively different change such as rebuilding the features and architectur
 
 ## When to move
 
-- Do not decide x on a moving board. Waiting for it to settle takes priority over lookahead (`src/settle.py`)
+- Do not decide x on a moving board. Waiting for it to settle takes priority over lookahead (`src/game/settle.py`)
 - Wait for creep not only on instantaneous velocity but also on sideways drift while quiet
 
 ## Policy (bootstrap) design
 
 - `src/policy.py` is a thin policy before RL. Only merging, dangerous height, burying, light size order and accident prevention for rolling / knock-aways
-- The physics of falling, collision and merging is pymunk (`src/sim_physics.py`; UT in `tests/test_sim_physics.py`).
+- The physics of falling, collision and merging is pymunk (`src/sim/sim_physics.py`; UT in `tests/sim/test_sim_physics.py`).
   `choose_x` scores with the same `simulate_drop`
 - Moves are scored as `eval = score - penalties`. The only bonus is the real game's score; dangerous height, accidents and burying are penalties
 - next lookahead: only the top `HELD_TOP` by held eval are re-evaluated with candidates at spacing `NEXT_CANDIDATE_STEP`
@@ -206,8 +206,8 @@ Notes:
 - `src/reward.py`: `merge_score(merge_types)` gives only merge points identical to the real game (cherry→0 …
   watermelon 55, double clear 65). No survival bonus or death penalty. Episodes end as before
   (losing line / double clear)
-- `src/encode.py`: fixed-length observation vector
-- `src/sim_env.py`: headless drop sim (`sim_physics.simulate_drop`). `SimStep` is the real game's `score`
+- `src/training/encode.py`: fixed-length observation vector
+- `src/sim/sim_env.py`: headless drop sim (`sim_physics.simulate_drop`). `SimStep` is the real game's `score`
   only (no cumulative eval)
 - Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`. `--workers` default = logical cores/2)
 - A/B: `python scripts/compare_policy.py`. Pits two bootstrap variants against each other, reporting not just means but
@@ -217,11 +217,11 @@ Notes:
   A warning appears on truncation. Omitting `--seed` makes it random (reusing fixed seeds invites misreading).
   `--out` saves raw data as JSON
 - Searching for proxy metrics: `python scripts/analyze_ab.py <dump.json>` (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
-- Statistics are in `src/stats.py` (paired t / 95% CI / required n / correlation). scipy is not installed
+- Statistics are in `src/util/stats.py` (paired t / 95% CI / required n / correlation). scipy is not installed
 - Training: `python scripts/train_sim.py` (collect → offline BC. The default max-steps=300 is a cap,
   not the losing line). best is score → moves → match
 - Teacher collection runs in parallel with `ProcessPool` (default workers=logical cores/2; 8 on a 9700X; `--workers 1` for serial)
-- `src/agent.py`: MLP with 32 discrete column bins / hidden 128 (old 20/64 npz files need retraining)
+- `src/training/agent.py`: MLP with 32 discrete column bins / hidden 128 (old 20/64 npz files need retraining)
 - Live play: `python main.py` (defaults to learned if an npz exists. `L` toggles bootstrap, `--policy bootstrap`)
 
 ## Planned: RL (REINFORCE)
@@ -238,7 +238,7 @@ When trying to move on to RL aiming for 3500 points, the existing checkpoints
 score was only about half of bootstrap (~2000-2150) (~1040-1060),
 far from the condition for starting RL (match 60–70%+).
 
-**Bug found (fixed)**: `MAX_FRUITS` in `src/encode.py` was 16,
+**Bug found (fixed)**: `MAX_FRUITS` in `src/training/encode.py` was 16,
 packing the board's fruits starting from the biggest types and ruthlessly cutting off the rest.
 Late in the game boards with over 20 fruits are common (23 measured), and the first to be cut are
 scattered low-tier fruits such as cherry/strawberry —
@@ -260,7 +260,7 @@ plateaued at 900-1150:
   below the best hard (15-21%)
 
 **What we learned and hypotheses**: bootstrap is a policy that actually runs `simulate_drop` per candidate
-and compares the results, and imitating from only the static features of `src/encode.py` (a list of fruit type/x/y/r
+and compares the results, and imitating from only the static features of `src/training/encode.py` (a list of fruit type/x/y/r)
 a 1-hidden-layer MLP learning that "try candidates with physics, then choose" judgment
 plateaued whichever of learning rate, epochs and soft/hard labels was tuned.
 Unless the capacity (hidden width, layer count) or the feature design (such as including per-candidate landing results

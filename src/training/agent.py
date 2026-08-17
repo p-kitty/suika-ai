@@ -8,8 +8,8 @@ from os import PathLike
 import numpy as np
 
 from .encode import OBS_DIM, encode
-from .observe import Observation, clamp_drop_x
-from .vision.normalized import NORMALIZED_WIDTH
+from ..observe import Observation, clamp_drop_x
+from ..vision.normalized import NORMALIZED_WIDTH
 
 # Number of bins for the drop column (the finer, the closer it can get to the teacher's continuous x).
 N_ACTIONS = 32

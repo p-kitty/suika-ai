@@ -2,7 +2,7 @@
 
 import math
 
-from src.sim_physics import (
+from src.sim.sim_physics import (
     _add_fruit,
     _build_space,
     _merge_pair,
@@ -154,7 +154,7 @@ def test_held_merge_pulls_toward_held() -> None:
 def test_held_merge_pull_grows_with_side_offset() -> None:
     # The narrower the side graze, the larger the sideways speed at the moment of merging (movement based).
 
-    from src.sim_physics import DT, _find_merge_pair
+    from src.sim.sim_physics import DT, _find_merge_pair
 
     r = fruit_radius(4)
     ex = 180.0
@@ -179,7 +179,7 @@ def test_held_merge_pull_grows_with_side_offset() -> None:
 
 def test_foreign_hit_clears_held_drop_flag() -> None:
     # The moment it touches a different type, held loses its sideways pull eligibility.
-    from src.sim_physics import _advance
+    from src.sim.sim_physics import _advance
 
     orange_r = fruit_radius(4)
     cherry_r = fruit_radius(0)
@@ -206,7 +206,7 @@ def test_foreign_hit_clears_held_drop_flag() -> None:
 
 def test_merge_without_held_flag_skips_side_pull() -> None:
     # A merge after is_held_drop is cleared gets no sideways pull even with the same geometry.
-    from src.sim_physics import _find_merge_pair
+    from src.sim.sim_physics import _find_merge_pair
 
     r = fruit_radius(4)
     y = NORMALIZED_HEIGHT - r
@@ -235,7 +235,7 @@ def test_merge_without_held_flag_skips_side_pull() -> None:
 
 def test_merge_prefers_upper_over_velocity_direction() -> None:
     # If there is one above, prefer above over the direction of travel.
-    from src.sim_physics import _find_merge_pair
+    from src.sim.sim_physics import _find_merge_pair
 
     r = fruit_radius(4)
     y = 300.0
@@ -252,7 +252,7 @@ def test_merge_prefers_upper_over_velocity_direction() -> None:
 
 def test_merge_prefers_velocity_direction_when_same_height() -> None:
     # At the same height, prefer the partner in the vx direction.
-    from src.sim_physics import _find_merge_pair
+    from src.sim.sim_physics import _find_merge_pair
 
     r = fruit_radius(4)
     y = 300.0
@@ -284,7 +284,7 @@ def test_board_merge_cancels_opposing_velocity() -> None:
 
 def test_quiet_gate_rejects_slow_drift() -> None:
     # Even below the speed threshold, keep drifting in one direction means not settled.
-    from src.sim_physics import (
+    from src.sim.sim_physics import (
         DT,
         SLEEP_DRIFT,
         SLEEP_FRAMES,
@@ -314,7 +314,7 @@ def test_quiet_gate_rejects_slow_drift() -> None:
 
 
 def test_quiet_gate_accepts_true_rest() -> None:
-    from src.sim_physics import DT, SLEEP_FRAMES, _QuietGate, _add_fruit, _build_space
+    from src.sim.sim_physics import DT, SLEEP_FRAMES, _QuietGate, _add_fruit, _build_space
 
     space, bodies = _build_space(())
     space.gravity = (0.0, 0.0)

@@ -72,21 +72,22 @@ vulture
 main.py                 # live loop (capture → observe → policy → act)
 config/config.json      # runtime config
 src/
-  env.py                # drop → wait → read
   observe.py            # observation (ready / held / next / fruits)
   policy.py             # bootstrap policy (merges, danger height, mishap guards)
-  sim_physics.py        # drop / roll / merge (pymunk)
-  agent.py              # linear policy over 20 discrete columns
-  encode.py             # fixed-length observation vector
+  penalties.py          # board penalty rules the policy scores against
+  ladder.py             # ladder detection (detection only; not wired into play)
   reward.py             # game-identical merge scores only
-  sim_env.py            # headless drop sim
-  capture.py / control.py / settle.py
   vision/               # board, fruit, held / next detection
+  game/                 # live game I/O: capture, control, settle, tracker, env
+  sim/                  # headless sim: sim_physics (pymunk), sim_env
+  training/             # agent, observation encoding, BC + REINFORCE
+  viz/                  # drawing helpers, overlay preview, debug frame dump
+  util/                 # config, image I/O, worker count, A/B statistics
 scripts/
   eval_policy.py
   train_sim.py
   check_detection.py
-tests/
+tests/                  # mirrors src/ (game/, sim/, training/, util/, vision/)
 ```
 
 ## Notes

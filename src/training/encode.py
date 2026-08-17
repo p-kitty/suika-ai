@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from .observe import Observation
-from .vision.colors import FRUIT_NAMES
-from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
+from ..observe import Observation
+from ..vision.colors import FRUIT_NAMES
+from ..vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 
 N_TYPES = len(FRUIT_NAMES)
 # Cap on fruits loaded, biggest first. Boards with over 20 fruits are common from the midgame on

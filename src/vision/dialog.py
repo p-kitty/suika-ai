@@ -4,7 +4,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from ..imagefile import read
+from ..util.imagefile import read
 
 TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "templates" / "continue_button.png"
 
