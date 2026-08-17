@@ -135,6 +135,44 @@ showed a plateau, and fine-tuning bootstrap or extending shallow lookahead gives
 outlook toward 3500 points. What to try next would need 100+ episodes of re-verification, or
 a qualitatively different change such as rebuilding the features and architecture of the learned policy itself.
 
+### Investigated: the bonus side of eval is not the bottleneck (2026-08-17)
+
+**Hypothesis** (wrong): the bonus in `eval = score - penalties` is the real game's score itself, so
+a cherry merge is only 1 point and even a grape merge only 3. Meanwhile penalties are on the order of `EXCESS_SAME`
+20 and `FOREIGN_AIM` 100. So perhaps the motive to clean up small fruits is structurally
+buried, leading to the "sudden death from scattered low tiers" above.
+
+**What was tried**: `FRAGMENT_WEIGHT`, penalizing the number of fruits on the board itself
+(`w * len(fruits)` in `board_penalties`). One merge lowers the count by 1, so
+this is mathematically the same shape as "a merge bonus independent of type". The one fruit always added by the drop
+is common to all candidates, so it does not affect move choice, and it applies in the same form to the next move of the lookahead.
+It was tried as a change to the shape of the bonus side rather than adding a separate penalty rule.
+
+**It failed before reaching an A/B.** In agreement screening (3 seeds × 60 moves = 180 positions), the fraction choosing
+the same x as current was **98.9-98.3% at w=3-15, and still 94.4% at w=25**.
+It is nearly a no-op, so score was not measured (judged not worth betting hours).
+
+**Why it does not work (recounted without thinning candidates, 3 seeds × 90 moves = 270 moves)**:
+
+| | |
+|---|---|
+| moves that merged | 138 (51%) |
+| moves that passed up an available merging x | **6 (2%)** |
+| moves with no merge available anywhere | 126 (47%) |
+
+**In 96% of positions where a merge is possible, the current policy already takes it.** Even with a 1-point bonus,
+merging removes a fruit and lifts the bury, excess-same and height penalties wholesale, so
+**lifting penalties was standing in for the bonus**. Thickening the bonus side has nowhere to add to.
+
+**The view of the cause of death is updated too.** Measured by game progress (3 games, 575 moves), the fraction of "moves that can merge" is
+47% early → 57% late, and **does not fall late** (the actual merge rate follows it).
+Meanwhile the fruit count keeps rising, 4.3 → 17.0. So the late collapse is
+not "**it can no longer merge**" but "**merging cannot keep up with supply**".
+Each move always adds one fruit, while a single merge removes only one; only cascades
+remove several. That `cascades` is consistently the sharpest in [proxy metrics](#how-to-measure-traps-we-keep-stepping-in)
+is consistent with this too. If intervening, aiming at **how easily cascades happen**
+looks like the better approach.
+
 ## When to move
 
 - Do not decide x on a moving board. Waiting for it to settle takes priority over lookahead (`src/game/settle.py`)
