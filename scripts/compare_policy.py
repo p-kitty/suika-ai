@@ -51,9 +51,12 @@ def _apply_variant(enabled: bool) -> None:
     トグルを残しておくと死んだ分岐が増えるので、実験が終わったら中身は空に
     戻す。空のままだと A と B が同じ方策になり、全シード tie の警告が出る。
 
+    重みはモジュール属性を書き換えて差し替える。減点側の定数は src.penalties、
+    探索の粗さや先読み割引は src.policy にある。
+
     例:
-        from src import policy
-        policy.SOME_WEIGHT = 12.0 if enabled else 8.0
+        from src import penalties
+        penalties.PACKED_SMALL_SIDE_WEIGHT = 12.0 if enabled else 8.0
     """
 
 
