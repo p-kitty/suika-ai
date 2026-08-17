@@ -30,12 +30,12 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.draw import FRUIT_BGR, mode_badge, put_text
+from src.viz.draw import FRUIT_BGR, mode_badge, put_text
 from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
 from src.reward import GAME_OVER_Y
-from src.sim_env import SimEnv
-from src.sim_physics import DT, iter_simulate_drop, land_y
+from src.sim.sim_env import SimEnv
+from src.sim.sim_physics import DT, iter_simulate_drop, land_y
 from src.vision.classify import fruit_radius
 from src.vision.colors import FRUIT_NAMES
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH

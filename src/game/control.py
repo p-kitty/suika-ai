@@ -14,8 +14,8 @@ from ctypes import wintypes
 
 import numpy as np
 
-from .observe import Observation
-from .vision.normalized import NORMALIZED_WIDTH
+from ..observe import Observation
+from ..vision.normalized import NORMALIZED_WIDTH
 
 # Win32 のマウス入力。
 INPUT_MOUSE = 0

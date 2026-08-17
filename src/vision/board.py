@@ -3,8 +3,8 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from ..config import load
-from ..draw import put_text
+from ..util.config import load
+from ..viz.draw import put_text
 from .colors import BOARD_FRAME_HSV
 from .dialog import is_blocked
 from .fruits import detect as detect_fruits

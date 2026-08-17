@@ -34,9 +34,9 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.parallel import default_workers
+from src.util.parallel import default_workers
 from src.reward import watermelon_count
-from src.stats import correlation, paired_stats
+from src.util.stats import correlation, paired_stats
 
 # 序盤とみなす手数。ここまでの崩れ方を後半と分けて見る。
 EARLY_STEPS = 30
@@ -72,7 +72,7 @@ def _episode(
     エピソード自体を ProcessPool に分散する側では二重並列を避けるため None のまま。
     """
     from src.policy import choose_x
-    from src.sim_env import SimEnv
+    from src.sim.sim_env import SimEnv
 
     _apply_variant(variant)
 

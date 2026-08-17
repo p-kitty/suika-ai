@@ -34,7 +34,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.stats import correlation, detect_n, paired_stats, pairing_gain
+from src.util.stats import correlation, detect_n, paired_stats, pairing_gain
 
 # seed は指標ではない。
 SKIP = {"seed"}

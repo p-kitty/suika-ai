@@ -6,10 +6,10 @@ from concurrent.futures import Executor, ProcessPoolExecutor, as_completed
 
 import numpy as np
 
-from ..agent import x_to_action
-from ..encode import encode
+from .agent import x_to_action
+from .encode import encode
 from ..policy import choose_x
-from ..sim_env import SimEnv
+from ..sim.sim_env import SimEnv
 
 
 def collect_teacher_episode(

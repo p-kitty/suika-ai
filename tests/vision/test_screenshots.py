@@ -13,13 +13,13 @@ from pathlib import Path
 
 import pytest
 
-from src.imagefile import read
+from src.util.imagefile import read
 from src.vision.board import localize
 from src.vision.classify import fruit_radius_ratios
 from src.vision.colors import FRUIT_NAMES
 from src.vision.normalized import NORMALIZED_WIDTH
 from src.vision.state import Fruit
-from tests.expected_fruits import (
+from tests.vision.expected_fruits import (
     BLOCKED,
     EXPECTED,
     EXPECTED_HELD,
@@ -27,7 +27,7 @@ from tests.expected_fruits import (
     KNOWN_FAILURES,
 )
 
-SCREENSHOTS = Path(__file__).resolve().parents[1] / "screenshots"
+SCREENSHOTS = Path(__file__).resolve().parents[2] / "screenshots"
 
 
 @lru_cache(maxsize=None)

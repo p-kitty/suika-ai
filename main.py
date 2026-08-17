@@ -6,16 +6,16 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from src.agent import LinearPolicy
-from src.capture import CAPTURE_FPS, capture
-from src.config import load
-from src.debug_dump import dump
-from src.env import Env
-from src.hotkeys import EdgeKey
+from src.training.agent import LinearPolicy
+from src.game.capture import CAPTURE_FPS, capture
+from src.util.config import load
+from src.viz.debug_dump import dump
+from src.game.env import Env
+from src.game.hotkeys import EdgeKey
 from src.observe import Observation
 from src.policy import choose_x
-from src.preview import PreviewState, render_preview
-from src.window import maximize_window
+from src.viz.preview import PreviewState, render_preview
+from src.game.window import maximize_window
 
 WINDOW_TITLE = "Suika"
 MESSAGE_SECONDS = 3.0

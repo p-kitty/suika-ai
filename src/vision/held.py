@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from ..draw import Color, put_text
+from ..viz.draw import Color, put_text
 from .blobs import circle_peaks, solid_mask
 from .classify import ClassifyResult, classify, fruit_radius_ratios, sample_hsv
 from .colors import SPAWN_MAX_TYPE, vivid_mask

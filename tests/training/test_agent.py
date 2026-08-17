@@ -2,16 +2,16 @@
 
 import numpy as np
 
-from src.agent import (
+from src.training.agent import (
     N_ACTIONS,
     LinearPolicy,
     action_to_x,
     teacher_action_target,
     x_to_action,
 )
-from src.encode import OBS_DIM, encode
+from src.training.encode import OBS_DIM, encode
 from src.policy import choose_x
-from src.sim_env import SimEnv
+from src.sim.sim_env import SimEnv
 
 
 def test_action_to_x_in_board() -> None:

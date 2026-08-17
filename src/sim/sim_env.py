@@ -6,12 +6,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .observe import Observation, clamp_drop_x
-from .policy import drop_scores
-from .reward import cleared_double_watermelon, is_game_over
-from .vision.colors import SPAWN_MAX_TYPE
-from .vision.normalized import NORMALIZED_WIDTH
-from .vision.state import Fruit
+from ..observe import Observation, clamp_drop_x
+from ..policy import drop_scores
+from ..reward import cleared_double_watermelon, is_game_over
+from ..vision.colors import SPAWN_MAX_TYPE
+from ..vision.normalized import NORMALIZED_WIDTH
+from ..vision.state import Fruit
 
 
 @dataclass

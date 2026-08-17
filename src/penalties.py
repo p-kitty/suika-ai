@@ -19,7 +19,7 @@ import math
 import statistics
 
 from .observe import clamp_drop_x
-from .sim_physics import landed_xy, simulate_drop_held
+from .sim.sim_physics import landed_xy, simulate_drop_held
 from .vision.classify import fruit_radius
 from .vision.colors import MAX_FRUIT_TYPE, SPAWN_MAX_TYPE
 from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH

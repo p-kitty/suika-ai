@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from src.draw import FRUIT_BGR, mode_badge, put_text
+from src.viz.draw import FRUIT_BGR, mode_badge, put_text
 from src.observe import Observation, clamp_drop_x
 from src.policy import drop_scores
 from src.reward import GAME_OVER_Y

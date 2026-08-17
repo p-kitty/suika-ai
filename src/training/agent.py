@@ -8,8 +8,8 @@ from os import PathLike
 import numpy as np
 
 from .encode import OBS_DIM, encode
-from .observe import Observation, clamp_drop_x
-from .vision.normalized import NORMALIZED_WIDTH
+from ..observe import Observation, clamp_drop_x
+from ..vision.normalized import NORMALIZED_WIDTH
 
 # 落とす列のビン数 (細かいほど先生の連続 x に寄せやすい)。
 N_ACTIONS = 32

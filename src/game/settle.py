@@ -7,8 +7,8 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 
-from .observe import Observation
-from .vision.state import Fruit
+from ..observe import Observation
+from ..vision.state import Fruit
 
 # 静止判定は raw_fruits (Tracker 平滑化前) を見る。
 # 動いている盤で x を決めるより待つ方が安定する。先読みで補わない。
