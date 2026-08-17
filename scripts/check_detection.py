@@ -18,8 +18,8 @@ if __package__ in (None, ""):
 
 from scripts._bootstrap import ROOT
 
-from src.draw import put_text
-from src.imagefile import read, write
+from src.viz.draw import put_text
+from src.util.imagefile import read, write
 from src.vision.board import localize
 from src.vision.classify import fruit_radius_ratios
 from src.vision.fruits import detect, fruit_mask

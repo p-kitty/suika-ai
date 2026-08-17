@@ -6,8 +6,8 @@ import statistics
 
 import numpy as np
 
-from ..agent import LinearPolicy
-from ..sim_env import SimEnv
+from .agent import LinearPolicy
+from ..sim.sim_env import SimEnv
 
 
 def match_rate(

@@ -24,8 +24,8 @@ if __package__ in (None, ""):
 
 from scripts._bootstrap import ROOT
 
-from src.agent import LinearPolicy
-from src.parallel import default_workers
+from src.training.agent import LinearPolicy
+from src.util.parallel import default_workers
 from src.training.bc import eval_student, match_rate, run_rl_batch, train_bc_epoch
 from src.training.collect import collect_teacher_episodes
 

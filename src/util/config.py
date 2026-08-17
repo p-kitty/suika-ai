@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "config.json"
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.json"
 
 Config = dict[str, Any]
 

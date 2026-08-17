@@ -2,7 +2,7 @@ import math
 from collections import Counter, deque
 from dataclasses import dataclass, field
 
-from .vision.state import Fruit
+from ..vision.state import Fruit
 
 # Do not drop tracks even when detection is missing for a few frames. Prevents stationary fruits from blinking.
 MAX_MISSING = 5

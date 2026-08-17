@@ -2,7 +2,7 @@
 
 from src.policy import choose_x
 from src.reward import CLEAR_SCORE, WATERMELON
-from src.sim_env import SimEnv
+from src.sim.sim_env import SimEnv
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT
 from src.vision.state import Fruit

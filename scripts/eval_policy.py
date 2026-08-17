@@ -20,11 +20,11 @@ if __package__ in (None, ""):
 
 from scripts._bootstrap import ROOT
 
-from src.agent import LinearPolicy
-from src.parallel import default_workers
+from src.training.agent import LinearPolicy
+from src.util.parallel import default_workers
 from src.policy import choose_x
 from src.reward import watermelon_count
-from src.sim_env import SimEnv
+from src.sim.sim_env import SimEnv
 
 DEFAULT_CKPT = ROOT / "artifacts" / "policy_sim.npz"
 
