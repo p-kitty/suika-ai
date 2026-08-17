@@ -123,6 +123,17 @@ git の操作はこの節にまとめる。他の節に散らさない。
 - commit 前に `pytest`（8 秒弱）。方策を変えたなら数字は
   [測定のしかた](NOTES.md#測定のしかた何度も踏んでいる罠) の作法で
 
+**merge**
+
+- **fast-forward しない。** `master` へ入れるときは必ず
+  `git merge --no-ff <topic>`。分岐していなくても merge commit を作る
+- 理由: どこからどこまでが 1 つの作業だったかが後から見える。ff で潰すと
+  topic の commit が master に並ぶだけになり、まとめて戻す（`git revert -m 1`）
+  対象も、その作業がどの範囲だったかも読めなくなる
+- merge commit の要約は既定の `Merge branch '<topic>'` でよい。
+  一連の変更に説明が要るなら本文に書く
+- merge 前に topic 側で `pytest` を通す
+
 **追跡するもの・しないもの**
 
 - `screenshots/` は目視で起こした正解データなので追跡する
