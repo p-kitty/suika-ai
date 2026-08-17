@@ -426,7 +426,11 @@ def _merge_pair(
     """
     # Sideways pull of held merges. Stronger the larger the movement (a narrow side graze).
     side_min = 0.08
-    travel_gain = 14.0
+    # Halved from 14.0 (2026-08-18). The pull is decided almost entirely by the travel term (the speed term is
+    # 1-8% of the total), so even a gently touching merge gets the same kick as a full-speed collision.
+    # At 14.0, a narrow side graze of type 6 reached vx 548 px/s (board width 400), and in merges with
+    # open surroundings the new fruit crossed the board.
+    travel_gain = 7.0
     speed_gain = 0.06
 
     source = a.fruit_type

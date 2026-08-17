@@ -245,6 +245,37 @@ a merge shifts and every later trajectory changes, so it is a sensitive check, n
 board setup 5.9%. Cutting physics means fewer substeps or frames,
 which changes play (see the `SLEEP_FRAMES` item too).
 
+### Halved the sideways pull of held merges (2026-08-18)
+
+`travel_gain` of `_merge_pair` went **14.0 → 7.0**. From the point that on held merges in the air
+(where no fruits are around) the new fruit flies sideways too strongly.
+
+**The pull was decided almost entirely by geometry.** Measuring the breakdown at the moment of merging,
+the speed term `speed * speed_gain * side_frac²` was only **1-8%** of the total, and the rest was
+`travel * travel_gain` (= sideways movement to the midpoint). So **even a gently touching merge got
+a sideways kick as large as a full-speed collision**.
+
+vx right after merging at 14.0 (board width 400):
+
+| type | side_frac 0.10 | 0.25 | 0.45 | 0.65 |
+|---|---|---|---|---|
+| 1 | 30 | 79 | 150 | 230 |
+| 4 | 55 | 141 | 262 | 391 |
+| 6 | 79 | 201 | 370 | 548 |
+
+The bigger the type the bigger `travel`, so a narrow side merge of a big fruit gives 548px/s =
+1.4 board widths per second. If the surroundings are packed it gets pushed back, but when open it crosses the board.
+
+**It cannot be separated by "contact or not".** Same types have physical collision off
+(`_on_fruit_begin`), so held's contact count at the moment of merging is **0** in every case above.
+It cannot become a check targeting only "merges touching nothing", so a uniform damping was used.
+
+**Score was not measured.** Play changes (trajectories change, so moves can too), but
+this is not policy tuning but a fidelity fix toward the real game; the comparison is the real game's behavior,
+not score. All 161 UTs pass unchanged (`test_held_merge_pulls_toward_held` /
+`test_held_merge_pull_grows_with_side_offset` check direction and monotonicity and
+do not depend on absolute values). If too strong / too weak remains, move only `travel_gain`.
+
 ### Re-measuring search width 8/16 (2026-08-17)
 
 With the physics 2.44x faster, the settings given up for cost, `HELD_TOP=8` /
