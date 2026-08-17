@@ -40,6 +40,9 @@ SCAN_SPEED_MARGIN = 60.0
 # 見積もりの前提 (速度は重力でしか増えない) から離れていく。
 MAX_SCAN_SKIP = 16
 
+# 型ごとの慣性モーメント (_add_fruit)。質量 1.0・半径だけの関数なので使い回せる。
+_MOMENTS: dict[int, float] = {}
+
 
 @dataclass
 class _BodyFruit:
@@ -110,7 +113,8 @@ class _QuietGate:
 
     def __init__(self) -> None:
         self.frames = 0
-        self.anchor: tuple[tuple[float, float], ...] | None = None
+        # x, y を交互に並べた平坦な列。実ごとに小さい tuple を作らないため。
+        self.anchor: tuple[float, ...] | None = None
 
     def reset(self) -> None:
         self.frames = 0
@@ -121,11 +125,9 @@ class _QuietGate:
         if not _all_quiet(bodies):
             self.reset()
             return False
-        snap = tuple(_position_tuple(item.body) for item in bodies)
-        if self.anchor is None:
-            self.anchor = snap
-            self.frames = 1
-        elif _max_pos_drift(self.anchor, snap) > SLEEP_DRIFT:
+        snap = _position_snapshot(bodies)
+        anchor = self.anchor
+        if anchor is None or _drifted(anchor, snap):
             self.anchor = snap
             self.frames = 1
         else:
@@ -369,7 +371,12 @@ def _add_fruit(
     fruit_mass = 1.0
 
     r = fruit_radius(fruit_type)
-    moment = pymunk.moment_for_circle(fruit_mass, 0.0, r)
+    # 慣性モーメントは半径だけで決まるので型ごとに 1 度だけ計算する
+    # (simulate_drop は候補ごとに盤を組み直すので、1 手で数百回呼ばれる)。
+    moment = _MOMENTS.get(fruit_type)
+    if moment is None:
+        moment = pymunk.moment_for_circle(fruit_mass, 0.0, r)
+        _MOMENTS[fruit_type] = moment
     body = pymunk.Body(fruit_mass, moment)
     body.position = (x, y)
     if not wake:
@@ -547,34 +554,43 @@ def _scan_merge_pair(
     return best, min_gap, max_speed
 
 
-def _position_tuple(body: pymunk.Body) -> tuple[float, float]:
-    """position を 1 回だけ読んで (x, y) にする (.x/.y の二重読みを避ける)。"""
-    pos = body.position
-    return float(pos.x), float(pos.y)
+def _position_snapshot(bodies: list[_BodyFruit]) -> tuple[float, ...]:
+    """全実の位置を x, y 交互の平坦な列にする。"""
+    snap: list[float] = []
+    for item in bodies:
+        pos = item.body.position
+        snap.append(pos.x)
+        snap.append(pos.y)
+    return tuple(snap)
 
 
-def _max_pos_drift(
-    anchor: tuple[tuple[float, float], ...],
-    current: tuple[tuple[float, float], ...],
-) -> float:
-    """静穏開始位置からの最大変位。個数が変わったら無限大 (やり直し)。"""
+def _drifted(anchor: tuple[float, ...], current: tuple[float, ...]) -> bool:
+    """静穏開始位置から SLEEP_DRIFT を超えて動いた実があるか。
+
+    個数が変わっていたらドリフト扱い (やり直し)。
+    """
     if len(anchor) != len(current):
-        return math.inf
-    best = 0.0
-    for (ax, ay), (bx, by) in zip(anchor, current):
-        best = max(best, math.hypot(ax - bx, ay - by))
-    return best
+        return True
+    for i in range(0, len(anchor), 2):
+        if math.hypot(anchor[i] - current[i], anchor[i + 1] - current[i + 1]) > SLEEP_DRIFT:
+            return True
+    return False
 
 
 def _all_quiet(bodies: list[_BodyFruit]) -> bool:
-    if not bodies:
-        return True
-    for item in bodies:
-        v = item.body.velocity
-        speed = math.hypot(v.x, v.y)
-        if speed > SLEEP_VEL:
+    """全実が速度・角速度とも閾値未満か。
+
+    後ろから見る。bodies は追加順で、落下中の実 (今回のドロップ) が末尾にいるので、
+    落ちているあいだは 1 個目で False を返せる。全実の velocity は pymunk の
+    プロパティ経由で C を呼ぶので、その読み取りを丸ごと省ける。全実の AND を
+    取るだけの述語なので、見る順番で結果は変わらない。
+    """
+    for item in reversed(bodies):
+        body = item.body
+        v = body.velocity
+        if math.hypot(v.x, v.y) > SLEEP_VEL:
             return False
-        if abs(item.body.angular_velocity) > SLEEP_ANG:
+        if abs(body.angular_velocity) > SLEEP_ANG:
             return False
     return True
 
