@@ -45,7 +45,9 @@ CASCADE_MERGES = 3
 
 
 def _apply_variant(enabled: bool) -> None:
-    """比較したい変更をここで切り替える (B 側が enabled=True)。
+    """探索幅 A=HELD_TOP 2/NEXT_CANDIDATE_STEP 32 (現行) / B=8/16 (旧設定)。
+
+    比較したい変更をここで切り替える (B 側が enabled=True)。
 
     ワーカープロセスごとに、エピソードを回す前に呼ばれる。恒久化した規則の
     トグルを残しておくと死んだ分岐が増えるので、実験が終わったら中身は空に
@@ -58,6 +60,12 @@ def _apply_variant(enabled: bool) -> None:
         from src import penalties
         penalties.PACKED_SMALL_SIDE_WEIGHT = 12.0 if enabled else 8.0
     """
+    from src import policy
+
+    # 探索幅: A=現行 (HELD_TOP=2 / NEXT_CANDIDATE_STEP=32) B=旧 8 / 16。
+    # 物理が 2.44 倍速くなって、諦めた旧設定が現実的なコストに戻ったので測り直す。
+    policy.HELD_TOP = 8 if enabled else 2
+    policy.NEXT_CANDIDATE_STEP = 16.0 if enabled else 32.0
 
 
 def _episode(
