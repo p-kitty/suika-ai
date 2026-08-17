@@ -23,6 +23,36 @@ Where things go when unsure:
 
 If you feel like writing details in AGENTS.md, do not; link to a NOTES.md section instead.
 
+## When in doubt, ask before touching anything
+
+**Confirm once before starting anything that is expensive to redo.** Asking after you start
+wastes all the time already spent.
+
+Ask first:
+
+- **When running a measurement that takes hours.** Estimate the time from `--episodes` × `--max-steps`,
+  and confirm together with what that n can tell us ([How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in)).
+  There are examples such as 2.6 hours at n=100 and n=529 = 14 hours to reach significance
+- **When overturning a decision settled in NOTES.md.** To bring back or delete something marked
+  "made permanent", "reverted" or "won't do", present the evidence and confirm
+- **When changing the design.** Splitting or renaming modules, large refactors, rebuilding features or
+  the network architecture, adding keys to `config/config.json`, adding dependencies
+  (scipy is deliberately not installed)
+- **When touching detection thresholds or physics constants.** They ripple into the ground truth in `screenshots/` and the fidelity of `SimEnv`.
+  Fixing one place breaks another scene
+- **When deleting.** Even things that look unused, like `src/ladder.py`, can be investigation groundwork
+  kept on purpose. Confirm before deleting anything vulture lists too
+- **When a request can be read two ways and misreading it wastes the whole job**
+
+OK to proceed without asking:
+
+- Bug fixes, adding tests, fixing lint, recording in NOTES.md
+- Cutting a branch, committing ([git](#git))
+- Short sim runs (ones that finish in minutes)
+- When a request reads two ways but the deliverable is nearly the same either way
+
+Ask everything in one go. Include the options and a recommendation, and keep doing the parts that do not depend on the answer.
+
 ## Environment
 
 - Windows / PowerShell. `.venv` sits at the repo root, and `python` and `pytest` point there
