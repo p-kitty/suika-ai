@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from src.encode import N_TYPES, OBS_DIM, encode
+from src.training.encode import N_TYPES, OBS_DIM, encode
 from src.observe import Observation
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT

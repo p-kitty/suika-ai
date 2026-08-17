@@ -86,7 +86,7 @@ sim の評価・A/B・学習の実行例は README の Scripts と
 - `scripts/*.py` は先頭の `sys.path.insert` → `from scripts._bootstrap import ROOT`
   の形を踏襲する（path を足す関数は作らない）
 - test は具体手順を固定しない。合成・危険回避・事故防止といった**方策の性質**を
-  assert する（`tests/test_policy.py` の冒頭方針）。落下物理は `tests/test_sim_physics.py`
+  assert する（`tests/test_policy.py` の冒頭方針）。落下物理は `tests/sim/test_sim_physics.py`
 
 ## 方策・学習を触るとき
 

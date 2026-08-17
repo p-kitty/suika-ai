@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src import control
+from src.game import control
 from src.observe import Observation
 from src.vision.normalized import NORMALIZED_WIDTH
 
@@ -151,7 +151,7 @@ def test_drop_skips_click_when_aborted(world: FakeWorld) -> None:
 
 def test_step_drops_settles_and_recenters(monkeypatch: pytest.MonkeyPatch) -> None:
     """Env.step が 落とす → 静止待ち → 中央復帰 の順。"""
-    from src.env import Env
+    from src.game.env import Env
     from src.observe import Observation
 
     events: list[str] = []
@@ -181,11 +181,11 @@ def test_step_drops_settles_and_recenters(monkeypatch: pytest.MonkeyPatch) -> No
         lambda target, read, abort=None: events.append(f"drop:{target:.0f}") or True,
     )
     monkeypatch.setattr(
-        "src.env._wait_held_gone",
+        "src.game.env._wait_held_gone",
         lambda *_args, **_kwargs: events.append("held_gone"),
     )
     monkeypatch.setattr(
-        "src.env.settle.wait_playable",
+        "src.game.env.settle.wait_playable",
         lambda *_args, **_kwargs: events.append("playable") or after,
     )
     monkeypatch.setattr(

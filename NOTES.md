@@ -71,7 +71,7 @@
   ±100 点を有意に見るには **n≈100** 要る。数十エピソードでは足りない。
   score より低分散な代理指標（生存手数、特定局面での孤立実の個数など）を探す方が早い
 - **平均の増減だけで判断しない。** `compare_policy.py` が指標ごとにペア差の t 値と
-  95% CI を出す（`src/stats.py`）。CI が 0 をまたぐ行はその n では何も言えていない。
+  95% CI を出す（`src/util/stats.py`）。CI が 0 をまたぐ行はその n では何も言えていない。
   有意でないときは「±100 点を語るのに必要な n」も表示する
 - 長い実行には `--out artifacts/xxx.json` を付けてシードごとの生データを残す。
   集計より先に書き出すので、集計側の不具合で数時間ぶんを失わない
@@ -130,13 +130,13 @@ cherry 5〜8 個・grape 3 個・dekopon 4 個など低段位の実が合成さ�
 
 ## 着手タイミング
 
-- 動いている盤で x を決めない。先読みより静止待ちを優先（`src/settle.py`）
+- 動いている盤で x を決めない。先読みより静止待ちを優先（`src/game/settle.py`）
 - 瞬間速度だけでなく、静穏中の横ドリフトでも creep を待つ
 
 ## 方策 (bootstrap) の設計
 
 - `src/policy.py` は RL 前の薄い方策。合成・危険高さ・埋め込み・薄い大小順・転がり／弾かれの事故防止だけ
-- 落下・衝突・合成の物理は pymunk（`src/sim_physics.py`。UT は `tests/test_sim_physics.py`）。
+- 落下・衝突・合成の物理は pymunk（`src/sim/sim_physics.py`。UT は `tests/sim/test_sim_physics.py`）。
   `choose_x` も同じ `simulate_drop` を採点に使う
 - 手の採点は `eval = score - penalties`。加点は本家点だけで、危険高さ・事故・埋め込みは減点で表す
 - next 先読み: held の eval 上位 `HELD_TOP` 本だけを、刻み `NEXT_CANDIDATE_STEP` の候補で
@@ -206,8 +206,8 @@ cherry 5〜8 個・grape 3 個・dekopon 4 個など低段位の実が合成さ�
 - `src/reward.py`: `merge_score(merge_types)` が本家と同じ合成点のみ（cherry→0 …
   watermelon 55、ダブル消去 65）。生存加点・死亡減点なし。エピソード終了は従来どおり
   （負けライン／ダブル消去）
-- `src/encode.py`: 固定長観測ベクトル
-- `src/sim_env.py`: 画面なし落下 sim（`sim_physics.simulate_drop`）。`SimStep` は本家点 `score`
+- `src/training/encode.py`: 固定長観測ベクトル
+- `src/sim/sim_env.py`: 画面なし落下 sim（`sim_physics.simulate_drop`）。`SimStep` は本家点 `score`
   のみ（累積 eval は持たない）
 - 評価: `python scripts/eval_policy.py`（`--policy bootstrap|learned`。`--workers` 既定=論理コア/2）
 - A/B: `python scripts/compare_policy.py`。bootstrap の 2 変種を対戦させ、平均だけでなく
@@ -217,11 +217,11 @@ cherry 5〜8 個・grape 3 個・dekopon 4 個など低段位の実が合成さ�
   打ち切りがあれば警告。`--seed` は省略でランダム（固定シードの使い回しは誤読のもと）。
   `--out` で生データを JSON 保存
 - 代理指標の探索: `python scripts/analyze_ab.py <dump.json>`（→[測定のしかた](#測定のしかた何度も踏んでいる罠)）
-- 統計は `src/stats.py`（ペア差の t / 95% CI / 必要 n / 相関）。scipy は入れていない
+- 統計は `src/util/stats.py`（ペア差の t / 95% CI / 必要 n / 相関）。scipy は入れていない
 - 学習: `python scripts/train_sim.py`（収集 → オフライン BC。既定 max-steps=300 は打ち切りであり
   負けラインではない）。best は score → 手数 → match
 - 教師収集は `ProcessPool` 並列（既定 workers=論理コア/2。9700X なら 8。`--workers 1` で直列）
-- `src/agent.py`: 離散列 32 ビン / hidden 128 の MLP（旧 20/64 の npz は再学習が必要）
+- `src/training/agent.py`: 離散列 32 ビン / hidden 128 の MLP（旧 20/64 の npz は再学習が必要）
 - 実プレイ: `python main.py`（npz があれば既定 learned。`L` で bootstrap 切替、`--policy bootstrap`）
 
 ## 予定: RL (REINFORCE)
@@ -238,7 +238,7 @@ cherry 5〜8 個・grape 3 個・dekopon 4 個など低段位の実が合成さ�
 score は bootstrap (~2000〜2150) の半分程度 (~1040〜1060) しか出ず、
 RL 着手の条件（match 60–70%+）に遠く届いていなかった。
 
-**見つけたバグ (修正済み)**: `src/encode.py` の `MAX_FRUITS` が 16 で、
+**見つけたバグ (修正済み)**: `src/training/encode.py` の `MAX_FRUITS` が 16 で、
 盤面の実を大きい型から優先して詰め、超過分は容赦なく切り捨てていた。
 終盤は 20 個超の盤も珍しくなく (実測 23 個)、真っ先に切り捨てられるのは
 cherry/strawberry など低段位の散在実 —
@@ -260,7 +260,7 @@ cherry/strawberry など低段位の散在実 —
   むしろ hard 最良より低い (15〜21%) 止まり
 
 **分かったこと・仮説**: bootstrap は候補ごとに実際に `simulate_drop` を
-回して結果を比べる方策で、`src/encode.py` の静的な特徴量 (実の type/x/y/r
+回して結果を比べる方策で、`src/training/encode.py` の静的な特徴量 (実の type/x/y/r
 の羅列) だけから 1 隠れ層 MLP がその「候補を物理で試してから選ぶ」判断を
 真似るのは、学習率・エポック数・soft/hard ラベルのどれを振っても頭打ちに
 なった。表現力 (隠れ層の広さ・層数) か特徴量設計 (候補ごとの着地結果を

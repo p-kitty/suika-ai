@@ -2,7 +2,7 @@ import math
 from collections import Counter, deque
 from dataclasses import dataclass, field
 
-from .vision.state import Fruit
+from ..vision.state import Fruit
 
 # 検出が数フレーム欠けても消さない。静止したフルーツの点滅を防ぐ。
 MAX_MISSING = 5

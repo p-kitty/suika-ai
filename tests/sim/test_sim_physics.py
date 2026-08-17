@@ -2,7 +2,7 @@
 
 import math
 
-from src.sim_physics import (
+from src.sim.sim_physics import (
     _add_fruit,
     _build_space,
     _merge_pair,
@@ -154,7 +154,7 @@ def test_held_merge_pulls_toward_held() -> None:
 def test_held_merge_pull_grows_with_side_offset() -> None:
     # ギリギリ側面ほど合体瞬間の横速度が大きい (移動量ベース)。
 
-    from src.sim_physics import DT, _find_merge_pair
+    from src.sim.sim_physics import DT, _find_merge_pair
 
     r = fruit_radius(4)
     ex = 180.0
@@ -179,7 +179,7 @@ def test_held_merge_pull_grows_with_side_offset() -> None:
 
 def test_foreign_hit_clears_held_drop_flag() -> None:
     # 異種に触れた瞬間、held の横ひっぱ資格を失う。
-    from src.sim_physics import _advance
+    from src.sim.sim_physics import _advance
 
     orange_r = fruit_radius(4)
     cherry_r = fruit_radius(0)
@@ -206,7 +206,7 @@ def test_foreign_hit_clears_held_drop_flag() -> None:
 
 def test_merge_without_held_flag_skips_side_pull() -> None:
     # is_held_drop が落ちたあとの合体は、同じ幾何でも横ひっぱが乗らない。
-    from src.sim_physics import _find_merge_pair
+    from src.sim.sim_physics import _find_merge_pair
 
     r = fruit_radius(4)
     y = NORMALIZED_HEIGHT - r
@@ -235,7 +235,7 @@ def test_merge_without_held_flag_skips_side_pull() -> None:
 
 def test_merge_prefers_upper_over_velocity_direction() -> None:
     # 上があれば進行方向より上を優先。
-    from src.sim_physics import _find_merge_pair
+    from src.sim.sim_physics import _find_merge_pair
 
     r = fruit_radius(4)
     y = 300.0
@@ -252,7 +252,7 @@ def test_merge_prefers_upper_over_velocity_direction() -> None:
 
 def test_merge_prefers_velocity_direction_when_same_height() -> None:
     # 同じ高さなら vx 方向の相手を優先。
-    from src.sim_physics import _find_merge_pair
+    from src.sim.sim_physics import _find_merge_pair
 
     r = fruit_radius(4)
     y = 300.0
@@ -284,7 +284,7 @@ def test_board_merge_cancels_opposing_velocity() -> None:
 
 def test_quiet_gate_rejects_slow_drift() -> None:
     # 速度閾値未満でも一方向にずれ続けると settled にしない。
-    from src.sim_physics import (
+    from src.sim.sim_physics import (
         DT,
         SLEEP_DRIFT,
         SLEEP_FRAMES,
@@ -314,7 +314,7 @@ def test_quiet_gate_rejects_slow_drift() -> None:
 
 
 def test_quiet_gate_accepts_true_rest() -> None:
-    from src.sim_physics import DT, SLEEP_FRAMES, _QuietGate, _add_fruit, _build_space
+    from src.sim.sim_physics import DT, SLEEP_FRAMES, _QuietGate, _add_fruit, _build_space
 
     space, bodies = _build_space(())
     space.gravity = (0.0, 0.0)

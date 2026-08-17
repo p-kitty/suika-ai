@@ -3,12 +3,12 @@ from pathlib import Path
 
 import numpy as np
 
-from .imagefile import write
-from .vision.board import BoardResult
-from .vision.fruits import fruit_mask
-from .vision.normalized import NORMALIZED_WIDTH
+from ..util.imagefile import write
+from ..vision.board import BoardResult
+from ..vision.fruits import fruit_mask
+from ..vision.normalized import NORMALIZED_WIDTH
 
-DUMP_DIR = Path(__file__).resolve().parents[1] / "debug"
+DUMP_DIR = Path(__file__).resolve().parents[2] / "debug"
 
 
 def dump(frame: np.ndarray, result: BoardResult) -> str:

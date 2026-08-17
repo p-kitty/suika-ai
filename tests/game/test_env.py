@@ -1,7 +1,7 @@
 """操作まわりの単体テスト。画面やクリックは使わない。"""
 
 from src.observe import Observation, clamp_drop_x, from_board
-from src.settle import motion, motion_speed, wait_playable, wait_settled
+from src.game.settle import motion, motion_speed, wait_playable, wait_settled
 from src.vision.board import BoardResult
 from src.vision.classify import ClassifyResult
 from src.vision.held import HeldResult
@@ -102,9 +102,9 @@ def test_motion_ignores_y_and_radius_jitter() -> None:
 
 def test_wait_settled_tolerates_detection_blink(monkeypatch) -> None:
     # ほぼ静止＋時々の検出点滅でも settle できる。
-    monkeypatch.setattr("src.settle.time.sleep", lambda _sec: None)
+    monkeypatch.setattr("src.game.settle.time.sleep", lambda _sec: None)
     now = {"t": 0.0}
-    monkeypatch.setattr("src.settle.time.monotonic", lambda: now["t"])
+    monkeypatch.setattr("src.game.settle.time.monotonic", lambda: now["t"])
     n = {"i": 0}
 
     def read() -> Observation:
@@ -129,7 +129,7 @@ def test_wait_settled_tolerates_detection_blink(monkeypatch) -> None:
 
 
 def test_wait_settled_returns_early_on_abort(monkeypatch) -> None:
-    monkeypatch.setattr("src.settle.time.sleep", lambda _sec: None)
+    monkeypatch.setattr("src.game.settle.time.sleep", lambda _sec: None)
     obs = _obs(x=10.0)
     calls = {"n": 0}
 
@@ -144,9 +144,9 @@ def test_wait_settled_returns_early_on_abort(monkeypatch) -> None:
 
 
 def test_wait_settled_reports_timeout_while_moving(monkeypatch) -> None:
-    monkeypatch.setattr("src.settle.time.sleep", lambda _sec: None)
+    monkeypatch.setattr("src.game.settle.time.sleep", lambda _sec: None)
     now = {"t": 0.0}
-    monkeypatch.setattr("src.settle.time.monotonic", lambda: now["t"])
+    monkeypatch.setattr("src.game.settle.time.monotonic", lambda: now["t"])
 
     xs = iter([10.0, 14.0, 18.0, 22.0])
 
@@ -160,9 +160,9 @@ def test_wait_settled_reports_timeout_while_moving(monkeypatch) -> None:
 
 
 def test_wait_settled_true_after_quiet(monkeypatch) -> None:
-    monkeypatch.setattr("src.settle.time.sleep", lambda _sec: None)
+    monkeypatch.setattr("src.game.settle.time.sleep", lambda _sec: None)
     now = {"t": 0.0}
-    monkeypatch.setattr("src.settle.time.monotonic", lambda: now["t"])
+    monkeypatch.setattr("src.game.settle.time.monotonic", lambda: now["t"])
 
     def read() -> Observation:
         now["t"] += 0.05
@@ -175,9 +175,9 @@ def test_wait_settled_true_after_quiet(monkeypatch) -> None:
 
 def test_wait_settled_waits_out_slow_creep(monkeypatch) -> None:
     # 速度閾値未満 (〜15px/s) でも一方向 creep はドリフトで待つ。
-    monkeypatch.setattr("src.settle.time.sleep", lambda _sec: None)
+    monkeypatch.setattr("src.game.settle.time.sleep", lambda _sec: None)
     now = {"t": 0.0}
-    monkeypatch.setattr("src.settle.time.monotonic", lambda: now["t"])
+    monkeypatch.setattr("src.game.settle.time.monotonic", lambda: now["t"])
 
     def read() -> Observation:
         now["t"] += 0.05
@@ -192,9 +192,9 @@ def test_wait_settled_waits_out_slow_creep(monkeypatch) -> None:
 
 def test_wait_settled_tolerates_position_jitter(monkeypatch) -> None:
     # ±0.8px@15fps の振動ノイズはドリフトに積もらないので着手できる。
-    monkeypatch.setattr("src.settle.time.sleep", lambda _sec: None)
+    monkeypatch.setattr("src.game.settle.time.sleep", lambda _sec: None)
     now = {"t": 0.0}
-    monkeypatch.setattr("src.settle.time.monotonic", lambda: now["t"])
+    monkeypatch.setattr("src.game.settle.time.monotonic", lambda: now["t"])
     n = {"i": 0}
 
     def read() -> Observation:
@@ -212,9 +212,9 @@ def test_wait_settled_tolerates_position_jitter(monkeypatch) -> None:
 def test_wait_playable_does_not_return_ready_while_moving(monkeypatch) -> None:
     # 旧挙動: settle タイムアウトでも ready なら返していた。
     # 動いている盤面では ready=False にして着手させない。
-    monkeypatch.setattr("src.settle.time.sleep", lambda _sec: None)
+    monkeypatch.setattr("src.game.settle.time.sleep", lambda _sec: None)
     now = {"t": 0.0}
-    monkeypatch.setattr("src.settle.time.monotonic", lambda: now["t"])
+    monkeypatch.setattr("src.game.settle.time.monotonic", lambda: now["t"])
 
     def read() -> Observation:
         x = 10.0 + now["t"] * 20.0
@@ -227,9 +227,9 @@ def test_wait_playable_does_not_return_ready_while_moving(monkeypatch) -> None:
 
 
 def test_wait_playable_returns_when_still_and_ready(monkeypatch) -> None:
-    monkeypatch.setattr("src.settle.time.sleep", lambda _sec: None)
+    monkeypatch.setattr("src.game.settle.time.sleep", lambda _sec: None)
     now = {"t": 0.0}
-    monkeypatch.setattr("src.settle.time.monotonic", lambda: now["t"])
+    monkeypatch.setattr("src.game.settle.time.monotonic", lambda: now["t"])
 
     def read() -> Observation:
         now["t"] += 0.05
@@ -242,9 +242,9 @@ def test_wait_playable_returns_when_still_and_ready(monkeypatch) -> None:
 
 def test_wait_settled_uses_raw_fruits_not_smoothed(monkeypatch) -> None:
     # Tracker 相当で fruits は止まって見えても、raw が動いていれば未静止。
-    monkeypatch.setattr("src.settle.time.sleep", lambda _sec: None)
+    monkeypatch.setattr("src.game.settle.time.sleep", lambda _sec: None)
     now = {"t": 0.0}
-    monkeypatch.setattr("src.settle.time.monotonic", lambda: now["t"])
+    monkeypatch.setattr("src.game.settle.time.monotonic", lambda: now["t"])
 
     def read() -> Observation:
         now["t"] += 0.05
@@ -266,8 +266,8 @@ def test_wait_settled_uses_raw_fruits_not_smoothed(monkeypatch) -> None:
 
 def test_step_chooses_after_settle(monkeypatch) -> None:
     # 静止後の観測で choose し、その列で落とす。動いている盤を読まない。
-    from src import control
-    from src.env import Env
+    from src.game import control
+    from src.game.env import Env
 
     ready = _obs(x=10.0)
     chosen: list[float] = []
@@ -279,13 +279,13 @@ def test_step_chooses_after_settle(monkeypatch) -> None:
 
     env = Env()
     monkeypatch.setattr(env, "observe", lambda frame=None: ready)
-    monkeypatch.setattr("src.env.settle.wait_playable", lambda *_a, **_k: ready)
+    monkeypatch.setattr("src.game.env.settle.wait_playable", lambda *_a, **_k: ready)
     monkeypatch.setattr(
         control,
         "drop_column",
         lambda target, read, abort=None: chosen.append(target) or True,
     )
-    monkeypatch.setattr("src.env._wait_held_gone", lambda *_a, **_k: None)
+    monkeypatch.setattr("src.game.env._wait_held_gone", lambda *_a, **_k: None)
     monkeypatch.setattr(control, "recenter", lambda *_a, **_k: True)
 
     result = env.step(abort=None, choose=choose, on_aim=aimed.append)
@@ -297,13 +297,13 @@ def test_step_chooses_after_settle(monkeypatch) -> None:
 
 
 def test_step_timeout_does_not_end_episode(monkeypatch) -> None:
-    from src.env import Env
+    from src.game.env import Env
 
     ready = _obs(x=10.0)
     env = Env()
     monkeypatch.setattr(env, "observe", lambda frame=None: ready)
     monkeypatch.setattr(
-        "src.env.settle.wait_playable",
+        "src.game.env.settle.wait_playable",
         lambda *_args, **_kwargs: Observation(
             ready=False,
             blocked=False,
@@ -320,8 +320,8 @@ def test_step_timeout_does_not_end_episode(monkeypatch) -> None:
 
 
 def test_step_after_drop_timeout_does_not_end_episode(monkeypatch) -> None:
-    from src import control
-    from src.env import Env
+    from src.game import control
+    from src.game.env import Env
 
     ready = _obs(x=10.0)
     unsettled = Observation(
@@ -340,9 +340,9 @@ def test_step_after_drop_timeout_does_not_end_episode(monkeypatch) -> None:
 
     env = Env()
     monkeypatch.setattr(env, "observe", lambda frame=None: ready)
-    monkeypatch.setattr("src.env.settle.wait_playable", playable)
+    monkeypatch.setattr("src.game.env.settle.wait_playable", playable)
     monkeypatch.setattr(control, "drop_column", lambda *_a, **_k: True)
-    monkeypatch.setattr("src.env._wait_held_gone", lambda *_a, **_k: None)
+    monkeypatch.setattr("src.game.env._wait_held_gone", lambda *_a, **_k: None)
 
     result = env.step(200.0)
     assert result.info == "timeout"

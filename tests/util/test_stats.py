@@ -2,7 +2,7 @@
 
 import math
 
-from src.stats import (
+from src.util.stats import (
     Z95,
     correlation,
     detect_n,

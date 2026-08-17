@@ -15,7 +15,7 @@ from src.penalties import (
     ideal_x,
 )
 from src.policy import _score, choose_x
-from src.sim_physics import landed_xy, preview_land, simulate_drop, simulate_drop_held
+from src.sim.sim_physics import landed_xy, preview_land, simulate_drop, simulate_drop_held
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit

@@ -18,8 +18,8 @@ from concurrent.futures import Executor
 from . import penalties as pen
 from .observe import Observation, clamp_drop_x
 from .reward import merge_score
-from .sim_physics import landed_xy
-from .sim_physics import simulate_drop_held
+from .sim.sim_physics import landed_xy
+from .sim.sim_physics import simulate_drop_held
 from .vision.classify import fruit_radius
 from .vision.colors import SPAWN_MAX_TYPE
 from .vision.normalized import NORMALIZED_WIDTH

@@ -11,10 +11,10 @@ from dataclasses import dataclass
 
 import pymunk
 
-from .vision.classify import fruit_radius
-from .vision.colors import MAX_FRUIT_TYPE
-from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
-from .vision.state import Fruit
+from ..vision.classify import fruit_radius
+from ..vision.colors import MAX_FRUIT_TYPE
+from ..vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
+from ..vision.state import Fruit
 
 # --- 複数箇所で共有するチューニング ---
 DT = 1.0 / 60.0
