@@ -270,11 +270,12 @@ The bigger the type the bigger `travel`, so a narrow side merge of a big fruit g
 (`_on_fruit_begin`), so held's contact count at the moment of merging is **0** in every case above.
 It cannot become a check targeting only "merges touching nothing", so a uniform damping was used.
 
-**Score was not measured.** Play changes (trajectories change, so moves can too), but
-this is not policy tuning but a fidelity fix toward the real game; the comparison is the real game's behavior,
-not score. All 161 UTs pass unchanged (`test_held_merge_pulls_toward_held` /
-`test_held_merge_pull_grows_with_side_offset` check direction and monotonicity and
-do not depend on absolute values). If too strong / too weak remains, move only `travel_gain`.
+**Score was not measured.** Play changes, but it is not policy tuning but a fidelity fix toward the real game,
+so the comparison is the real game's behavior, not score.
+
+**It does not get faster.** Compared with master over the same 160 drop inputs, `simulate_drop`
+totals 613.0 → 612.2ms, frames from merge to rest median 164.0 → 163.5, total movement of fruits after merging
+median 6090 → 6015. **All within error**; only the sideways speed right after merging changes.
 
 ### Re-measuring search width 8/16 (2026-08-17)
 
