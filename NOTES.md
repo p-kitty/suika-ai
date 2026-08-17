@@ -157,12 +157,47 @@ a qualitatively different change such as rebuilding the features and architectur
 - Not included: push-in merges, restoring pushes, cascade gap opening, forced moves one tier up, hard-coded ladder firing
 - Do not add UTs for concrete procedures. When something breaks, look at accident prevention or the observation side
 - The search cost is essentially the number of `simulate_drop` calls. `HELD_TOP` / `NEXT_CANDIDATE_STEP` decide the run time
-  decide the run time (the old 8/16 took 3.8 seconds per move and collection could not keep up. 2/32 gave 1.2 seconds and score -3.4%)
+  (the old 8/16 took 3.8 seconds per move and collection could not keep up. 2/32 gave 1.2 seconds and score -3.4%).
+  But the unit cost per call became 2.44x faster on 2026-08-17
+  → [Faster physics](#faster-physics-2026-08-17)
 - Do not make `CANDIDATE_STEP` coarser. At 20 the spot directly above a dangerous pile lands on the grid and
   `test_avoids_dangerous_tall_stack` fails. Speed is earned on the lookahead side
 - Cutting `SLEEP_FRAMES` does not work. A single `choose_x` gets faster, but the board settles differently and
   later moves get heavier, so the whole episode is actually slower (measured at 25). The physics fidelity
   (shared with `SimEnv`) also drops
+
+### Faster physics (2026-08-17)
+
+The unit cost of `simulate_drop` went from **9.42ms → 3.86ms (2.44x)**. Play is completely unchanged
+(see the verification below), so score was not measured and need not be.
+
+**Where the time went.** 99.2% of `choose_x` is `simulate_drop` (72 calls per move).
+Measuring its contents in wall time, the C physics (`cpSpaceStep`) is only 13%, and
+**57.9% was `_find_merge_pair`**. A read-only scan just looking for same-type pairs,
+reading the position / velocity of every fruit through pymunk properties every substep.
+On a 10-fruit board it was called 55,104 times per drop and **returned None 100% of the time**.
+
+**What was done.**
+
+| Change | effect |
+|---|---|
+| `_MergeScan`: from the gap of the nearest same-type pair and the max speed, compute "how many more substeps contact is impossible" and skip that many scans | scans 55,104 → 3,717 (1/14.8). 9.42 → 4.43ms |
+| read `_all_quiet` from the back (the falling fruit is last, so it stops at the first), flatten `_QuietGate` snapshots, cache the moment of inertia per type | 4.43 → 3.86ms. Only 3% on sparse early boards |
+
+The lower bound on the time for a gap to close, since speed only increases through gravity (`elasticity=0`),
+comes from the positive root of `g*T² + 2vT = gap`. Push-out corrections (`space.collision_bias`)
+do not show up in `body.velocity`, so a 60px/s margin (`SCAN_SPEED_MARGIN`) on the speed and
+a cap of 16 substeps (`MAX_SCAN_SKIP`) are applied.
+
+**How it was verified (for this kind of change, score is not measured).** The x / y of every fruit after each move are recorded
+with `repr()` (raw float), together with the x chosen by `choose_x`, score and merge count, and
+**compared byte for byte** with the output of a master worktree. 3 seeds × 70 moves and 2 seeds × 170 moves
+(15 fruits, score 1633/1669) all matched. If the skip is too long by even one substep,
+a merge shifts and every later trajectory changes, so it is a sensitive check, not a loose one.
+
+**Little headroom remains.** The breakdown is physics ~62% / quiet gate 18.5% / scan 10.8% /
+board setup 5.9%. Cutting physics means fewer substeps or frames,
+which changes play (see the `SLEEP_FRAMES` item too).
 
 ### Current penalty rules
 
