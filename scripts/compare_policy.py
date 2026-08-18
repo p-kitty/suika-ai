@@ -58,10 +58,6 @@ def _apply_variant(enabled: bool) -> None:
         from src import penalties
         penalties.PACKED_SMALL_SIDE_WEIGHT = 12.0 if enabled else 8.0
     """
-    from src import penalties
-
-    # ideal_x deviation of one dropped fruit. A is current (no term).
-    penalties.DROP_IDEAL_WEIGHT = 0.004 if enabled else 0.0
 
 
 def _episode(

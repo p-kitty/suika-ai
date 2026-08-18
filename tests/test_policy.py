@@ -500,22 +500,6 @@ def _rest_on(a: Fruit, b: Fruit, fruit_type: int) -> Fruit:
     return Fruit(type=fruit_type, x=x, y=y, radius=r, confidence=90)
 
 
-def test_drop_ideal_penalty_grows_with_distance_from_ideal() -> None:
-    # 0 at the ideal column, monotonically increasing with distance. A continuous quantity for splitting the band, so
-    # being proportional to distance rather than stepwise is the requirement.
-    from src.penalties import drop_ideal_penalty, ideal_x
-
-    for sign in (1, -1):
-        for drop_type in (2, 4, 6):
-            target = ideal_x(drop_type, sign)
-            assert drop_ideal_penalty(target, drop_type, sign) == 0.0
-            near = drop_ideal_penalty(target + 20.0, drop_type, sign)
-            far = drop_ideal_penalty(target + 80.0, drop_type, sign)
-            assert 0.0 < near < far
-            # Left-right symmetric.
-            assert drop_ideal_penalty(target - 20.0, drop_type, sign) == near
-
-
 def _ladder_board() -> tuple[Fruit, ...]:
     """Corner peach + pear on the inside, apple and orange on the shoulders of those two (a completed ladder)."""
     peach_r, pear_r = fruit_radius(7), fruit_radius(6)
