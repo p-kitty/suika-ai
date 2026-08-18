@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from dataclasses import dataclass
 
 import numpy as np
@@ -28,7 +29,12 @@ class SimEnv:
     """Deal held/next from an empty board and drop with sim_physics.simulate_drop."""
 
     def __init__(self, seed: int | None = None) -> None:
-        self.rng = np.random.default_rng(seed)
+        # Even with seed=None, fix it to a concrete value. This env keeps no record
+        # of the run anywhere, so if the seed cannot be stated afterwards a broken game cannot be replayed
+        # (view_sim shows it in the footer). The digit count is kept short enough to read from a screenshot.
+        # The way random seeds are drawn matches compare_policy.py.
+        self.seed = secrets.randbelow(1_000_000) if seed is None else seed
+        self.rng = np.random.default_rng(self.seed)
         self.fruits: list[Fruit] = []
         self.held_type: int | None = None
         self.next_type: int | None = None
