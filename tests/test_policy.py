@@ -131,63 +131,12 @@ def test_prefers_held_that_enables_next_merge() -> None:
 def test_grows_valley_fruit_when_held_and_next_are_one_smaller() -> None:
     # 谷に ぶどう、held/next が いちご (谷の実のひとつ下)。2 枚落とせば ぶどうに
     # なって谷の ぶどう と合体するので、隅に逃がさず谷に置く。
-    #
-    # 谷育成は立て直し側 (第二段階) の規則なので、盤が崩れているときだけ掛かる
-    # (`board_is_broken`)。整った盤では大小順が決めるので、右端の デコポン で
-    # 逆転を作って第二段階に入れてある。この 1 個が無いと逆転率は 1/3 = 0.333 で
-    # しきい値 0.35 を下回り、ゲートが閉じたまま谷育成が出ない。
-    from src.penalties import board_is_broken, valley_grow_ok
-    from src.policy import _order_sign
+    from src.penalties import valley_grow_ok
 
     orange_r = fruit_radius(4)
     apple_r = fruit_radius(5)
     grape_r = fruit_radius(2)
     straw_r = fruit_radius(1)
-    dekopon_r = fruit_radius(3)
-    sep = orange_r + apple_r + grape_r * 2 + 20.0
-    center = 150.0
-    left = Fruit(
-        type=4,
-        x=center - sep / 2,
-        y=NORMALIZED_HEIGHT - orange_r,
-        radius=orange_r,
-        confidence=90,
-    )
-    right = Fruit(
-        type=5,
-        x=center + sep / 2,
-        y=NORMALIZED_HEIGHT - apple_r,
-        radius=apple_r,
-        confidence=90,
-    )
-    grape = Fruit(
-        type=2, x=center, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90
-    )
-    stray = Fruit(
-        type=3,
-        x=right.x + apple_r + dekopon_r + 8.0,
-        y=NORMALIZED_HEIGHT - dekopon_r,
-        radius=dekopon_r,
-        confidence=90,
-    )
-    fruits = (left, right, grape, stray)
-    assert board_is_broken(fruits, _order_sign(fruits))
-
-    obs = _obs(held_type=1, fruits=fruits, next_type=1)
-    land_x, _land_y = preview_land(fruits, 1, choose_x(obs), straw_r)
-    assert left.x < land_x < right.x
-    assert valley_grow_ok(fruits, land_x, 1, 1)
-
-
-def test_leaves_the_valley_alone_while_the_board_is_still_ordered() -> None:
-    # 上と同じ谷でも、盤が整っているうちは谷育成を掛けない (第一段階)。
-    # 立て直しの規則が整った盤に効くと、小さい実を小側へ置く手を潰しにいく。
-    from src.penalties import board_is_broken
-    from src.policy import _order_sign
-
-    orange_r = fruit_radius(4)
-    apple_r = fruit_radius(5)
-    grape_r = fruit_radius(2)
     sep = orange_r + apple_r + grape_r * 2 + 20.0
     center = 150.0
     left = Fruit(
@@ -208,8 +157,10 @@ def test_leaves_the_valley_alone_while_the_board_is_still_ordered() -> None:
         type=2, x=center, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90
     )
     fruits = (left, right, grape)
-
-    assert not board_is_broken(fruits, _order_sign(fruits))
+    obs = _obs(held_type=1, fruits=fruits, next_type=1)
+    land_x, _land_y = preview_land(fruits, 1, choose_x(obs), straw_r)
+    assert left.x < land_x < right.x
+    assert valley_grow_ok(fruits, land_x, 1, 1)
 
 
 def test_does_not_grow_smaller_junk_in_valley() -> None:

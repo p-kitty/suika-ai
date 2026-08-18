@@ -200,6 +200,25 @@ def test_inversion_fraction_reads_the_board_order() -> None:
     assert inversion_fraction(ordered, -1) == 1.0
 
 
+def test_a_fruit_trapped_between_bigger_ones_reads_as_broken() -> None:
+    """谷にはまった実は、片側としか逆転していなくても崩れた盤として読む。
+
+    オレンジ(4)・ぶどう(2)・りんご(5) の並び (sign=-1 なので右が大)。
+    ペアの左右だけで数えると、ぶどうが逆転するのは オレンジ とだけなので
+    1/3 = 0.333 で、しきい値 0.35 を下回って「整っている」に入ってしまう。
+    大きい実 2 つに挟まれた実は左右どちらに対しても位置を外しているので、
+    両側と数えて 2/3 = 0.667 になる。
+    """
+    orange = _on_floor(ORANGE, 69.664)
+    grape = _on_floor(GRAPE, 150.0)
+    apple = _on_floor(APPLE, 230.336)
+    fruits = [orange, apple, grape]
+
+    assert _is_nestled(grape, fruits)
+    assert inversion_fraction(fruits, -1) > 0.35
+    assert board_is_broken(fruits, -1)
+
+
 def test_board_is_broken_only_past_the_threshold() -> None:
     """整った盤では立て直し側の規則を掛けない。
 

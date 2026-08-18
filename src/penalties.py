@@ -150,34 +150,6 @@ def _typed_pairs(
     ]
 
 
-def inversion_fraction(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> float:
-    """横の大小順が逆転しているペアの割合。0 = 整列、0.5 = 無秩序。
-
-    `_size_order_penalty` と違って免除も ideal_x も見ない生の割合。段階を
-    切り分けるゲート用で、減点の大きさではなく盤の状態そのものを表す。
-    """
-    pairs = [
-        (a, b)
-        for a, b in _typed_pairs(fruits)
-        if abs(a.x - b.x) >= min(a.radius, b.radius) * 0.5
-    ]
-    if not pairs:
-        return 0.0
-    bad = 0
-    for a, b in pairs:
-        left, right = (a, b) if a.x <= b.x else (b, a)
-        if sign > 0 and left.type < right.type:
-            bad += 1
-        elif sign < 0 and left.type > right.type:
-            bad += 1
-    return bad / len(pairs)
-
-
-def board_is_broken(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> bool:
-    """立て直し側の規則を掛けてよい盤か。整った盤では大小順を優先する。"""
-    return inversion_fraction(fruits, sign) > BROKEN_INVERSION_FRAC
-
-
 def _floor_row(fruits: list[Fruit] | tuple[Fruit, ...]) -> list[Fruit]:
     """床に着いている実を x 順で。"""
     return sorted(
@@ -358,6 +330,52 @@ def _size_order_exempt(
     if not _is_nestled(fruit, fruits):
         return False
     return any(f.type == fruit.type and f is not fruit for f in fruits)
+
+
+def inversion_fraction(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> float:
+    """大小順を外しているペアの割合。0 = 整列、0.5 = 無秩序。
+
+    `_size_order_penalty` と違って重みも ideal_x も見ない生の割合。段階を
+    切り分けるゲート用で、減点の大きさではなく盤の状態そのものを表す。
+
+    谷にいる実は、左右**どちらの壁に対しても**外していると数える。ペアの
+    左右だけで数えると、より大きい実 2 つに挟まれた小さい実が片側としか
+    逆転せず、明らかに崩れた盤が整列側に入ってしまう (オレンジ・ぶどう・
+    りんご の並びで、ぶどうが逆転するのは オレンジ とだけなので 1/3 = 0.333。
+    これは 0.35 を下回る)。谷込みで数えると 2/3 = 0.667 になる。
+
+    `_size_order_exempt` が谷の実を減点から外すのと向きが逆に見えるが、
+    別の仕事をしている。あちらは「育てる予定の実を二重に罰しない」ための
+    免除で、こちらは「この盤は整っているか」の読み取り。
+    """
+    pairs = [
+        (a, b)
+        for a, b in _typed_pairs(fruits)
+        if abs(a.x - b.x) >= min(a.radius, b.radius) * 0.5
+    ]
+    if not pairs:
+        return 0.0
+    flanks: dict[int, set[int]] = {}
+    for fruit in fruits:
+        walls = _valley_flanks(fruits, fruit.x, fruit.type)
+        if walls is not None:
+            flanks[id(fruit)] = {id(walls[0]), id(walls[1])}
+    bad = 0
+    for a, b in pairs:
+        if id(b) in flanks.get(id(a), ()) or id(a) in flanks.get(id(b), ()):
+            bad += 1
+            continue
+        left, right = (a, b) if a.x <= b.x else (b, a)
+        if sign > 0 and left.type < right.type:
+            bad += 1
+        elif sign < 0 and left.type > right.type:
+            bad += 1
+    return bad / len(pairs)
+
+
+def board_is_broken(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> bool:
+    """立て直し側の規則を掛けてよい盤か。整った盤では大小順を優先する。"""
+    return inversion_fraction(fruits, sign) > BROKEN_INVERSION_FRAC
 
 
 def valley_grow_ok(
