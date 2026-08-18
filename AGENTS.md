@@ -24,6 +24,13 @@ Where things go when unsure:
 
 If you feel like writing details in AGENTS.md, do not; link to a NOTES.md section instead.
 
+[CLAUDE.md](CLAUDE.md) is the file Claude Code reads automatically; its content is a single line that
+loads AGENTS.md. **It is an entry point, not a place to put things.**
+
+**Do not use the agent-side memory feature.** Anything memorized outside the repo (`~/.claude/**/memory/`)
+is invisible to other agents and to `git log`, and the same thing ends up scattered in two places.
+Everything meant to last, including instructions and policies received from the user, goes into one of the three files above.
+
 ## When in doubt, ask before touching anything
 
 **Confirm once before starting anything that is expensive to redo.** Asking after you start
@@ -34,6 +41,11 @@ Ask first:
 - **When running a measurement that takes hours.** Estimate the time from `--episodes` × `--max-steps`,
   and confirm together with what that n can tell us ([How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in)).
   There are examples such as 2.6 hours at n=100 and n=529 = 14 hours to reach significance
+- **When running something that fills the CPU. The line is the degree of parallelism, not the run time.** The user actually plays
+  the real Suika Game on the same machine. When something taking `--workers` (`compare_policy.py`,
+  `eval_policy.py`, `train_sim.py`) fills every core, the game stutters and becomes
+  unplayable. Background runs are the same. Ask with an option of fewer `--workers`.
+  Screening that only calls `choose_x` serially on a single thread and pytest need no asking
 - **When overturning a decision settled in NOTES.md.** To bring back or delete something marked
   "made permanent", "reverted" or "won't do", present the evidence and confirm
 - **When changing the design.** Splitting or renaming modules, large refactors, rebuilding features or
@@ -140,6 +152,8 @@ All git operations are collected in this section. Do not scatter them into other
 **What is tracked and what is not**
 
 - `screenshots/` is ground truth transcribed by eye, so it is tracked
+- When adding or retaking `screenshots/`, paint over the player display name at the top left with the sky color
+  before committing. The repo is public, so do not show real names or account names
 - `artifacts/` `debug/` change on every run, so they are ignored
 
 **When tracing the history of a constant**
