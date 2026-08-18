@@ -29,6 +29,8 @@ Desktop.ini
 # Project artifacts
 debug/
 artifacts/
+# 計測スクリプトが吐く局面キャッシュ (scratchpad に置き忘れると repo 直下に出る)
+*.pkl
 
 # Claude Code（生成物だけ。settings.json や skill は共有したくなるので残す）
 .claude/settings.local.json
