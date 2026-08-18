@@ -44,42 +44,6 @@ EDGE_ANCHOR_FRAC = 0.35
 # 「大きい実の塊」とみなす最大実からの段数。
 BIG_CLUSTER_SPAN = 2
 
-# --- 縦の大小順 ---
-# 縦に積まれているとみなす横ずれ (半径和に対する割合)。1.0 で横に並んだ状態
-# なので、それより締める。肩に載せた形はここに入るが、肩は上が小さい側なので
-# 減点にはならない (梯子の 4→5→6→7 は素通りする)。
-VERTICAL_STACK_FRAC = 0.8
-# 上下が入れ替わっているとみなす最小の高さ差 (半径和に対する割合)。
-# ほぼ同じ高さで横に並んだだけの組を「積んである」と読まないための下限。
-VERTICAL_STACK_MIN_RISE = 0.35
-# 上が大きいペア 1 組の減点。型差に掛ける。
-# 3.0 にすると縦を守るために横を崩し始める (166 局面で横の逆転が +0.15 に転じる)。
-# 0.75 は縦の効きが 1.5 と変わらないぶん横が弱い。
-VERTICAL_ORDER_WEIGHT = 1.5
-
-# --- 閉じ込め ---
-# より大きい実に左右から挟まれて、出る当ての無い実の減点。1 個あたり。
-# 谷育成 (VALLEY_GROW_BONUS) の裏返しで、育てられる谷は褒め、育たない谷は罰する。
-# 相方が盤に残っている実は掛けない。そちらは合体待ちであって閉じ込めではなく、
-# 罰すると谷に餌を入れる手そのものを潰す (実測: 相方ありも 1.0 で数えたところ、
-# seed=74546 で中盤の連鎖が起きなくなり 241 手 -> 163 手に落ちた。step 140 の
-# 実数が 9 個 -> 22 個、頭頂が 228 -> 45)。切り分けは `_size_order_exempt` と同じ。
-# 230 局面のスクリーニング: 重みを上げるほど閉じ込めも逆転も減り、合体回数は
-# ほぼ不変 (1.0/2.0/4.0/8.0 で合体 235/235/234/233)。8.0 は逆転が反転して
-# (+26 -> +28) 合体も落ちるので 4.0 が折り返し。一致率は 93.0%。
-TRAPPED_WEIGHT = 4.0
-
-# --- 段階の切り分け ---
-# 盤が「崩れている」とみなす逆転率。横の大小順が逆転しているペアの割合で、
-# 0.5 は完全に無秩序 (向きに情報が無い) を意味する。これを超えた盤でだけ、
-# 立て直し側の規則 (谷育成) を掛ける。整った盤でそれを掛けると、
-# 小さい実を小側へ置く手を潰して盤を崩し始める (実測: cherry は汚さない手が
-# 候補にある 97% の局面のうち 64% でしかそれを選べていなかった)。
-# 0.25 では一度も閉じない。実測の逆転率は中央 0.333 で、序盤 30 手が 0.156、
-# 90 手以降は 0.35〜0.39。0.25 に置くと中盤以降ずっと「崩れている」側に落ちて、
-# 一致率も選ぶ手もゲート無しと 1 桁まで完全に一致した (166 局面)。
-BROKEN_INVERSION_FRAC = 0.35
-
 # --- 床の埋まり具合 ---
 # 床に着いているとみなす高さ。半径のこの倍率ぶん下端に寄っていれば床置き。
 FLOOR_BAND = 1.35
@@ -143,23 +107,6 @@ def _height_variance(fruits: list[Fruit]) -> float:
     if len(bins) < 2:
         return 0.0
     return float(statistics.pstdev(list(bins.values())))
-
-
-def _typed_pairs(
-    fruits: list[Fruit] | tuple[Fruit, ...],
-) -> "list[tuple[Fruit, Fruit]]":
-    """型の違う組。同種どうしは合体待ちなので大小順を問わない。
-
-    横に重なった組を外すかどうかは向きで変わるので、ここではしない。
-    横は左右を言えない組を外し (`inversion_fraction`)、縦はその組こそが
-    本体 (`_vertical_order_penalty`)。
-    """
-    return [
-        (a, b)
-        for i, a in enumerate(fruits)
-        for b in fruits[i + 1 :]
-        if a.type != b.type
-    ]
 
 
 def _floor_row(fruits: list[Fruit] | tuple[Fruit, ...]) -> list[Fruit]:
@@ -344,52 +291,6 @@ def _size_order_exempt(
     return any(f.type == fruit.type and f is not fruit for f in fruits)
 
 
-def inversion_fraction(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> float:
-    """大小順を外しているペアの割合。0 = 整列、0.5 = 無秩序。
-
-    `_size_order_penalty` と違って重みも ideal_x も見ない生の割合。段階を
-    切り分けるゲート用で、減点の大きさではなく盤の状態そのものを表す。
-
-    谷にいる実は、左右**どちらの壁に対しても**外していると数える。ペアの
-    左右だけで数えると、より大きい実 2 つに挟まれた小さい実が片側としか
-    逆転せず、明らかに崩れた盤が整列側に入ってしまう (オレンジ・ぶどう・
-    りんご の並びで、ぶどうが逆転するのは オレンジ とだけなので 1/3 = 0.333。
-    これは 0.35 を下回る)。谷込みで数えると 2/3 = 0.667 になる。
-
-    `_size_order_exempt` が谷の実を減点から外すのと向きが逆に見えるが、
-    別の仕事をしている。あちらは「育てる予定の実を二重に罰しない」ための
-    免除で、こちらは「この盤は整っているか」の読み取り。
-    """
-    pairs = [
-        (a, b)
-        for a, b in _typed_pairs(fruits)
-        if abs(a.x - b.x) >= min(a.radius, b.radius) * 0.5
-    ]
-    if not pairs:
-        return 0.0
-    flanks: dict[int, set[int]] = {}
-    for fruit in fruits:
-        walls = _valley_flanks(fruits, fruit.x, fruit.type)
-        if walls is not None:
-            flanks[id(fruit)] = {id(walls[0]), id(walls[1])}
-    bad = 0
-    for a, b in pairs:
-        if id(b) in flanks.get(id(a), ()) or id(a) in flanks.get(id(b), ()):
-            bad += 1
-            continue
-        left, right = (a, b) if a.x <= b.x else (b, a)
-        if sign > 0 and left.type < right.type:
-            bad += 1
-        elif sign < 0 and left.type > right.type:
-            bad += 1
-    return bad / len(pairs)
-
-
-def board_is_broken(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> bool:
-    """立て直し側の規則を掛けてよい盤か。整った盤では大小順を優先する。"""
-    return inversion_fraction(fruits, sign) > BROKEN_INVERSION_FRAC
-
-
 def valley_grow_ok(
     fruits: list[Fruit] | tuple[Fruit, ...],
     land_x: float,
@@ -438,7 +339,6 @@ def board_penalties(
 
     exempt_size_order: held がこの手で合体したとき True。合体の反動で
     弾かれた無関係の実まで大小順違反として減点しない (`policy._evaluate_drop` 参照)。
-    横と縦の大小順はどちらも同じ反動を受けるので、まとめてこの旗で外す。
     """
     # 盤面が壁の内側基準になった分だけ、旧基準の 90.0 を座標変換してある。
     danger_y = 70.9
@@ -454,12 +354,8 @@ def board_penalties(
 
     penalty += bury_weight * _bury_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
-    # 閉じ込めは合体した手でも免除しない。大小順のペア数と違って反動で
-    # 数がぶれる量ではなく、その手が残した盤の形そのものなので。
-    penalty += _trapped_penalty(fruits)
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
-        penalty += _vertical_order_penalty(fruits)
     penalty += _big_layout_penalty(fruits, sign)
     variance = _height_variance(fruits)
     if crown < danger_y:
@@ -582,56 +478,6 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
             / len(open_fruits)
             * size_order_ideal_weight
         )
-    return penalty
-
-
-def _trapped_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
-    """より大きい実に左右から挟まれた実の減点。
-
-    `valley_grow_ok` が「これから育てられる谷」を褒めるのに対し、こちらは
-    「作ってしまった谷」を罰する。裏返しの規則が無かったので、盤を壊す手と
-    壊さない手を eval がほとんど区別できていなかった。
-
-    実測 (seed=74546 の 25 手目): 逆転率 0.000・閉じ込め 0 の完璧な盤で、
-    いちごを閉じ込める手が、閉じ込めない 13 本の候補を **eval 0.07 差**で
-    上回った (全候補が -6.12〜-6.21 の幅 0.09 に収まる同点プラトー)。
-    その閉じ込めが 3 手後に置き場を失わせ、13 手後の桃-オレンジ-桃 につながる。
-
-    掛けるのは**相方の残っていない実だけ**。相方がいれば合体して大きくなり
-    谷から出られるので、それは合体待ちであって閉じ込めではない。
-    """
-    penalty = 0.0
-    for fruit in fruits:
-        if any(f.type == fruit.type and f is not fruit for f in fruits):
-            continue
-        if _valley_flanks(fruits, fruit.x, fruit.type) is None:
-            continue
-        penalty += TRAPPED_WEIGHT
-    return penalty
-
-
-def _vertical_order_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
-    """上に大きい実が乗っている組を減点。大きいほど下という縦の並び。
-
-    横の `_size_order_penalty` は x しか見ないので、縦の積み方には規則が
-    無かった (実測: 縦に重なった 23079 組のうち 47% が逆さ＝ほぼ無秩序)。
-
-    掛かるのは**上のほうが大きい**ときだけ。大きい実の肩に小さい実を載せる形は
-    上が小さい側なので型差がいくつあっても 0 で、梯子 (桃の肩にオレンジ) は
-    素通りする。逆に、小さい実の上に大きい実を乗せる手ほど型差ぶん重くなる。
-    """
-    penalty = 0.0
-    for a, b in _typed_pairs(fruits):
-        span = a.radius + b.radius
-        if abs(a.x - b.x) > span * VERTICAL_STACK_FRAC:
-            continue
-        upper, lower = (a, b) if a.y < b.y else (b, a)
-        # 横に並んだだけの組を「積んである」と読まない。
-        if lower.y - upper.y < span * VERTICAL_STACK_MIN_RISE:
-            continue
-        if upper.type <= lower.type:
-            continue
-        penalty += (upper.type - lower.type) * VERTICAL_ORDER_WEIGHT
     return penalty
 
 

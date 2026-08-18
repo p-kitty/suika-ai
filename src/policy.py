@@ -1,8 +1,7 @@
 """落とす列を決める。薄い bootstrap 方策 (RL の土台)。
 
 具体手順 (押し込み・復元押し・連鎖隙間空け・梯子発火など) は持たない。
-合成・危険高さ・埋め込み・薄い大小順 (横と縦)・転がり事故防止だけ見る。
-盤が崩れているときだけ掛ける立て直し側の規則は `pen.board_is_broken` で分ける。
+合成・危険高さ・埋め込み・薄い大小順・転がり事故防止だけ見る。
 手の採点は eval = score (本家の合成点) - penalties (事故・悪手の減点)。
 
 減点側は `penalties.py`。ここは候補列の生成・1 手評価・next 先読みだけ。
@@ -240,15 +239,9 @@ def _evaluate_drop(
     penalties += pen.foreign_aim_penalty(before, x, drop_type, held_r)
     if not held_merged:
         penalties += pen.packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
-        # 谷育成は立て直し側の規則なので、盤が実際に崩れているときだけ掛ける。
-        # 整った盤では大小順 (横・縦) を優先させる。散らかった盤から合体を拾う
-        # ための規則で、整った盤に掛けると小さい実を小側へ置く手を潰しにいく
-        # (発火 1642 件が 100% 大側への着地だった)。
-        # 合体しない手の中では、育つ見込みのある谷への着地を選ばせる。
+        # 谷育成。合体しない手の中では、育つ見込みのある谷への着地を選ばせる。
         # 合体した手は本家点が付くので、そちらには足さない。
-        if pen.board_is_broken(before, sign) and pen.valley_grow_ok(
-            before, land_x, drop_type, next_type
-        ):
+        if pen.valley_grow_ok(before, land_x, drop_type, next_type):
             penalties -= pen.VALLEY_GROW_BONUS
     return after, score, penalties, merges, held_merged
 

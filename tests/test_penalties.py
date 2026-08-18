@@ -1,28 +1,12 @@
-"""大小順 (横・縦) の減点と、その谷免除・段階ゲートの単体テスト。
+"""大小順の減点と、その谷免除の単体テスト。
 
 手の選び方は tests/test_policy.py。ここは減点規則そのものの意味を固定する。
 谷の判定 (`_is_nestled`) と、そのうち実際に免除する条件 (`_size_order_exempt`)
 は別物なので、それぞれ分けて置く。
-
-縦の大小順は「上が大きいときだけ掛かる」ことが要で、大きい実の肩に小さい実を
-載せる形 (梯子) は型差がいくつあっても 0 でなければならない。そこを外すと、
-盤を整える手そのものを減点しにいく。
 """
 
-import math
-
 from src.observe import Observation
-from src.penalties import (
-    TRAPPED_WEIGHT,
-    VERTICAL_ORDER_WEIGHT,
-    _is_nestled,
-    _size_order_exempt,
-    _size_order_penalty,
-    _trapped_penalty,
-    _vertical_order_penalty,
-    board_is_broken,
-    inversion_fraction,
-)
+from src.penalties import _is_nestled, _size_order_exempt, _size_order_penalty
 from src.policy import choose_x
 from src.sim.sim_physics import simulate_drop_held
 from src.vision.classify import fruit_radius
@@ -30,7 +14,6 @@ from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
 
 PEAR, DEKOPON, GRAPE = 6, 3, 2
-MELON, ORANGE, CHERRY, PEACH, APPLE = 9, 4, 0, 7, 5
 # 盤面の大小の向き。+1 = 左が大きい。
 LARGE_LEFT = 1
 
@@ -119,148 +102,3 @@ def test_drop_does_not_exempt_the_inversion_it_creates() -> None:
     grape = next(f for f in after if f.type == GRAPE)
 
     assert dekopon.x < grape.x
-
-
-# --- 縦の大小順 ---------------------------------------------------------
-
-
-def _stacked(lower_type: int, upper_type: int, x: float = 200.0) -> list[Fruit]:
-    """真上に積んだ 2 個。"""
-    lo_r, up_r = fruit_radius(lower_type), fruit_radius(upper_type)
-    lower = _on_floor(lower_type, x)
-    upper = Fruit(
-        type=upper_type, x=x, y=lower.y - lo_r - up_r, radius=up_r, confidence=90
-    )
-    return [lower, upper]
-
-
-def _rest_on(a: Fruit, b: Fruit, fruit_type: int) -> Fruit:
-    """a と b の両方に接して上に乗る実。肩の形を組む足場。"""
-    r = fruit_radius(fruit_type)
-    d1, d2 = a.radius + r, b.radius + r
-    dx, dy = b.x - a.x, b.y - a.y
-    d = math.hypot(dx, dy)
-    mid = (d1 * d1 - d2 * d2 + d * d) / (2 * d)
-    h = math.sqrt(max(0.0, d1 * d1 - mid * mid))
-    cx, cy = a.x + mid * dx / d, a.y + mid * dy / d
-    x1, y1 = cx + h * dy / d, cy - h * dx / d
-    x2, y2 = cx - h * dy / d, cy + h * dx / d
-    x, y = (x1, y1) if y1 < y2 else (x2, y2)
-    return Fruit(type=fruit_type, x=x, y=y, radius=r, confidence=90)
-
-
-def test_vertical_order_ignores_a_small_fruit_on_a_big_one() -> None:
-    """大きい実の上に小さい実は正しい向き。型差が開いていても 0。
-
-    メロン (9) の上のオレンジ (4) は型差 5 だが、縦の並びとしては正しい。
-    ここを型差だけで数えると、盤を整える手を減点することになる。
-    """
-    assert _vertical_order_penalty(_stacked(MELON, ORANGE)) == 0.0
-    assert _vertical_order_penalty(_stacked(PEACH, CHERRY)) == 0.0
-
-
-def test_vertical_order_charges_a_big_fruit_on_a_small_one() -> None:
-    """小さい実の上に大きい実を乗せたら型差ぶん減点。"""
-    assert _vertical_order_penalty(_stacked(ORANGE, MELON)) == 5 * VERTICAL_ORDER_WEIGHT
-    assert _vertical_order_penalty(_stacked(CHERRY, PEACH)) == 7 * VERTICAL_ORDER_WEIGHT
-
-
-def test_vertical_order_ignores_fruits_merely_side_by_side() -> None:
-    """横に並んだだけの組は「積んである」ではない。高さが同じなら 0。"""
-    row = [_on_floor(CHERRY, 100.0), _on_floor(MELON, 300.0)]
-    assert _vertical_order_penalty(row) == 0.0
-
-
-def test_vertical_order_leaves_the_ladder_alone() -> None:
-    """梯子の肩は素通りする。角桃の内側に梨、その肩にリンゴ・オレンジ。
-
-    これがまさに「大きい側で発火を待つ」形なので、縦の規則がここに掛かると
-    組み立てを自分で潰す。型差 (桃 7 とオレンジ 4 で 3) があっても 0。
-    """
-    peach_r, pear_r = fruit_radius(PEACH), fruit_radius(PEAR)
-    peach = _on_floor(PEACH, peach_r + 2)
-    pear = Fruit(
-        type=PEAR,
-        x=peach.x + peach_r + pear_r,
-        y=NORMALIZED_HEIGHT - pear_r,
-        radius=pear_r,
-        confidence=90,
-    )
-    apple = _rest_on(peach, pear, APPLE)
-    orange = _rest_on(apple, pear, ORANGE)
-
-    assert _vertical_order_penalty([peach, pear, apple, orange]) == 0.0
-
-
-# --- 段階のゲート -------------------------------------------------------
-
-
-def test_inversion_fraction_reads_the_board_order() -> None:
-    """整列した盤は 0、逆に並べた盤は 1。sign は呼び元が渡す。"""
-    ordered = [_on_floor(PEAR, 70.0), _on_floor(DEKOPON, 200.0), _on_floor(GRAPE, 320.0)]
-    assert inversion_fraction(ordered, 1) == 0.0
-    assert inversion_fraction(ordered, -1) == 1.0
-
-
-def test_a_fruit_trapped_between_bigger_ones_reads_as_broken() -> None:
-    """谷にはまった実は、片側としか逆転していなくても崩れた盤として読む。
-
-    オレンジ(4)・ぶどう(2)・りんご(5) の並び (sign=-1 なので右が大)。
-    ペアの左右だけで数えると、ぶどうが逆転するのは オレンジ とだけなので
-    1/3 = 0.333 で、しきい値 0.35 を下回って「整っている」に入ってしまう。
-    大きい実 2 つに挟まれた実は左右どちらに対しても位置を外しているので、
-    両側と数えて 2/3 = 0.667 になる。
-    """
-    orange = _on_floor(ORANGE, 69.664)
-    grape = _on_floor(GRAPE, 150.0)
-    apple = _on_floor(APPLE, 230.336)
-    fruits = [orange, apple, grape]
-
-    assert _is_nestled(grape, fruits)
-    assert inversion_fraction(fruits, -1) > 0.35
-    assert board_is_broken(fruits, -1)
-
-
-def test_board_is_broken_only_past_the_threshold() -> None:
-    """整った盤では立て直し側の規則を掛けない。
-
-    ゲートの向きだけを固定する。しきい値そのものは A/B で決める数字。
-    """
-    ordered = [_on_floor(PEAR, 70.0), _on_floor(DEKOPON, 200.0), _on_floor(GRAPE, 320.0)]
-    assert not board_is_broken(ordered, 1)
-    assert board_is_broken(ordered, -1)
-
-
-# --- 閉じ込め -----------------------------------------------------------
-
-
-def test_trapped_fruit_without_a_partner_is_charged() -> None:
-    """より大きい実に挟まれ、相方もいない実は出る当てが無いので減点。"""
-    fruits = [_on_floor(ORANGE, 69.664), _on_floor(GRAPE, 150.0), _on_floor(APPLE, 230.336)]
-
-    assert _is_nestled(fruits[1], fruits)
-    assert _trapped_penalty(fruits) == TRAPPED_WEIGHT
-
-
-def test_trapped_fruit_with_a_partner_is_not_charged() -> None:
-    """相方が盤に残っていれば合体して谷から出られる。合体待ちであって閉じ込めではない。
-
-    ここを減点すると、谷に餌を入れる手そのものを潰す。実測で中盤の連鎖が
-    止まり、seed=74546 が 241 手から 163 手に落ちた。
-    """
-    fruits = [
-        _on_floor(ORANGE, 69.664),
-        _on_floor(GRAPE, 150.0),
-        _on_floor(APPLE, 230.336),
-        _on_floor(GRAPE, 330.0),
-    ]
-
-    assert _is_nestled(fruits[1], fruits)
-    assert _trapped_penalty(fruits) == 0.0
-
-
-def test_a_fruit_in_the_open_is_not_trapped() -> None:
-    """片側にしか大きい実が無ければ谷ではない。並び順の話は大小順の側で見る。"""
-    fruits = [_on_floor(APPLE, 70.0), _on_floor(GRAPE, 170.0)]
-
-    assert _trapped_penalty(fruits) == 0.0
