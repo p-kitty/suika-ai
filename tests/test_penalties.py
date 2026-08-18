@@ -200,6 +200,25 @@ def test_inversion_fraction_reads_the_board_order() -> None:
     assert inversion_fraction(ordered, -1) == 1.0
 
 
+def test_a_fruit_trapped_between_bigger_ones_reads_as_broken() -> None:
+    """A fruit stuck in a valley is read as a broken board even if inverted with only one side.
+
+    The order orange (4), grape (2), apple (5) (sign=-1, so the right is big).
+    Counting only the left and right of pairs, the grape is inverted only against the orange, so
+    it is 1/3 = 0.333, below the 0.35 threshold, and falls into 'tidy'.
+    A fruit squeezed between two big fruits is out of place with respect to both sides,
+    so counting both sides gives 2/3 = 0.667.
+    """
+    orange = _on_floor(ORANGE, 69.664)
+    grape = _on_floor(GRAPE, 150.0)
+    apple = _on_floor(APPLE, 230.336)
+    fruits = [orange, apple, grape]
+
+    assert _is_nestled(grape, fruits)
+    assert inversion_fraction(fruits, -1) > 0.35
+    assert board_is_broken(fruits, -1)
+
+
 def test_board_is_broken_only_past_the_threshold() -> None:
     """Recovery rules are not applied on a tidy board.
 

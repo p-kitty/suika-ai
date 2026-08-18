@@ -233,10 +233,19 @@ Agreement with master as the baseline, and the inversion increase of changed mov
   also doing vertical work, so removing it gives horizontal −0.52 / vertical −0.43, merely a different split from no gate (horizontal −0.24 /
   vertical −1.06). **Run the A/B separately for vertical only and vertical + gate**.
   If both go in at once without a significant difference, which one is responsible cannot be separated
-- The inversion rate is **coarse on small boards**. With 3 fruits there are only 3 pairs, a step of 0.33, so
-  even one inverted pair gives 0.333 ≤ 0.35 and falls into "tidy". Sitting on this boundary,
-  `test_grows_valley_fruit_when_held_and_next_are_one_smaller` was rewritten to a board shape
-  that enters the second stage (that valley growing does not appear on tidy boards is pinned by another test)
+- **Do not count the inversion rate only by the left and right of each pair** (fixed after it was pointed out).
+  In the order orange, grape, apple, the grape is inverted only against the orange, so
+  it becomes 1/3 = 0.333, below the 0.35 threshold, and falls into "tidy". But
+  a fruit squeezed between two big fruits is clearly a broken shape. **A fruit in a valley should be counted as out of place
+  counting it as out of place** (reusing `_valley_flanks`) gives 2/3 = 0.667.
+  This error was detected by `test_grows_valley_fruit_when_held_and_next_are_one_smaller`.
+  was detecting it. The test was right and the metric was wrong
+- Gating only on the presence of a valley does not work. With 8+ fruits **there is always a valley, giving 0%**, so
+  it goes back to a no-op. The fraction read as "tidy" by fruit count, with the inversion rate including valleys, keeps a gradient:
+  98% / 70% / 48% / 16% / 3% (fruits 0-3 / 4-7 / 8-11 / 12-15 / 16+)
+- That `inversion_fraction` **counts** valley fruits while `_size_order_exempt` **excludes** them
+  looks contradictory, but their jobs differ. That one is an exemption so fruits being grown are not penalized twice;
+  this one reads the state of the board
 
 ### Ideas that did not work (dropped at screening)
 

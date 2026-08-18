@@ -150,34 +150,6 @@ def _typed_pairs(
     ]
 
 
-def inversion_fraction(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> float:
-    """The fraction of pairs with inverted horizontal size order. 0 = ordered, 0.5 = disorder.
-
-    Unlike `_size_order_penalty`, a raw fraction looking at neither exemptions nor ideal_x. The stage
-    isolating the stage; it represents the state of the board itself, not the size of a penalty.
-    """
-    pairs = [
-        (a, b)
-        for a, b in _typed_pairs(fruits)
-        if abs(a.x - b.x) >= min(a.radius, b.radius) * 0.5
-    ]
-    if not pairs:
-        return 0.0
-    bad = 0
-    for a, b in pairs:
-        left, right = (a, b) if a.x <= b.x else (b, a)
-        if sign > 0 and left.type < right.type:
-            bad += 1
-        elif sign < 0 and left.type > right.type:
-            bad += 1
-    return bad / len(pairs)
-
-
-def board_is_broken(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> bool:
-    """Whether this board may get the recovery rules. On tidy boards size order takes priority."""
-    return inversion_fraction(fruits, sign) > BROKEN_INVERSION_FRAC
-
-
 def _floor_row(fruits: list[Fruit] | tuple[Fruit, ...]) -> list[Fruit]:
     """Fruits on the floor in x order."""
     return sorted(
@@ -358,6 +330,52 @@ def _size_order_exempt(
     if not _is_nestled(fruit, fruits):
         return False
     return any(f.type == fruit.type and f is not fruit for f in fruits)
+
+
+def inversion_fraction(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> float:
+    """The fraction of pairs out of size order. 0 = ordered, 0.5 = disorder.
+
+    Unlike `_size_order_penalty`, a raw fraction looking at neither weights nor ideal_x. For the gate
+    isolating the stage; it represents the state of the board itself, not the size of a penalty.
+
+    A fruit in a valley is counted as out of place **with respect to both walls**. Counting only
+    the left and right of a pair, a small fruit squeezed between two bigger fruits is inverted with only one side,
+    and a clearly broken board falls on the ordered side (in the order orange, grape,
+    apple, the grape is inverted only against the orange, giving 1/3 = 0.333.
+    That is below 0.35). Counting valleys it becomes 2/3 = 0.667.
+
+    It looks opposite to `_size_order_exempt` excluding valley fruits from penalties, but
+    they do different jobs. That one is an exemption so that 'fruits planned to be grown
+    are not penalized twice'; this one reads 'is this board tidy'.
+    """
+    pairs = [
+        (a, b)
+        for a, b in _typed_pairs(fruits)
+        if abs(a.x - b.x) >= min(a.radius, b.radius) * 0.5
+    ]
+    if not pairs:
+        return 0.0
+    flanks: dict[int, set[int]] = {}
+    for fruit in fruits:
+        walls = _valley_flanks(fruits, fruit.x, fruit.type)
+        if walls is not None:
+            flanks[id(fruit)] = {id(walls[0]), id(walls[1])}
+    bad = 0
+    for a, b in pairs:
+        if id(b) in flanks.get(id(a), ()) or id(a) in flanks.get(id(b), ()):
+            bad += 1
+            continue
+        left, right = (a, b) if a.x <= b.x else (b, a)
+        if sign > 0 and left.type < right.type:
+            bad += 1
+        elif sign < 0 and left.type > right.type:
+            bad += 1
+    return bad / len(pairs)
+
+
+def board_is_broken(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> bool:
+    """Whether this board may get the recovery rules. On tidy boards size order takes priority."""
+    return inversion_fraction(fruits, sign) > BROKEN_INVERSION_FRAC
 
 
 def valley_grow_ok(
