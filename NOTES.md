@@ -6,6 +6,7 @@
 - [In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)
 - [How to measure](#how-to-measure-traps-we-keep-stepping-in) ← read before reporting numbers
 - [Investigated: sudden death from scattered low-tier fruits late in the game](#investigated-sudden-death-from-scattered-low-tier-fruits-late-in-the-game)
+- [Investigated: how the board collapses and isolating the stage](#investigated-how-the-board-collapses-and-isolating-the-stage-2026-08-18)
 - [When to move](#when-to-move)
 - [Policy (bootstrap) design](#policy-bootstrap-design)
 - [Training](#training)
@@ -173,6 +174,91 @@ remove several. That `cascades` is consistently the sharpest in [proxy metrics](
 is consistent with this too. If intervening, aiming at **how easily cascades happen**
 looks like the better approach.
 
+## Investigated: how the board collapses and isolating the stage (2026-08-18)
+
+6 games were traced and counted per move (deterministic per-position quantities, so not
+subject to score noise). The policy of "not breaking the board matters more than score"
+was reversed in the weighting of the penalties.
+
+### Symptom
+
+- **The inversion rate of horizontal size order goes from 10% early to 40-50% late**. 50% is complete disorder
+- **Vertically it was lawless from the start**. Of 23079 vertically stacked pairs, 47% have "the upper one bigger".
+  `_size_order_penalty` only looked at `a.x <= b.x`, and there was not a single vertical rule
+- cherry / strawberry are the main culprits (+1.25 / +1.57 pairs per move). Only orange recovers, at −0.93
+- **Clean moves are among the candidates. The evaluation rejects them**: for cherry, a non-dirtying move is
+  a candidate in 97% of positions, yet it is actually chosen in 64%. 2.85 pairs missed per move
+
+### What was beating size order
+
+Taking (chosen move − clean move) per term in positions where a clean move was rejected:
+
+| Term | difference | rate of being the deciding factor |
+|---|---|---|
+| `bury_block` | **−7.43** | 35% |
+| `FOREIGN_AIM` | −6.12 | 6% |
+| valley growing | −1.04 | 35% |
+| `sizeord` | −0.03 | 16% |
+
+**`sizeord` effectively does not distinguish dirty moves from clean ones.** Converted, one inversion pair
+≈ eval 4.91, whereas `bury_block` is 14.0 at type gap 1 and `FOREIGN_AIM` is 100.0.
+
+- `bury_block` fires on 51-72% of small-side candidates (straw/grape/orange), and
+  **66% of the pairs it protects already have a bigger fruit wedged between them and cannot merge**.
+  83% are more than 3x the contact distance apart. It was paying a median of 28.0 / max 133.0
+  for pairs already dead
+- Valley growing: **100% of its 1642 firings land on the big side**. 97% are "a same-type fruit is in the valley,
+  but this move does not merge" = moves that stack next to that fruit
+- The `_size_order_exempt` exemption is an accomplice. On boards with 16+ fruits, 45-57% of small fruits
+  are exempt, but removing every exemption only takes it from 4.91 → 6.20 per pair
+
+### Ideas that did not work (dropped at screening)
+
+- **Raising `size_order_pair_weight` from 1.5 → 9.0**: agreement 88.6%, moves barely change,
+  and the inversion increase of changed moves is **+0.11** (no improvement). It is a global statistic, the pair count of the whole board,
+  so dropping one fruit is buried in the baseline and does not move. **This line is dead**
+- In contrast, a local term counting per move "the inversions the dropped fruit itself creates" has
+  agreement 80.7% at w=1.0, and changed moves average **−4.00 pairs**. The difference was local versus global
+
+### Material arithmetic (distance to a double watermelon)
+
+Spawns are uniform over type0-4, so 6.2 cherry units per move. One watermelon = 1024 units,
+a double watermelon = 2048 units. Measured (average of 6 games): 1217 units on the board at 192 moves, 59% of what is needed.
+
+But **by area there is enough**. The area needed to hold the same 1024 units is
+39k for one watermelon, 57k for two melons, 299k for 64 oranges, 651k for 1024 cherries
+(**17x less when consolidated**). The board holds 135k measured at death, so
+holding 2048 units as two watermelons (79k) physically fits.
+**What is missing is neither material nor moves, only consolidation.**
+
+### Metric: inversion rate is unusable for A/B
+
+Using "how clean the board is" as an A/B metric was measured and refuted (n=24).
+
+- The correlation between the all-move mean inversion rate and score is **+0.36** (the reverse sign, dirtier means higher score).
+  The longer it lives the more fruits and inversions there are, so it is confounded with game length
+- Removing the confound at a fixed move (move 40/60/80/100) gives r = 0.00-0.12, uncorrelated
+- Compare: `steps` r=0.95, `cascades` r=0.76
+
+**Use the inversion rate only as a per-move difference, "how much did one move dirty the board".**
+It compares candidates on the same position, a deterministic quantity with no noise, and screens in minutes.
+Do not put it into an A/B as a per-episode aggregate. The metric stays `cascades`.
+
+### Running BC on only the top teacher data
+
+**Won't do.** Both have measured reasons.
+
+1. The student does not reach the teacher ([BC does not reach 60-70% match](#investigated-bc-does-not-reach-60-70-match-2026-08-05)).
+   It cannot even fit the unfiltered teacher, so narrowing to the top only sharpens the target
+2. **`choose_x` is deterministic, so the spread of score between seeds is 100% draw-order luck**
+   (n=24, mean 2012, SD 332). Picking the top to imitate means learning "how it played
+   when lucky"
+
+If done at all the order is reversed: first make `src/training/encode.py` candidate-conditioned
+(feed the `simulate_drop` result of each candidate x as input, and the student only reorders).
+If that works, making the teacher side a wide 8/16 search is also a good idea
+(→[Re-measuring search width 8/16](#re-measuring-search-width-816-2026-08-17). The 3.68x collection cost is one-off for the teacher).
+
 ## When to move
 
 - Do not decide x on a moving board. Waiting for it to settle takes priority over lookahead (`src/game/settle.py`)
@@ -285,9 +371,9 @@ Teacher collection (`train_sim.py`) becoming 3.68x more expensive across the boa
 | Rule | Function | Content | Weight |
 |---|---|---|---|
 | directly above a different type | `_foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
-| blocking a waiting merge by burying | `_bury_block_penalty` | when a bigger fruit of another type blocks, directly above or on the shoulder, a fruit waiting for a same-type pair | 14.0 ×type gap (half on a shoulder) |
+| blocking a waiting merge by burying | `_bury_block_penalty` | when a bigger fruit of another type blocks, directly above or on the shoulder, a fruit waiting for a same-type pair. **Only when the board is broken** (`board_is_broken`) | 14.0 ×type gap (half on a shoulder) |
 | small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (orange or bigger) escapes to the small side (fires only when it physically cannot go on the small side) | fixed 8.0 |
-| valley-growing bonus | `_valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type | **−3.0** (`VALLEY_GROW_BONUS`. The only bonus in this table) |
+| valley-growing bonus | `_valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type. **Only when the board is broken** (`board_is_broken`) | **−3.0** (`VALLEY_GROW_BONUS`. The only bonus in this table) |
 
 The 3 below apply **only when held itself did not merge** (`held_merged`, not the merge count
 `merges`, so that an unrelated merge elsewhere on the board does not grant the exemption).
@@ -300,6 +386,7 @@ The 3 below apply **only when held itself did not merge** (`held_merged`, not th
 | burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35) | bury_weight 20.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
 | size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left on the board** are exempt = `_size_order_exempt`. Valley fruits without a partner are counted). **Exempt on moves where held merged** (so unrelated fruits knocked by merge recoil are not counted as violations) | pair difference×1.5 + ideal_x deviation×0.004 |
+| vertical size order | `_vertical_order_penalty` | for pairs overlapping horizontally and stacked vertically, when **the upper one is bigger**. Putting small fruits on shoulders (a ladder) has the smaller one on top, so 0 | type gap × 1.5 |
 | big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough (exempt for the diameter of the missing type in between) | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) (gap−diameter of the missing type)×0.025×size factor |
 | bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by 0.15 at dangerous height) | variance×0.08 |
 

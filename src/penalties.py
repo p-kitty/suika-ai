@@ -44,6 +44,25 @@ EDGE_ANCHOR_FRAC = 0.35
 # Number of tiers below the biggest fruit counted as 'the big-fruit cluster'.
 BIG_CLUSTER_SPAN = 2
 
+# --- Vertical size order ---
+# Sideways offset considered vertically stacked (ratio to the sum of radii). 1.0 is side by side,
+# so tighter than that. Shoulder placements fall in here, but on a shoulder the upper one is the smaller,
+# so it is not penalized (the ladder's 4→5→6→7 passes through).
+VERTICAL_STACK_FRAC = 0.8
+# Minimum height difference considered swapped top and bottom (ratio to the sum of radii).
+# A lower bound so pairs merely side by side at almost the same height are not read as 'stacked'.
+VERTICAL_STACK_MIN_RISE = 0.35
+# Penalty per pair with the bigger one on top. Multiplied by the type gap.
+VERTICAL_ORDER_WEIGHT = 1.5
+
+# --- Isolating the stage ---
+# The inversion rate at which a board is considered 'broken'. The fraction of pairs with inverted horizontal size order;
+# 0.5 means complete disorder (no information in the direction). Only on boards beyond this
+# Apply the recovery rules (bury_block / valley growing). Applying them on tidy boards,
+# crushes moves placing small fruits on the small side and starts breaking the board (measured: for cherry, a non-dirtying move
+# was a candidate in 97% of positions, yet it was chosen in only 64% of them).
+BROKEN_INVERSION_FRAC = 0.25
+
 # --- How full the floor is ---
 # Height considered on the floor. A floor placement if the bottom is within this multiple of the radius.
 FLOOR_BAND = 1.35
@@ -107,6 +126,51 @@ def _height_variance(fruits: list[Fruit]) -> float:
     if len(bins) < 2:
         return 0.0
     return float(statistics.pstdev(list(bins.values())))
+
+
+def _typed_pairs(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+) -> "list[tuple[Fruit, Fruit]]":
+    """Pairs of different types. Same types are waiting to merge, so size order does not matter.
+
+    Whether to exclude horizontally overlapping pairs depends on the direction, so it is not done here.
+    Horizontally, pairs whose left and right cannot be told are excluded (`inversion_fraction`); vertically, those pairs are
+    the substance (`_vertical_order_penalty`).
+    """
+    return [
+        (a, b)
+        for i, a in enumerate(fruits)
+        for b in fruits[i + 1 :]
+        if a.type != b.type
+    ]
+
+
+def inversion_fraction(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> float:
+    """The fraction of pairs with inverted horizontal size order. 0 = ordered, 0.5 = disorder.
+
+    Unlike `_size_order_penalty`, a raw fraction looking at neither exemptions nor ideal_x. The stage
+    isolating the stage; it represents the state of the board itself, not the size of a penalty.
+    """
+    pairs = [
+        (a, b)
+        for a, b in _typed_pairs(fruits)
+        if abs(a.x - b.x) >= min(a.radius, b.radius) * 0.5
+    ]
+    if not pairs:
+        return 0.0
+    bad = 0
+    for a, b in pairs:
+        left, right = (a, b) if a.x <= b.x else (b, a)
+        if sign > 0 and left.type < right.type:
+            bad += 1
+        elif sign < 0 and left.type > right.type:
+            bad += 1
+    return bad / len(pairs)
+
+
+def board_is_broken(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> bool:
+    """Whether this board may get the recovery rules. On tidy boards size order takes priority."""
+    return inversion_fraction(fruits, sign) > BROKEN_INVERSION_FRAC
 
 
 def _floor_row(fruits: list[Fruit] | tuple[Fruit, ...]) -> list[Fruit]:
@@ -339,6 +403,7 @@ def board_penalties(
 
     exempt_size_order: True when held merged this move. Unrelated fruits knocked by the merge recoil
     are not penalized as size-order violations (see `policy._evaluate_drop`).
+    Horizontal and vertical size order both suffer the same recoil, so this flag excludes them together.
     """
     # Converted from the old basis of 90.0 by the amount the board moved to the inside-of-the-wall basis.
     danger_y = 70.9
@@ -356,6 +421,7 @@ def board_penalties(
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
+        penalty += _vertical_order_penalty(fruits)
     penalty += _big_layout_penalty(fruits, sign)
     variance = _height_variance(fruits)
     if crown < danger_y:
@@ -478,6 +544,31 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
             / len(open_fruits)
             * size_order_ideal_weight
         )
+    return penalty
+
+
+def _vertical_order_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """Penalize pairs with a big fruit on top. Bigger lower, as a vertical order.
+
+    The horizontal `_size_order_penalty` only looks at x, so there was no rule for vertical stacking
+    (measured: of 23079 vertically stacked pairs, 47% were upside down = nearly disorder).
+
+    It applies only when **the upper one is bigger**. Putting a small fruit on a big fruit's shoulder
+    has the smaller one on top, so it is 0 whatever the type gap, and the ladder (an orange on a peach's shoulder)
+    passes through. Conversely, putting a big fruit on a small one gets heavier by the type gap.
+    """
+    penalty = 0.0
+    for a, b in _typed_pairs(fruits):
+        span = a.radius + b.radius
+        if abs(a.x - b.x) > span * VERTICAL_STACK_FRAC:
+            continue
+        upper, lower = (a, b) if a.y < b.y else (b, a)
+        # Do not read pairs merely side by side as 'stacked'.
+        if lower.y - upper.y < span * VERTICAL_STACK_MIN_RISE:
+            continue
+        if upper.type <= lower.type:
+            continue
+        penalty += (upper.type - lower.type) * VERTICAL_ORDER_WEIGHT
     return penalty
 
 

@@ -1,7 +1,8 @@
 """Decide the drop column. A thin bootstrap policy (the groundwork for RL).
 
 It has no concrete procedures (push-ins, restoring pushes, cascade gap opening, ladder firing and the like).
-It only looks at merging, dangerous height, burying, light size order and rolling accident prevention.
+It only looks at merging, dangerous height, burying, light size order (horizontal and vertical) and rolling accident prevention.
+Recovery rules applied only when the board is broken are separated by `pen.board_is_broken`.
 Moves are scored as eval = score (the real game's merge points) - penalties (penalties for accidents and bad moves).
 
 The penalty side is `penalties.py`. This file only generates candidate columns, evaluates one move and looks ahead to next.
@@ -238,12 +239,19 @@ def _evaluate_drop(
     # A same type directly below is OK (waiting to merge). Rolling off a different type and merging on the floor is still penalized.
     penalties += pen.foreign_aim_penalty(before, x, drop_type, held_r)
     if not held_merged:
-        penalties += pen.bury_block_penalty(before, land_x, land_y, drop_type, held_r)
         penalties += pen.packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
-        # Valley growing. Among non-merging moves, choose landings in valleys likely to grow.
-        # Merging moves get the real-game score, so it is not added to them.
-        if pen.valley_grow_ok(before, land_x, drop_type, next_type):
-            penalties -= pen.VALLEY_GROW_BONUS
+        # Apply recovery rules only when the board is actually broken. On tidy boards
+        # size order (horizontal, vertical) takes priority. Both are rules for 'picking up merges from a messy board',
+        # and applied to a tidy board they go to crush moves placing small fruits on the small side:
+        # bury_block fires on 51-72% of small-side candidates, and valley growing's 1642 firings
+        # were 100% landings on the big side. As a result, for cherry, a non-dirtying move is a candidate in 97% of
+        # positions, yet it is chosen in only 64% of them.
+        if pen.board_is_broken(before, sign):
+            penalties += pen.bury_block_penalty(before, land_x, land_y, drop_type, held_r)
+            # Valley growing. Among non-merging moves, choose landings in valleys likely to grow.
+            # Merging moves get the real-game score, so it is not added to them.
+            if pen.valley_grow_ok(before, land_x, drop_type, next_type):
+                penalties -= pen.VALLEY_GROW_BONUS
     return after, score, penalties, merges, held_merged
 
 
