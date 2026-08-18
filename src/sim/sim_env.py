@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from dataclasses import dataclass
 
 import numpy as np
@@ -28,7 +29,12 @@ class SimEnv:
     """空盤から held/next を配り、sim_physics.simulate_drop で落とす。"""
 
     def __init__(self, seed: int | None = None) -> None:
-        self.rng = np.random.default_rng(seed)
+        # seed=None でも具体値に確定させて持つ。この env は実行の記録をどこにも
+        # 残さないので、seed を後から言えないと事故った対局を再生できない
+        # (view_sim が footer に出す)。桁数は screenshot から読み取れる長さに
+        # 抑える。ランダム seed の引き方は compare_policy.py と揃えてある。
+        self.seed = secrets.randbelow(1_000_000) if seed is None else seed
+        self.rng = np.random.default_rng(self.seed)
         self.fruits: list[Fruit] = []
         self.held_type: int | None = None
         self.next_type: int | None = None
