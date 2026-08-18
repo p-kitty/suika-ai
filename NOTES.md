@@ -241,8 +241,26 @@ The values decided from this (vertical 1.5, gate 0.35, trapping 4.0) all lost in
   (fruits 0-3 / 4-7 / 8-11 / 12-15 / 16+)
 - `_floor_packed` **reads 48% of boards with 3-5 fruits and 74% with 6-8 as "filled"**.
   The premise of `packed_small_side_penalty`, "the floor is packed and there is no room on the small side",
-  does not hold from the early game. **Open task** (though as far as tried on 241 positions, this rule
-  has never changed the chosen move, so no actual harm has appeared)
+  does not hold from the early game (fixed in →[floor-filled check](#settled-floor-filled-is-judged-by-the-draw-2026-08-19))
+
+### Settled: floor-filled is judged by the draw (2026-08-19)
+
+The threshold of `_floor_packed` changed from a fixed orange diameter to the diameter of the draw.
+
+`packed_small_side_penalty` is the only caller of `_floor_packed`, and through
+`PACKED_BIG_DRAW_MIN_TYPE = SPAWN_MAX_TYPE - 1` **it runs only for 2 types,
+dekopon and orange**. The old threshold was the fixed orange diameter of 77.1, so
+the orange side was already correct and only dekopon (diameter 59.6) was off.
+It read even gaps a dekopon falls into with 17.5 to spare as "no room".
+
+- The floor-filled rate before the change (8 seeds × 40 moves) was **43.8%** at 3-5 fruits and **89.5%** at 6-8.
+  A board merely lined up in a row (`pear@70 grape@216 straw@288 cherry@346`, largest gap 67.1)
+  counted as filled for a dekopon draw
+- Swapping the old and new predicates and running `choose_x` both ways on the same positions (6 seeds × 60 moves),
+  **356/360 moves match (98.9%) with only 4 changed**. Penalty firings went 1445 → 1219 (**−15.6%**)
+- **No A/B was run.** A 1.1% change in moves is buried in score noise at n=25
+  (→[How to measure](#how-to-measure-traps-we-keep-stepping-in)). A change that fixes a wrong premise,
+  making no claim of moving the score
 
 ### Tried and reverted: vertical size order, stage gate, trapped-fruit penalty (2026-08-18)
 
@@ -268,7 +286,8 @@ The values decided from this (vertical 1.5, gate 0.35, trapping 4.0) all lost in
 - `packed_small_side_penalty` is the culprit → no. It does add 8.0 at move 28, but
   removing it does not change the choice. Tried on 241 positions, **100% agreement**; this rule does not affect
   move choice (though `_floor_packed` reading 48% of boards with 3-5 fruits as "filled"
-  being read is a separate oddity)
+  is a separate problem, which was fixed in
+  [floor-filled check](#settled-floor-filled-is-judged-by-the-draw-2026-08-19))
 - A local ordering term (counting per move the inversions the dropped fruit creates) works → at both move 25 and
   move 28, no change up to w=4.0. The fruit it inverts with is the same whether the landing is right or left, and
   **inversion counts cannot tell them apart**
@@ -528,7 +547,7 @@ Teacher collection (`train_sim.py`) becoming 3.68x more expensive across the boa
 | Rule | Function | Content | Weight |
 |---|---|---|---|
 | directly above a different type | `_foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
-| small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (orange or bigger) escapes to the small side (fires only when it physically cannot go on the small side) | fixed 8.0 |
+| small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (dekopon, orange) escapes to the small side (fires only when it physically cannot go on the small side). Floor-filled is judged by the draw's diameter (→[floor-filled check](#settled-floor-filled-is-judged-by-the-draw-2026-08-19)) | fixed 8.0 |
 | valley-growing bonus | `_valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type | **−3.0** (`VALLEY_GROW_BONUS`. The only bonus in this table) |
 
 The 3 below apply **only when held itself did not merge** (`held_merged`, not the merge count
