@@ -30,6 +30,10 @@ Desktop.ini
 debug/
 artifacts/
 
+# Claude Code (generated files only; settings.json and skills are kept since they may be worth sharing)
+.claude/settings.local.json
+.claude/worktrees/
+
 # Test / cache
 .pytest_cache/
 .mypy_cache/
