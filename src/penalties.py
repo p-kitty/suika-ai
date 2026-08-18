@@ -44,6 +44,16 @@ EDGE_ANCHOR_FRAC = 0.35
 # 「大きい実の塊」とみなす最大実からの段数。
 BIG_CLUSTER_SPAN = 2
 
+# --- 盤面減点の重み ---
+# compare_policy の A/B がモジュール属性として差し替えるので、
+# board_penalties のローカルではなくここに置く。
+# 盤面が壁の内側基準になった分だけ、旧基準の 90.0 を座標変換してある。
+DANGER_Y = 70.9
+DANGER_CROWN_WEIGHT = 0.5
+BURY_WEIGHT = 20.0
+VARIANCE_WEIGHT = 0.08
+VARIANCE_DANGER_SCALE = 0.15
+
 # --- 床の埋まり具合 ---
 # 床に着いているとみなす高さ。半径のこの倍率ぶん下端に寄っていれば床置き。
 FLOOR_BAND = 1.35
@@ -344,27 +354,20 @@ def board_penalties(
     exempt_size_order: held がこの手で合体したとき True。合体の反動で
     弾かれた無関係の実まで大小順違反として減点しない (`policy._evaluate_drop` 参照)。
     """
-    # 盤面が壁の内側基準になった分だけ、旧基準の 90.0 を座標変換してある。
-    danger_y = 70.9
-    danger_crown_weight = 0.5
-    bury_weight = 20.0
-    variance_weight = 0.08
-    variance_danger_scale = 0.15
-
     penalty = 0.0
     crown = _top_crown(fruits)
-    if crown < danger_y:
-        penalty += (danger_y - crown) * danger_crown_weight
+    if crown < DANGER_Y:
+        penalty += (DANGER_Y - crown) * DANGER_CROWN_WEIGHT
 
-    penalty += bury_weight * _bury_penalty(fruits)
+    penalty += BURY_WEIGHT * _bury_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
     penalty += _big_layout_penalty(fruits, sign)
     variance = _height_variance(fruits)
-    if crown < danger_y:
-        variance *= variance_danger_scale
-    penalty += variance_weight * variance
+    if crown < DANGER_Y:
+        variance *= VARIANCE_DANGER_SCALE
+    penalty += VARIANCE_WEIGHT * variance
     return penalty
 
 
