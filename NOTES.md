@@ -249,6 +249,55 @@ In the stretch where the board is decided, the student is nearly random.
 **Caveat**: the checkpoint used is hidden=128 (exact agreement 10.1%),
 not the best of the sweep (hidden=256, 29.1%). The ratio could be somewhat higher.
 
+### Tried and shelved: raising the bumpiness weight (2026-08-19)
+
+The only term that routinely moves inside the band is bumpiness (`_height_variance`, moving in 44.8% of positions,
+median 0.009), so the minimal intervention of **raising the weight of the term already acting as a de facto tie-break**
+was measured. It adds no new feature, so side effects can be read.
+
+**It passed the screen. Raising the weight shrinks the band itself:**
+
+| Multiplier | move change rate | band size median |
+|---|---|---|
+| x1 | 0/428 (0.0%) | 9 |
+| x2 | 36/428 (8.4%) | 8 |
+| x4 | 75/428 (17.5%) | 6 |
+| x8 | 100/428 (23.4%) | 4 |
+| x16 | 138/428 (32.2%) | 3 |
+
+**The n=133 A/B (x4 = `VARIANCE_WEIGHT` 0.08 → 0.32) lost:**
+
+| Metric | A | B | Δ | t |
+|---|---|---|---|---|
+| score | 2033.61 | 2006.96 | −1.3% | −0.49 |
+| cascades | 17.95 | 17.92 | −0.2% | −0.06 |
+| steps | 210.2 | 208.7 | −0.7% | −0.36 |
+| max_type | 8.94 | 8.90 | −0.4% | −0.49 |
+
+No metric's CI stays off 0. The score CI is [−135.0, +81.7].
+There is no reason to move the existing 0.08.
+
+### Splitting the band is not good in itself (2026-08-19)
+
+**This is the most useful conclusion from the series of measurements on 08-19.**
+
+That the band (tie plateau) is wide
+[was confirmed by measurement](#inside-the-band-every-large-term-is-saturated-same-day). But
+**neither intervention to split the band raised score**:
+
+- `drop_ideal` (→[ideal_x deviation of the dropped fruit](#tried-and-reverted-ideal_x-deviation-of-the-dropped-fruit-2026-08-19)) …
+  changed 51.4% of moves with score −/+ unclear (CI crosses 0 at n=133)
+- bumpiness x4 (above) … shrank the band from 9 candidates → 6 with score −1.3%
+
+**A wide band is a symptom, not the disease.** Making the tie-break deterministic with an arbitrary continuous quantity
+just chooses in a different arbitrary way. **The direction of "adding a term that splits the band"
+should be doubted before trying any more candidates.**
+
+The screen (does that quantity vary inside the band) is **necessary, not sufficient**.
+Without traction it certainly will not work (ladder, trapping and same-type proximity dropped here), but
+with traction it does not necessarily work (ideal_x 71.7%, bumpiness x4 shrinks the band,
+neither moved score).
+
 ## How to measure (traps we keep stepping in)
 
 **Score noise is very large.** This is the biggest wall for improving the policy, and every attempt below
@@ -743,12 +792,12 @@ The 3 below apply **only when held itself did not merge** (`held_merged`, not th
 
 | Rule | Function | Content | Weight |
 |---|---|---|---|
-| dangerous height | inline | when the topmost crown is above danger_y(70.9) | (danger_y − crown) × 0.5 |
-| burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35) | bury_weight 20.0x |
+| dangerous height | inline | when the topmost crown is above `DANGER_Y`(70.9) | (DANGER_Y − crown) × `DANGER_CROWN_WEIGHT` 0.5 |
+| burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35) | `BURY_WEIGHT` 20.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
 | size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left on the board** are exempt = `_size_order_exempt`. Valley fruits without a partner are counted). **Exempt on moves where held merged** (so unrelated fruits knocked by merge recoil are not counted as violations) | pair difference×1.5 + ideal_x deviation×0.004 |
 | big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough (exempt for the diameter of the missing type in between) | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) (gap−diameter of the missing type)×0.025×size factor |
-| bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by 0.15 at dangerous height) | variance×0.08 |
+| bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by `VARIANCE_DANGER_SCALE` 0.15 at dangerous height) | variance× `VARIANCE_WEIGHT` 0.08 (4x lost the A/B → section above) |
 
 Notes:
 - The rules above have no ON/OFF toggles (the policy is not to keep toggles for permanent rules.
