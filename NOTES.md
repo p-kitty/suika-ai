@@ -212,42 +212,41 @@ Taking (chosen move − clean move) per term in positions where a clean move was
 - The `_size_order_exempt` exemption is an accomplice. On boards with 16+ fruits, 45-57% of small fruits
   are exempt, but removing every exemption only takes it from 4.91 → 6.20 per pair
 
-### Threshold and weight screening (166 positions, deterministic)
+### Screening called all three "good" (166-230 positions, deterministic)
 
-Agreement with master as the baseline, and the inversion increase of changed moves (horizontal and vertical):
+**This section records "why it got adopted".** The A/B result is in the next section. It compares
+candidates on the same position, a deterministic quantity with no noise, but **with no correspondence to score**.
 
-| vertical weight | gate | agreement | horizontal inversions | vertical inversions |
-|---|---|---|---|---|
-| 0.00 | 0.25 | 96.4% | −0.67 | **+1.67** |
-| 0.00 | 0.35 | 89.2% | −0.83 | **+1.06** |
-| 1.50 | none | 89.8% | −0.24 | −1.06 |
-| 1.50 | 0.25 | 89.8% | −0.24 | −1.06 |
-| 1.50 | 0.35 | 86.1% | **−0.52** | −0.43 |
-| 3.00 | none | 88.0% | +0.15 | −0.95 |
+| Variant | agreement | horizontal inversions | vertical inversions |
+|---|---|---|---|
+| vertical 1.5 / no gate | 89.8% | −0.24 | −1.06 |
+| vertical 1.5 / gate 0.35 | 86.1% | −0.52 | −0.43 |
+| vertical 3.0 / no gate | 88.0% | **+0.15** | −0.95 |
 
-- **`BROKEN_INVERSION_FRAC = 0.25` is a pure no-op**. With vertical weight 1.5 / 3.0 it matched no gate
-  to the last digit. The inversion rate has a median of 0.333 (0.156 in the first 30 moves, 0.35-0.39 from move 90), so
-  at 0.25 it falls on the "broken" side from the midgame onward and never closes. 0.35 was adopted
-- **The vertical weight is 1.5**. 3.0 starts breaking horizontal order to protect vertical (horizontal turns +0.15)
-- **The gate trades horizontal for vertical, and cannot be called a gain alone**. `bury_block` was
-  also doing vertical work, so removing it gives horizontal −0.52 / vertical −0.43, merely a different split from no gate (horizontal −0.24 /
-  vertical −1.06). **Run the A/B separately for vertical only and vertical + gate**.
-  If both go in at once without a significant difference, which one is responsible cannot be separated
-- **Do not count the inversion rate only by the left and right of each pair** (fixed after it was pointed out).
-  In the order orange, grape, apple, the grape is inverted only against the orange, so
-  it becomes 1/3 = 0.333, below the 0.35 threshold, and falls into "tidy". But
+The trapped-fruit penalty at weights 0/2/4/8 gave total trapped −9/−18/−20/−27, inversions +34/+30/+26/+28,
+merges 235/235/234/233. All read as "both trapping and inversions drop while merges stay the same".
+
+The values decided from this (vertical 1.5, gate 0.35, trapping 4.0) all lost in the A/B.
+
+**Facts picked up as a by-product** (they remain even though the rules were reverted):
+
+- Counting the inversion rate only by the left and right of each pair is not enough. In the order orange, grape, apple,
+  the grape is inverted only against the orange, giving just 1/3 = 0.333, but
   a fruit squeezed between two big fruits is clearly a broken shape. **A fruit in a valley should be counted as out of place
-  counting it as out of place** (reusing `_valley_flanks`) gives 2/3 = 0.667.
+  with respect to both walls** (reusing `_valley_flanks` gives 2/3 = 0.667).
   This error was detected by `test_grows_valley_fruit_when_held_and_next_are_one_smaller`.
-  was detecting it. The test was right and the metric was wrong
-- Gating only on the presence of a valley does not work. With 8+ fruits **there is always a valley, giving 0%**, so
-  it goes back to a no-op. The fraction read as "tidy" by fruit count, with the inversion rate including valleys, keeps a gradient:
-  98% / 70% / 48% / 16% / 3% (fruits 0-3 / 4-7 / 8-11 / 12-15 / 16+)
-- That `inversion_fraction` **counts** valley fruits while `_size_order_exempt` **excludes** them
-  looks contradictory, but their jobs differ. That one is an exemption so fruits being grown are not penalized twice;
-  this one reads the state of the board
+  **The test was right and the metric was wrong**
+- Using only the presence of a valley to judge the board state does not work. With 8+ fruits there is always a valley, so
+  it is always true. The inversion rate including valleys keeps a gradient by fruit count: 98% / 70% / 48% / 16% / 3%
+  (fruits 0-3 / 4-7 / 8-11 / 12-15 / 16+)
+- `_floor_packed` **reads 48% of boards with 3-5 fruits and 74% with 6-8 as "filled"**.
+  The premise of `packed_small_side_penalty`, "the floor is packed and there is no room on the small side",
+  does not hold from the early game. **Open task** (though as far as tried on 241 positions, this rule
+  has never changed the chosen move, so no actual harm has appeared)
 
-### Added a trapped-fruit penalty (2026-08-18, from tracing seed=74546)
+### Tried and reverted: vertical size order, stage gate, trapped-fruit penalty (2026-08-18)
+
+**All three lost their A/Bs and were reverted.** How they were made and why they were removed is kept.
 
 **Trigger**: a report that view_sim showed a plainly dirty board. It collapsed into peach-orange-peach.
 
@@ -274,33 +273,59 @@ Agreement with master as the baseline, and the inversion increase of changed mov
   move 28, no change up to w=4.0. The fruit it inverts with is the same whether the landing is right or left, and
   **inversion counts cannot tell them apart**
 
-**What worked was "counting trapping".** `_valley_flanks` already existed, but
-was only used for the valley-growing bonus and the gate, and **the inverse (penalizing valleys that got created)
-was missing**. Screening on 230 positions:
+**What was built (all reverted)**
 
-| weight | agreement | trapped with no exit | total trapped | inversions | merges |
+| Rule | Content |
+|---|---|
+| vertical size order | for pairs overlapping horizontally and stacked vertically, type gap × 1.5 when the upper one is bigger |
+| stage gate | apply the recovery rules (bury_block / valley growing) only on boards whose inversion rate exceeds a threshold |
+| trapped-fruit penalty | 4.0 per fruit squeezed left and right by bigger fruits with no same-type partner left |
+
+**A/B (n=25, same seeds, `--seed 526304`). All negative**:
+
+| Variant | score | Δ | t | cascades | max_type |
 |---|---|---|---|---|---|
-| 0.0 | 100% | +1 | −9 | +34 | 235 |
-| 2.0 | 95.2% | −8 | −18 | +30 | 235 |
-| **4.0** | 93.0% | **−11** | **−20** | **+26** | 234 |
-| 8.0 | 89.1% | −20 | −27 | +28 | 233 |
+| all three | 2045.60 | −5.5% | −1.04 | −7.9% | −1.3% |
+| gate only | 2035.24 | −6.0% | −1.05 | −3.1% | −1.7% |
+| vertical only | 1981.20 | **−8.5%** | −1.73 | −10.8% | — |
+| trapping only | 2077.04 | −4.1% | −0.73 | −5.0% | −1.3% |
 
-At 8.0 inversions flip and merges drop, so 4.0 was taken.
+Side A was 2165.44 for all (with the 3 rules cut). None is significant (±100 points needs
+n≈127), but **all 4 runs, every metric, are negative**. The worsened seeds all go max_type 10 → 9,
+a clear drop in the metric closest to the double watermelon goal.
 
-**Not applied to fruits with a partner.** At first fruits with a partner were also counted at 1.0, but that crushes moves that
-feed a valley. Measured, midgame cascades stopped, and seed=74546 went from 241 moves → **163 moves**,
-fruits at move 140 went from 9 → 22, and the crown worsened from 228 → 45. It was fighting valley growing.
+**The biggest lesson: home-made structural metrics pointed the wrong way all three times.**
+Weights were chosen by screening on trapped and inversion counts, all three came out "good", yet score
+dropped every time. Exactly the selection bias item in [How to measure](#how-to-measure-traps-we-keep-stepping-in).
+**Do not use a proxy metric not validated against score as the basis for choosing weights.**
+The only one allowed is the already validated `cascades`.
 
-**Unresolved contradiction**: replaying the same seed=74546 through gives 226 moves /
-score 2298 at weight 2.0 and 219 moves / 2149 at 4.0, worse than baseline (241 moves / 2486).
-It points the opposite way from the 230-position structural screening. One game is
-no evidence at all, as [How to measure](#how-to-measure-traps-we-keep-stepping-in) repeatedly warns,
-so it is settled by A/B. **Both weights 2.0 and 4.0 stay as candidates.**
+**Individual findings**:
+
+- **The stage gate is logically unsound.** A valley is the shape "squeezed left and right by fruits bigger than itself",
+  so **a big fruit on the small side is itself an ordering violation**. In other words
+  *if there is a valley, there is always an inversion* (inversion rate > 0 on all 332 measured boards). So
+  the state "we want to grow a valley but the board is tidy" does not exist, and the gate at threshold 0 is
+  a pure no-op, while above 0 the only effect is the harm of **forbidding recovery on broken boards**.
+  Measured, it stopped 28 (19%) of 151 positions where valley growing held,
+  and those 28 had an inversion rate of at least 0.174
+- **The premise of vertical size order is doubtful.** "47% of vertically stacked pairs are upside down = disorder = defect"
+  was the reading, but since **merging creates the big fruit right there**, a big fruit sitting on small ones
+  may be the normal state of this game. Horizontal inversions were traced to collapse on seed=74546,
+  but vertically it was made a rule by analogy alone. At −8.5% alone it was the worst
+- **The trapped-fruit penalty did fix the intended move** (the blunder at move 25 disappeared), yet still −4.1%.
+  Counting fruits with partners too made it worse, dropping seed=74546 from 241 moves → 163
+  (it was crushing the moves that feed a valley)
+
+**Note**: all 4 used the same 25 seeds, so they are not independent evidence. It was not
+confirmed on another seed set. But the full playthrough of seed=74546 independently pointed negative too.
 
 ### `bury_block` was retired (2026-08-18)
 
-After adding vertical size order and applying the gate, **no effect of `bury_block_penalty` could be detected
-with either metric**, so it was deleted. Structurally it is also a special case of vertical size order
+`bury_block_penalty` was deleted because **no effect could be detected with either structural metric**.
+(At the time it was measured with vertical size order and the gate in place, which were later reverted, so
+**this retirement alone remains unmeasured**. It needs a standalone A/B against master.)
+Structurally too it is the type-gap penalty for "a big fruit on top of a small one"
 (`14.0 ×(drop_type - under.type)` is itself the type-gap penalty for "a big fruit on top of a small one"),
 with just a "the fruit below has a partner" condition and a 9x weight attached.
 
@@ -319,8 +344,7 @@ The difference is too small, so the right reading is not "retiring is better" bu
 If it has no effect, take the side that cuts it to one rule and can say plainly "while tidy, just line them up in order".
 It also matches that 66% of what it protected was already unmergeable.
 
-**Side effect**: only valley growing remains in the second stage, so what `board_is_broken`
-applies to dropped to one. The value of the gate itself is checked by A/B.
+**Unmeasured**: this retirement was also in side A of the A/B above, so it has not been verified.
 
 ### Ideas that did not work (dropped at screening)
 
@@ -489,7 +513,7 @@ Teacher collection (`train_sim.py`) becoming 3.68x more expensive across the boa
 |---|---|---|---|
 | directly above a different type | `_foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
 | small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (orange or bigger) escapes to the small side (fires only when it physically cannot go on the small side) | fixed 8.0 |
-| valley-growing bonus | `_valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type. **Only when the board is broken** (`board_is_broken`) | **−3.0** (`VALLEY_GROW_BONUS`. The only bonus in this table) |
+| valley-growing bonus | `_valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type | **−3.0** (`VALLEY_GROW_BONUS`. The only bonus in this table) |
 
 The 3 below apply **only when held itself did not merge** (`held_merged`, not the merge count
 `merges`, so that an unrelated merge elsewhere on the board does not grant the exemption).
@@ -502,8 +526,6 @@ The 3 below apply **only when held itself did not merge** (`held_merged`, not th
 | burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35) | bury_weight 20.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
 | size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left on the board** are exempt = `_size_order_exempt`. Valley fruits without a partner are counted). **Exempt on moves where held merged** (so unrelated fruits knocked by merge recoil are not counted as violations) | pair difference×1.5 + ideal_x deviation×0.004 |
-| trapped | `_trapped_penalty` | a fruit squeezed left and right by bigger fruits **with no same-type partner left on the board**. With a partner it is waiting to merge, so not applied | 4.0 per fruit |
-| vertical size order | `_vertical_order_penalty` | for pairs overlapping horizontally and stacked vertically, when **the upper one is bigger**. Putting small fruits on shoulders (a ladder) has the smaller one on top, so 0 | type gap × 1.5 |
 | big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough (exempt for the diameter of the missing type in between) | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) (gap−diameter of the missing type)×0.025×size factor |
 | bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by 0.15 at dangerous height) | variance×0.08 |
 

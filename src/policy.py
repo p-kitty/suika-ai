@@ -1,8 +1,7 @@
 """Decide the drop column. A thin bootstrap policy (the groundwork for RL).
 
 It has no concrete procedures (push-ins, restoring pushes, cascade gap opening, ladder firing and the like).
-It only looks at merging, dangerous height, burying, light size order (horizontal and vertical) and rolling accident prevention.
-Recovery rules applied only when the board is broken are separated by `pen.board_is_broken`.
+It only looks at merging, dangerous height, burying, light size order and rolling accident prevention.
 Moves are scored as eval = score (the real game's merge points) - penalties (penalties for accidents and bad moves).
 
 The penalty side is `penalties.py`. This file only generates candidate columns, evaluates one move and looks ahead to next.
@@ -240,15 +239,9 @@ def _evaluate_drop(
     penalties += pen.foreign_aim_penalty(before, x, drop_type, held_r)
     if not held_merged:
         penalties += pen.packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
-        # Valley growing is a recovery rule, so apply it only when the board is actually broken.
-        # On tidy boards size order (horizontal, vertical) takes priority. It is a rule for picking up merges
-        # from a messy board, and applied to a tidy board it goes to crush moves placing small fruits on the small side
-        # (all 1642 firings, 100%, were landings on the big side).
-        # Among non-merging moves, choose landings in valleys likely to grow.
+        # Valley growing. Among non-merging moves, choose landings in valleys likely to grow.
         # Merging moves get the real-game score, so it is not added to them.
-        if pen.board_is_broken(before, sign) and pen.valley_grow_ok(
-            before, land_x, drop_type, next_type
-        ):
+        if pen.valley_grow_ok(before, land_x, drop_type, next_type):
             penalties -= pen.VALLEY_GROW_BONUS
     return after, score, penalties, merges, held_merged
 
