@@ -48,6 +48,8 @@ The "ladder" that fires a corner big fruit in steps (a pear next to the inside o
 firing with the final orange and cascading 4→5→6→7) is a shape that arises naturally as a result of this placement rule.
 Only detection is written in `find_anchor` / `rungs` of `src/ladder.py`, and **it has never been called from the production path**
 (only `tests/test_policy.py` calls it). It is kept as groundwork for using it in move selection.
+Rewarding the rung count directly was measured and shelved
+(→[ladder rung bonus](#tried-and-shelved-ladder-rung-bonus-2026-08-19)).
 
 ### What we know
 
@@ -62,6 +64,53 @@ Only detection is written in `find_anchor` / `rungs` of `src/ladder.py`, and **i
   that drops and places it" is a poor approach (draws go up to orange; pear and apple can only be made by merging)
 - The small-side room check confirms with an actual `simulate_drop`, not just the geometric gap width
   (`_small_side_room_ok`). Fixed a bug that judged a gap blocked by a roof as having room
+
+### Tried and shelved: ladder rung bonus (2026-08-19)
+
+"Subtract built rung count × w from the penalties in `_evaluate_drop`" was implemented and put through
+screening alone. **It was reverted without going to an A/B** (the implementation is not kept).
+
+**The screening conditions were fixed before measuring**: (1) a move change rate of at least 3% at some w
+(2) the distribution of rungs after landing shifts upward (3) in positions with rung 3+, the rate of taking merges
+does not drop from w=0 (a watch for suppressing firing).
+
+**Position set**: 428 positions taken every other move from move 60 onward, playing 6 seeds through.
+The set first taken at moves 1-60 had 87% at rung 0 and only 4 cases of rung 3+,
+seeing only boards before the mechanism engages. **A ladder is a shape that builds after the floor fills, so
+an early-game position set measures nothing** (the first screening was wasted on this).
+
+| w | move change rate | rungs after landing 0/1/2/3/4+ | moves taking a merge at rung 3+ |
+|---|---|---|---|
+| 0 | 0/428 (0.0%) | 296/36/28/27/41 | 3/66 |
+| 5 | 5/428 (1.2%) | 294/37/29/26/42 | 3/66 |
+| 10 | 6/428 (1.4%) | 294/36/29/27/42 | 2/66 |
+| 20 | 7/428 (1.6%) | 293/37/28/27/43 | 2/66 |
+| 40 | 12/428 (2.8%) | 291/37/30/26/44 | 2/66 |
+| 80 | 17/428 (4.0%) | 290/37/30/24/47 | **0/66** |
+
+**The w that bites and the w that does not break do not overlap.** Only w=80 satisfies (1), and there (3)
+collapses completely. Firing a ladder drops the rungs from 4→0, so only firing moves carry −4w.
+One ladder is 100 points, so even at w=20 the gain is effectively cut to +20, and at w=80 it cannot be taken.
+**This term trades building a ladder against firing it, and the points are on the firing side**.
+
+**The reason it fails is shape, not weight.** On the same 428 positions, counting "how far the rungs can be extended at most
+among all candidates", **91.6% of positions are +0 rungs** (29 at +1, 7 at +2).
+The rung bonus attaches to the post-drop board, so in positions with no candidate that can extend it every candidate takes
+the same value and it vanishes as a constant difference. **The ceiling is 8.4%**, and w=20 actually moved 1.6%.
+That the material cannot be drawn was already known (the "bottleneck is building it" above).
+For the same reason that writing a rung as "a move that drops and places it" is a poor approach,
+**rewarding "the rung count after the drop" hits the same wall**.
+
+**score / cascades were not measured.** It was dropped at screening, so no A/B was run.
+A 1.6% change in moves is buried in score noise at n=25.
+
+**Reaching a watermelon in one game is no basis.** It started from the observation that seed 74546 reached
+a watermelon at w=20, but when one move changes the board diverges completely from there, so
+the stage reached in one game cannot be told apart from draw luck (→[How to measure](#how-to-measure-traps-we-keep-stepping-in)).
+
+**If done next, change the shape.** Look not at the rung count itself but at "room to build a ladder"
+(whether the base is on the wall with the inside open), or reward the side that draws the line of making rung material
+by merging. Counting rungs after the drop has too few positions it can move.
 
 ## How to measure (traps we keep stepping in)
 
