@@ -44,6 +44,25 @@ EDGE_ANCHOR_FRAC = 0.35
 # 「大きい実の塊」とみなす最大実からの段数。
 BIG_CLUSTER_SPAN = 2
 
+# --- 縦の大小順 ---
+# 縦に積まれているとみなす横ずれ (半径和に対する割合)。1.0 で横に並んだ状態
+# なので、それより締める。肩に載せた形はここに入るが、肩は上が小さい側なので
+# 減点にはならない (梯子の 4→5→6→7 は素通りする)。
+VERTICAL_STACK_FRAC = 0.8
+# 上下が入れ替わっているとみなす最小の高さ差 (半径和に対する割合)。
+# ほぼ同じ高さで横に並んだだけの組を「積んである」と読まないための下限。
+VERTICAL_STACK_MIN_RISE = 0.35
+# 上が大きいペア 1 組の減点。型差に掛ける。
+VERTICAL_ORDER_WEIGHT = 1.5
+
+# --- 段階の切り分け ---
+# 盤が「崩れている」とみなす逆転率。横の大小順が逆転しているペアの割合で、
+# 0.5 は完全に無秩序 (向きに情報が無い) を意味する。これを超えた盤でだけ、
+# 立て直し側の規則 (bury_block / 谷育成) を掛ける。整った盤でそれらを掛けると、
+# 小さい実を小側へ置く手を潰して盤を崩し始める (実測: cherry は汚さない手が
+# 候補にある 97% の局面のうち 64% でしかそれを選べていなかった)。
+BROKEN_INVERSION_FRAC = 0.25
+
 # --- 床の埋まり具合 ---
 # 床に着いているとみなす高さ。半径のこの倍率ぶん下端に寄っていれば床置き。
 FLOOR_BAND = 1.35
@@ -107,6 +126,51 @@ def _height_variance(fruits: list[Fruit]) -> float:
     if len(bins) < 2:
         return 0.0
     return float(statistics.pstdev(list(bins.values())))
+
+
+def _typed_pairs(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+) -> "list[tuple[Fruit, Fruit]]":
+    """型の違う組。同種どうしは合体待ちなので大小順を問わない。
+
+    横に重なった組を外すかどうかは向きで変わるので、ここではしない。
+    横は左右を言えない組を外し (`inversion_fraction`)、縦はその組こそが
+    本体 (`_vertical_order_penalty`)。
+    """
+    return [
+        (a, b)
+        for i, a in enumerate(fruits)
+        for b in fruits[i + 1 :]
+        if a.type != b.type
+    ]
+
+
+def inversion_fraction(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> float:
+    """横の大小順が逆転しているペアの割合。0 = 整列、0.5 = 無秩序。
+
+    `_size_order_penalty` と違って免除も ideal_x も見ない生の割合。段階を
+    切り分けるゲート用で、減点の大きさではなく盤の状態そのものを表す。
+    """
+    pairs = [
+        (a, b)
+        for a, b in _typed_pairs(fruits)
+        if abs(a.x - b.x) >= min(a.radius, b.radius) * 0.5
+    ]
+    if not pairs:
+        return 0.0
+    bad = 0
+    for a, b in pairs:
+        left, right = (a, b) if a.x <= b.x else (b, a)
+        if sign > 0 and left.type < right.type:
+            bad += 1
+        elif sign < 0 and left.type > right.type:
+            bad += 1
+    return bad / len(pairs)
+
+
+def board_is_broken(fruits: list[Fruit] | tuple[Fruit, ...], sign: int) -> bool:
+    """立て直し側の規則を掛けてよい盤か。整った盤では大小順を優先する。"""
+    return inversion_fraction(fruits, sign) > BROKEN_INVERSION_FRAC
 
 
 def _floor_row(fruits: list[Fruit] | tuple[Fruit, ...]) -> list[Fruit]:
@@ -339,6 +403,7 @@ def board_penalties(
 
     exempt_size_order: held がこの手で合体したとき True。合体の反動で
     弾かれた無関係の実まで大小順違反として減点しない (`policy._evaluate_drop` 参照)。
+    横と縦の大小順はどちらも同じ反動を受けるので、まとめてこの旗で外す。
     """
     # 盤面が壁の内側基準になった分だけ、旧基準の 90.0 を座標変換してある。
     danger_y = 70.9
@@ -356,6 +421,7 @@ def board_penalties(
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
+        penalty += _vertical_order_penalty(fruits)
     penalty += _big_layout_penalty(fruits, sign)
     variance = _height_variance(fruits)
     if crown < danger_y:
@@ -478,6 +544,31 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
             / len(open_fruits)
             * size_order_ideal_weight
         )
+    return penalty
+
+
+def _vertical_order_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """上に大きい実が乗っている組を減点。大きいほど下という縦の並び。
+
+    横の `_size_order_penalty` は x しか見ないので、縦の積み方には規則が
+    無かった (実測: 縦に重なった 23079 組のうち 47% が逆さ＝ほぼ無秩序)。
+
+    掛かるのは**上のほうが大きい**ときだけ。大きい実の肩に小さい実を載せる形は
+    上が小さい側なので型差がいくつあっても 0 で、梯子 (桃の肩にオレンジ) は
+    素通りする。逆に、小さい実の上に大きい実を乗せる手ほど型差ぶん重くなる。
+    """
+    penalty = 0.0
+    for a, b in _typed_pairs(fruits):
+        span = a.radius + b.radius
+        if abs(a.x - b.x) > span * VERTICAL_STACK_FRAC:
+            continue
+        upper, lower = (a, b) if a.y < b.y else (b, a)
+        # 横に並んだだけの組を「積んである」と読まない。
+        if lower.y - upper.y < span * VERTICAL_STACK_MIN_RISE:
+            continue
+        if upper.type <= lower.type:
+            continue
+        penalty += (upper.type - lower.type) * VERTICAL_ORDER_WEIGHT
     return penalty
 
 
