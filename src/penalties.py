@@ -502,34 +502,6 @@ def _bury_penalty(fruits: list[Fruit]) -> float:
     return penalty
 
 
-def bury_block_penalty(
-    fruits: list[Fruit] | tuple[Fruit, ...],
-    land_x: float,
-    land_y: float,
-    drop_type: int,
-    held_r: float,
-) -> float:
-    """同種ペア待ちの実を、より大きい異種で直上・肩から塞ぐ減点。"""
-    bury_block_weight = 14.0
-    bury_shoulder_scale = 0.5
-    penalty = 0.0
-    for under in fruits:
-        if under.type >= drop_type:
-            continue
-        if not any(f.type == under.type and f is not under for f in fruits):
-            continue
-        dx = abs(land_x - under.x)
-        if dx > under.radius + held_r * 0.5:
-            continue
-        # 頭に乗っているか。横に並んだだけなら塞いでいない。
-        over_top = (land_y + held_r) - (under.y - under.radius)
-        if over_top > under.radius:
-            continue
-        scale = 1.0 if dx <= under.radius * 0.5 else bury_shoulder_scale
-        penalty += scale * bury_block_weight * (drop_type - under.type)
-    return penalty
-
-
 def foreign_aim_penalty(
     fruits: list[Fruit] | tuple[Fruit, ...],
     x: float,

@@ -226,7 +226,7 @@ def _evaluate_drop(
     before = list(fruits)
     sign = _order_sign(before)
     after, merges, merge_types, held_merged = simulate_drop_held(before, drop_type, x)
-    land_x, land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
+    land_x, _land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
 
     score = merge_score(merge_types)
     # held (今回の手) が合体したときは、その反動で弾かれた無関係の実に対する
@@ -238,7 +238,6 @@ def _evaluate_drop(
     # 同種が真下なら合体待ちで OK。異種真上から転がって床で合体しても減点。
     penalties += pen.foreign_aim_penalty(before, x, drop_type, held_r)
     if not held_merged:
-        penalties += pen.bury_block_penalty(before, land_x, land_y, drop_type, held_r)
         penalties += pen.packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
         # 谷育成。合体しない手の中では、育つ見込みのある谷への着地を選ばせる。
         # 合体した手は本家点が付くので、そちらには足さない。
