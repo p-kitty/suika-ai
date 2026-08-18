@@ -29,6 +29,8 @@ Desktop.ini
 # Project artifacts
 debug/
 artifacts/
+# Position caches written by measurement scripts (left behind in the scratchpad they end up in the repo root)
+*.pkl
 
 # Claude Code (generated files only; settings.json and skills are kept since they may be worth sharing)
 .claude/settings.local.json
