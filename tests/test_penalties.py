@@ -1,13 +1,12 @@
-"""大小順の減点と、その谷免除 (`_is_nestled`) の単体テスト。
+"""大小順の減点と、その谷免除の単体テスト。
 
-手の選び方は tests/test_policy.py。ここは減点規則そのものの意味と、
-いま分かっている抜け穴を固定する。
+手の選び方は tests/test_policy.py。ここは減点規則そのものの意味を固定する。
+谷の判定 (`_is_nestled`) と、そのうち実際に免除する条件 (`_size_order_exempt`)
+は別物なので、それぞれ分けて置く。
 """
 
-import pytest
-
 from src.observe import Observation
-from src.penalties import _is_nestled, _size_order_penalty
+from src.penalties import _is_nestled, _size_order_exempt, _size_order_penalty
 from src.policy import choose_x
 from src.sim.sim_physics import simulate_drop_held
 from src.vision.classify import fruit_radius
@@ -43,31 +42,31 @@ def test_nestled_only_when_the_valley_is_narrow() -> None:
     assert not _is_nestled(grape, [pear, grape, _on_floor(DEKOPON, 330.0)])
 
 
-def test_nestled_fruit_is_dropped_from_size_order() -> None:
-    """谷に入った実は、大小順が逆転していても数えられなくなる。
+def test_valley_fruit_is_exempt_only_with_a_merge_partner() -> None:
+    """谷にいる実を大小順から外すのは、盤に同種の相方が残っているときだけ。
 
-    どちらの盤もグレープ (2) がデコポン (3) の左＝逆転で、違うのは
-    デコポンまでの距離だけ。谷とみなされた側だけ逆転ぶんの減点が消える。
+    どちらの盤もグレープ (2) がデコポン (3) の左＝逆転で、谷の形も同じ。
+    違いは合体相手のグレープがもう 1 個あるかどうかだけ。相方がいなければ
+    その谷から出る当てが無いので、ただの並び順違反として数える。
     """
     pear = _on_floor(PEAR, 70.0)
     grape = _on_floor(GRAPE, 170.0)
-    in_valley = [pear, grape, _on_floor(DEKOPON, 230.0)]
-    too_far = [pear, grape, _on_floor(DEKOPON, 330.0)]
+    dekopon = _on_floor(DEKOPON, 230.0)
+    alone = [pear, grape, dekopon]
+    with_partner = [pear, grape, dekopon, _on_floor(GRAPE, 300.0)]
 
-    assert _is_nestled(grape, in_valley)
-    assert not _is_nestled(grape, too_far)
-    assert _size_order_penalty(in_valley, LARGE_LEFT) < _size_order_penalty(
-        too_far, LARGE_LEFT
-    )
+    assert _is_nestled(grape, alone)
+    assert _is_nestled(grape, with_partner)
+    assert not _size_order_exempt(grape, alone)
+    assert _size_order_exempt(grape, with_partner)
 
 
-@pytest.mark.xfail(strict=True, reason="谷免除が、逆転した実を並べ直した盤より安くする")
 def test_inversion_costs_more_than_the_correct_order() -> None:
     """同じ 3 個なら、逆転している盤の方が正しい順の盤より高く付くこと。
 
     梨・デコポン・グレープを同じ位置に置き、真ん中と右を入れ替えるだけ。
-    逆転した側ではグレープが梨とデコポンの谷に入るので免除が掛かり、
-    大小順の減点が正しい順の盤を下回る。
+    逆転した側ではグレープが梨とデコポンの谷に入るので、免除の条件が
+    緩いと大小順の減点が正しい順の盤を下回る。
     """
     pear = _on_floor(PEAR, 70.0)
     ordered = [pear, _on_floor(DEKOPON, 170.0), _on_floor(GRAPE, 230.0)]
@@ -78,13 +77,12 @@ def test_inversion_costs_more_than_the_correct_order() -> None:
     )
 
 
-@pytest.mark.xfail(strict=True, reason="落とす実自身が谷の壁になり、作った逆転が無料になる")
 def test_drop_does_not_exempt_the_inversion_it_creates() -> None:
     """seed=49140 の 9 手目。デコポンをグレープの小さい側へ置かないこと。
 
     落下前の盤でグレープは谷に入っていない (右に大きい実が無い)。
-    デコポンをグレープの右へ置いた瞬間に梨とデコポンの谷ができ、
-    そのデコポンが作った逆転が、そのデコポン自身のおかげで免除される。
+    デコポンをグレープの右へ置くと梨とデコポンの谷ができるので、免除の条件が
+    緩いと、そのデコポンが作った逆転がそのデコポン自身のおかげで消える。
     """
     fruits = (_on_floor(PEAR, 96.5), _on_floor(GRAPE, 207.4))
     assert not _is_nestled(fruits[1], list(fruits))
