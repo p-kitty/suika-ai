@@ -30,6 +30,10 @@ Desktop.ini
 debug/
 artifacts/
 
+# Claude Code（生成物だけ。settings.json や skill は共有したくなるので残す）
+.claude/settings.local.json
+.claude/worktrees/
+
 # Test / cache
 .pytest_cache/
 .mypy_cache/
