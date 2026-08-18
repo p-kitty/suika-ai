@@ -13,10 +13,12 @@ import math
 
 from src.observe import Observation
 from src.penalties import (
+    TRAPPED_WEIGHT,
     VERTICAL_ORDER_WEIGHT,
     _is_nestled,
     _size_order_exempt,
     _size_order_penalty,
+    _trapped_penalty,
     _vertical_order_penalty,
     board_is_broken,
     inversion_fraction,
@@ -227,3 +229,38 @@ def test_board_is_broken_only_past_the_threshold() -> None:
     ordered = [_on_floor(PEAR, 70.0), _on_floor(DEKOPON, 200.0), _on_floor(GRAPE, 320.0)]
     assert not board_is_broken(ordered, 1)
     assert board_is_broken(ordered, -1)
+
+
+# --- 閉じ込め -----------------------------------------------------------
+
+
+def test_trapped_fruit_without_a_partner_is_charged() -> None:
+    """より大きい実に挟まれ、相方もいない実は出る当てが無いので減点。"""
+    fruits = [_on_floor(ORANGE, 69.664), _on_floor(GRAPE, 150.0), _on_floor(APPLE, 230.336)]
+
+    assert _is_nestled(fruits[1], fruits)
+    assert _trapped_penalty(fruits) == TRAPPED_WEIGHT
+
+
+def test_trapped_fruit_with_a_partner_is_not_charged() -> None:
+    """相方が盤に残っていれば合体して谷から出られる。合体待ちであって閉じ込めではない。
+
+    ここを減点すると、谷に餌を入れる手そのものを潰す。実測で中盤の連鎖が
+    止まり、seed=74546 が 241 手から 163 手に落ちた。
+    """
+    fruits = [
+        _on_floor(ORANGE, 69.664),
+        _on_floor(GRAPE, 150.0),
+        _on_floor(APPLE, 230.336),
+        _on_floor(GRAPE, 330.0),
+    ]
+
+    assert _is_nestled(fruits[1], fruits)
+    assert _trapped_penalty(fruits) == 0.0
+
+
+def test_a_fruit_in_the_open_is_not_trapped() -> None:
+    """片側にしか大きい実が無ければ谷ではない。並び順の話は大小順の側で見る。"""
+    fruits = [_on_floor(APPLE, 70.0), _on_floor(GRAPE, 170.0)]
+
+    assert _trapped_penalty(fruits) == 0.0

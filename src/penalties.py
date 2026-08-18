@@ -57,6 +57,18 @@ VERTICAL_STACK_MIN_RISE = 0.35
 # 0.75 は縦の効きが 1.5 と変わらないぶん横が弱い。
 VERTICAL_ORDER_WEIGHT = 1.5
 
+# --- 閉じ込め ---
+# より大きい実に左右から挟まれて、出る当ての無い実の減点。1 個あたり。
+# 谷育成 (VALLEY_GROW_BONUS) の裏返しで、育てられる谷は褒め、育たない谷は罰する。
+# 相方が盤に残っている実は掛けない。そちらは合体待ちであって閉じ込めではなく、
+# 罰すると谷に餌を入れる手そのものを潰す (実測: 相方ありも 1.0 で数えたところ、
+# seed=74546 で中盤の連鎖が起きなくなり 241 手 -> 163 手に落ちた。step 140 の
+# 実数が 9 個 -> 22 個、頭頂が 228 -> 45)。切り分けは `_size_order_exempt` と同じ。
+# 230 局面のスクリーニング: 重みを上げるほど閉じ込めも逆転も減り、合体回数は
+# ほぼ不変 (1.0/2.0/4.0/8.0 で合体 235/235/234/233)。8.0 は逆転が反転して
+# (+26 -> +28) 合体も落ちるので 4.0 が折り返し。一致率は 93.0%。
+TRAPPED_WEIGHT = 4.0
+
 # --- 段階の切り分け ---
 # 盤が「崩れている」とみなす逆転率。横の大小順が逆転しているペアの割合で、
 # 0.5 は完全に無秩序 (向きに情報が無い) を意味する。これを超えた盤でだけ、
@@ -442,6 +454,9 @@ def board_penalties(
 
     penalty += bury_weight * _bury_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
+    # 閉じ込めは合体した手でも免除しない。大小順のペア数と違って反動で
+    # 数がぶれる量ではなく、その手が残した盤の形そのものなので。
+    penalty += _trapped_penalty(fruits)
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
         penalty += _vertical_order_penalty(fruits)
@@ -567,6 +582,31 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
             / len(open_fruits)
             * size_order_ideal_weight
         )
+    return penalty
+
+
+def _trapped_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """より大きい実に左右から挟まれた実の減点。
+
+    `valley_grow_ok` が「これから育てられる谷」を褒めるのに対し、こちらは
+    「作ってしまった谷」を罰する。裏返しの規則が無かったので、盤を壊す手と
+    壊さない手を eval がほとんど区別できていなかった。
+
+    実測 (seed=74546 の 25 手目): 逆転率 0.000・閉じ込め 0 の完璧な盤で、
+    いちごを閉じ込める手が、閉じ込めない 13 本の候補を **eval 0.07 差**で
+    上回った (全候補が -6.12〜-6.21 の幅 0.09 に収まる同点プラトー)。
+    その閉じ込めが 3 手後に置き場を失わせ、13 手後の桃-オレンジ-桃 につながる。
+
+    掛けるのは**相方の残っていない実だけ**。相方がいれば合体して大きくなり
+    谷から出られるので、それは合体待ちであって閉じ込めではない。
+    """
+    penalty = 0.0
+    for fruit in fruits:
+        if any(f.type == fruit.type and f is not fruit for f in fruits):
+            continue
+        if _valley_flanks(fruits, fruit.x, fruit.type) is None:
+            continue
+        penalty += TRAPPED_WEIGHT
     return penalty
 
 
