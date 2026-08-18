@@ -1,13 +1,12 @@
-"""Unit tests for the size-order penalty and its valley exemption (`_is_nestled`).
+"""Unit tests for the size-order penalty and its valley exemption.
 
-Move selection is in tests/test_policy.py. This pins down the meaning of the penalty rules themselves and
-the loopholes known so far.
+Move selection is in tests/test_policy.py. This pins down the meaning of the penalty rules themselves.
+The valley check (`_is_nestled`) and the condition that actually exempts within it (`_size_order_exempt`)
+are different things, so they are kept separate.
 """
 
-import pytest
-
 from src.observe import Observation
-from src.penalties import _is_nestled, _size_order_penalty
+from src.penalties import _is_nestled, _size_order_exempt, _size_order_penalty
 from src.policy import choose_x
 from src.sim.sim_physics import simulate_drop_held
 from src.vision.classify import fruit_radius
@@ -43,31 +42,31 @@ def test_nestled_only_when_the_valley_is_narrow() -> None:
     assert not _is_nestled(grape, [pear, grape, _on_floor(DEKOPON, 330.0)])
 
 
-def test_nestled_fruit_is_dropped_from_size_order() -> None:
-    """A fruit entering a valley stops being counted even if its size order is inverted.
+def test_valley_fruit_is_exempt_only_with_a_merge_partner() -> None:
+    """A fruit in a valley is excluded from size order only when a same-type partner remains on the board.
 
-    In both boards the grape (2) is left of the dekopon (3) = inverted, and the only difference is
-    the distance to the dekopon. Only on the side counted as a valley does the inversion penalty vanish.
+    In both boards the grape (2) is left of the dekopon (3) = inverted, and the valley shape is the same.
+    The only difference is whether there is another grape to merge with. Without a partner
+    there is no prospect of leaving the valley, so it counts as a plain ordering violation.
     """
     pear = _on_floor(PEAR, 70.0)
     grape = _on_floor(GRAPE, 170.0)
-    in_valley = [pear, grape, _on_floor(DEKOPON, 230.0)]
-    too_far = [pear, grape, _on_floor(DEKOPON, 330.0)]
+    dekopon = _on_floor(DEKOPON, 230.0)
+    alone = [pear, grape, dekopon]
+    with_partner = [pear, grape, dekopon, _on_floor(GRAPE, 300.0)]
 
-    assert _is_nestled(grape, in_valley)
-    assert not _is_nestled(grape, too_far)
-    assert _size_order_penalty(in_valley, LARGE_LEFT) < _size_order_penalty(
-        too_far, LARGE_LEFT
-    )
+    assert _is_nestled(grape, alone)
+    assert _is_nestled(grape, with_partner)
+    assert not _size_order_exempt(grape, alone)
+    assert _size_order_exempt(grape, with_partner)
 
 
-@pytest.mark.xfail(strict=True, reason="the valley exemption makes an inverted board cheaper than the reordered one")
 def test_inversion_costs_more_than_the_correct_order() -> None:
     """With the same 3 fruits, an inverted board must cost more than a correctly ordered one.
 
     Pear, dekopon and grape in the same positions, just swapping the middle and the right.
-    On the inverted side the grape enters the valley of the pear and dekopon, so the exemption applies,
-    and the size-order penalty falls below the correctly ordered board.
+    On the inverted side the grape enters the valley of the pear and dekopon, so if the exemption condition
+    is loose the size-order penalty falls below the correctly ordered board.
     """
     pear = _on_floor(PEAR, 70.0)
     ordered = [pear, _on_floor(DEKOPON, 170.0), _on_floor(GRAPE, 230.0)]
@@ -78,13 +77,12 @@ def test_inversion_costs_more_than_the_correct_order() -> None:
     )
 
 
-@pytest.mark.xfail(strict=True, reason="the dropped fruit itself becomes a valley wall, making the inversion it created free")
 def test_drop_does_not_exempt_the_inversion_it_creates() -> None:
     """Move 9 of seed=49140. Do not place the dekopon on the small side of the grape.
 
     On the pre-drop board the grape is not in a valley (no bigger fruit on its right).
-    The moment the dekopon is placed right of the grape a valley of the pear and dekopon forms,
-    and the inversion that dekopon created is exempted thanks to that same dekopon.
+    Placing the dekopon right of the grape forms a valley of pear and dekopon, so if the exemption condition
+    is loose, the inversion that dekopon created disappears thanks to that same dekopon.
     """
     fruits = (_on_floor(PEAR, 96.5), _on_floor(GRAPE, 207.4))
     assert not _is_nestled(fruits[1], list(fruits))

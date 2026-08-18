@@ -270,6 +270,27 @@ def _is_nestled(
     return _valley_flanks(fruits, fruit.x, fruit.type) is not None
 
 
+def _size_order_exempt(
+    fruit: Fruit,
+    fruits: list[Fruit] | tuple[Fruit, ...],
+) -> bool:
+    """Whether a fruit is excluded from size order.
+
+    Being in a valley alone does not exclude it. A fruit with no partner has no prospect of leaving that valley,
+    and stays as a plain ordering violation. Excluding it would count the fruit that created the inversion as a valley wall,
+    a loophole that exempts the inversion it created itself (move 9 of
+    seed=49140: on a pear and grape board, placing a dekopon to the right of the grape makes that dekopon
+    form a valley, dropping the grape's inversion from 1.5 to 0.14, and it beats the reordering move by 0.20
+    ).
+
+    Valleys of held's type cannot be seen from here, but those are picked up by the per-move `valley_grow_ok`
+    with `VALLEY_GROW_BONUS`, so it does not crush growing.
+    """
+    if not _is_nestled(fruit, fruits):
+        return False
+    return any(f.type == fruit.type and f is not fruit for f in fruits)
+
+
 def valley_grow_ok(
     fruits: list[Fruit] | tuple[Fruit, ...],
     land_x: float,
@@ -425,27 +446,26 @@ def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
 def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
     """Penalize pairs whose left-right size order is inverted. Looks at relative order rather than absolute ideal positions.
 
-    Fruits stuck in a valley of bigger fruits are excluded from size order (so layout penalties
-    do not crush valley growing). Whether growing actually holds is not checked (that is judged per move
-    on the `valley_grow_ok` side).
+    Only fruits stuck in a valley of bigger fruits and with a same-type partner left on the board
+    are excluded from size order (so layout penalties do not crush valley growing). The condition is `_size_order_exempt`.
     """
     if not fruits:
         return 0.0
     size_order_pair_weight = 1.5
     size_order_ideal_weight = 0.004
     penalty = 0.0
-    # _is_nestled is O(n) per fruit. Recomputing it per pair makes it O(n^3), so
-    # compute it once up front. This runs for every candidate.
-    nestled = [_is_nestled(f, fruits) for f in fruits]
-    open_fruits = [f for f, nest in zip(fruits, nestled) if not nest]
+    # _size_order_exempt is O(n) per fruit. Recomputing it per pair makes it O(n^3),
+    # so compute it once up front. This runs for every candidate.
+    exempt = [_size_order_exempt(f, fruits) for f in fruits]
+    open_fruits = [f for f, skip in zip(fruits, exempt) if not skip]
     for i, a in enumerate(fruits):
-        if nestled[i]:
+        if exempt[i]:
             continue
         for j in range(i + 1, len(fruits)):
             b = fruits[j]
             if abs(a.x - b.x) < min(a.radius, b.radius) * 0.5:
                 continue
-            if nestled[j]:
+            if exempt[j]:
                 continue
             left, right = (a, b) if a.x <= b.x else (b, a)
             if sign > 0 and left.type < right.type:
