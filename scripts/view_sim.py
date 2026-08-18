@@ -13,7 +13,11 @@ Controls:
   Esc      quit (skips during animation)
 
 Left: the current board + held contact preview / drop animation. Right: the result after dropping (the final board even during animation).
-NEXT circle at the right of the header. Draws are random cherry-orange every time (reproducible when a seed is given).
+NEXT circle at the right of the header. Draws are random cherry-orange every time.
+
+The footer shows that game's seed. Even when --seed is omitted a concrete value is fixed, so
+if you screenshot a broken position, `--seed <value>` replays the same draw sequence
+(if it was running on auto, choose_x is deterministic too, so the whole sequence matches).
 """
 
 from __future__ import annotations
@@ -79,7 +83,7 @@ def main() -> None:
         "--seed",
         type=int,
         default=None,
-        help="random seed of the draw sequence (random every time when omitted)",
+        help="random seed of the draw sequence (random every time when omitted; the fixed value appears in the footer)",
     )
     parser.add_argument(
         "--scale",
@@ -136,6 +140,7 @@ def main() -> None:
         # Display only. Board updates, scoring and outcomes are left to SimEnv (the physics is deterministic,
         # so the final shape seen in the animation matches the result of env.step).
         _play_drop_anim(
+            seed=env.seed,
             before=list(obs.fruits),
             held_type=obs.held_type,
             drop_x=target,
@@ -162,7 +167,10 @@ def main() -> None:
                 message += "  (done — r to reset)"
 
     def _reset() -> None:
-        nonlocal obs, total_score, last_info, message, aim_x
+        # Recreate the whole env. reset() alone continues the rng, and replaying with the footer's
+        # seed would only work for the first game.
+        nonlocal env, obs, total_score, last_info, message, aim_x
+        env = SimEnv(seed=args.seed)
         obs = env.reset()
         total_score = 0.0
         last_info = "ok"
@@ -191,6 +199,7 @@ def main() -> None:
             )
 
         frame = _render(
+            seed=env.seed,
             before=list(obs.fruits),
             after=after,
             aim_x=aim,
@@ -229,6 +238,7 @@ def main() -> None:
 
 def _play_drop_anim(
     *,
+    seed: int,
     before: list[Fruit],
     held_type: int,
     drop_x: float,
@@ -259,6 +269,7 @@ def _play_drop_anim(
         if not show:
             continue
         canvas = _render(
+            seed=seed,
             before=after,
             after=final_after,
             aim_x=drop_x,
@@ -286,6 +297,7 @@ def _play_drop_anim(
 
 def _render(
     *,
+    seed: int,
     before: list[Fruit],
     after: list[Fruit],
     aim_x: float,
@@ -336,7 +348,7 @@ def _render(
     mode_badge(canvas, auto_play, fast_forward)
     put_text(
         canvas,
-        f"episode  score={total_score:.0f}  info={info}",
+        f"episode  score={total_score:.0f}  info={info}  seed={seed}",
         (PAD, height - 28),
         (200, 200, 255),
         scale=0.55,
