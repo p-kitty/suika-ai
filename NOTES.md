@@ -376,6 +376,13 @@ If that works, making the teacher side a wide 8/16 search is also a good idea
 
 ## Policy (bootstrap) design
 
+**Priority**: not breaking the board ranks above score. The final goal is not mean score but
+a double watermelon, firing on the big side after waiting to draw one orange or two dekopons
+(the shape `src/ladder.py` only detects). When deciding penalty weights, first check that the accident-avoidance side
+is not overriding size order and trapping. The basis is
+[how the board collapses](#investigated-how-the-board-collapses-and-isolating-the-stage-2026-08-18) and
+[material arithmetic](#material-arithmetic-distance-to-a-double-watermelon).
+
 - `src/policy.py` is a thin policy before RL. Only merging, dangerous height, burying, light size order and accident prevention for rolling / knock-aways
 - The physics of falling, collision and merging is pymunk (`src/sim/sim_physics.py`; UT in `tests/sim/test_sim_physics.py`).
   `choose_x` scores with the same `simulate_drop`
