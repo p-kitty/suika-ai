@@ -142,6 +142,13 @@ All git operations are collected in this section. Do not scatter them into other
 - `screenshots/` is ground truth transcribed by eye, so it is tracked
 - `artifacts/` `debug/` change on every run, so they are ignored
 
+**When tracing the history of a constant**
+
+- `git log -L <line>,<line>:<file>`. Shows the history of just those lines with diffs
+- **Do not use `-S`.** It looks at changes in the number of occurrences, so rewriting a value like `14.0` → `7.0`
+  slips through, and **it returns a different commit without any error**.
+  To follow a string, use `-G` (add `--follow` to cross renames)
+
 **When comparing with another commit**
 
 - Do not write automation that runs `git stash` / `git checkout` in the live working tree.
