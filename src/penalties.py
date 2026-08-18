@@ -44,6 +44,16 @@ EDGE_ANCHOR_FRAC = 0.35
 # Number of tiers below the biggest fruit counted as 'the big-fruit cluster'.
 BIG_CLUSTER_SPAN = 2
 
+# --- Board penalty weights ---
+# The A/B in compare_policy swaps them as module attributes, so
+# they live here rather than as locals of board_penalties.
+# Converted from the old basis of 90.0 by the amount the board moved to the inside-of-the-wall basis.
+DANGER_Y = 70.9
+DANGER_CROWN_WEIGHT = 0.5
+BURY_WEIGHT = 20.0
+VARIANCE_WEIGHT = 0.08
+VARIANCE_DANGER_SCALE = 0.15
+
 # --- How full the floor is ---
 # Height considered on the floor. A floor placement if the bottom is within this multiple of the radius.
 FLOOR_BAND = 1.35
@@ -344,27 +354,20 @@ def board_penalties(
     exempt_size_order: True when held merged this move. Unrelated fruits knocked by the merge recoil
     are not penalized as size-order violations (see `policy._evaluate_drop`).
     """
-    # Converted from the old basis of 90.0 by the amount the board moved to the inside-of-the-wall basis.
-    danger_y = 70.9
-    danger_crown_weight = 0.5
-    bury_weight = 20.0
-    variance_weight = 0.08
-    variance_danger_scale = 0.15
-
     penalty = 0.0
     crown = _top_crown(fruits)
-    if crown < danger_y:
-        penalty += (danger_y - crown) * danger_crown_weight
+    if crown < DANGER_Y:
+        penalty += (DANGER_Y - crown) * DANGER_CROWN_WEIGHT
 
-    penalty += bury_weight * _bury_penalty(fruits)
+    penalty += BURY_WEIGHT * _bury_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
     penalty += _big_layout_penalty(fruits, sign)
     variance = _height_variance(fruits)
-    if crown < danger_y:
-        variance *= variance_danger_scale
-    penalty += variance_weight * variance
+    if crown < DANGER_Y:
+        variance *= VARIANCE_DANGER_SCALE
+    penalty += VARIANCE_WEIGHT * variance
     return penalty
 
 
