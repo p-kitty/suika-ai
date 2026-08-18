@@ -227,7 +227,7 @@ def _evaluate_drop(
     before = list(fruits)
     sign = _order_sign(before)
     after, merges, merge_types, held_merged = simulate_drop_held(before, drop_type, x)
-    land_x, land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
+    land_x, _land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
 
     score = merge_score(merge_types)
     # When held (this move) merged, size-order and burying penalties are not applied to unrelated fruits
@@ -240,18 +240,16 @@ def _evaluate_drop(
     penalties += pen.foreign_aim_penalty(before, x, drop_type, held_r)
     if not held_merged:
         penalties += pen.packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
-        # Apply recovery rules only when the board is actually broken. On tidy boards
-        # size order (horizontal, vertical) takes priority. Both are rules for 'picking up merges from a messy board',
-        # and applied to a tidy board they go to crush moves placing small fruits on the small side:
-        # bury_block fires on 51-72% of small-side candidates, and valley growing's 1642 firings
-        # were 100% landings on the big side. As a result, for cherry, a non-dirtying move is a candidate in 97% of
-        # positions, yet it is chosen in only 64% of them.
-        if pen.board_is_broken(before, sign):
-            penalties += pen.bury_block_penalty(before, land_x, land_y, drop_type, held_r)
-            # Valley growing. Among non-merging moves, choose landings in valleys likely to grow.
-            # Merging moves get the real-game score, so it is not added to them.
-            if pen.valley_grow_ok(before, land_x, drop_type, next_type):
-                penalties -= pen.VALLEY_GROW_BONUS
+        # Valley growing is a recovery rule, so apply it only when the board is actually broken.
+        # On tidy boards size order (horizontal, vertical) takes priority. It is a rule for picking up merges
+        # from a messy board, and applied to a tidy board it goes to crush moves placing small fruits on the small side
+        # (all 1642 firings, 100%, were landings on the big side).
+        # Among non-merging moves, choose landings in valleys likely to grow.
+        # Merging moves get the real-game score, so it is not added to them.
+        if pen.board_is_broken(before, sign) and pen.valley_grow_ok(
+            before, land_x, drop_type, next_type
+        ):
+            penalties -= pen.VALLEY_GROW_BONUS
     return after, score, penalties, merges, held_merged
 
 

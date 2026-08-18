@@ -247,6 +247,31 @@ Agreement with master as the baseline, and the inversion increase of changed mov
   looks contradictory, but their jobs differ. That one is an exemption so fruits being grown are not penalized twice;
   this one reads the state of the board
 
+### `bury_block` was retired (2026-08-18)
+
+After adding vertical size order and applying the gate, **no effect of `bury_block_penalty` could be detected
+with either metric**, so it was deleted. Structurally it is also a special case of vertical size order
+(`14.0 ×(drop_type - under.type)` is itself the type-gap penalty for "a big fruit on top of a small one"),
+with just a "the fruit below has a partner" condition and a 9x weight attached.
+
+On 166 positions, removing it changes 10% of moves (agreement 89.8%). On top of that:
+
+| Variant | total board dirt (horizontal + vertical inversions) | change in live merge pairs | merges |
+|---|---|---|---|
+| current | +40 | −2 | 168 |
+| **retired** | **+40** | **±0** | 168 |
+| only live pairs | — | −1 | 168 |
+
+Dirt is exactly 0 net (the increases and decreases of the 17 changed moves cancel completely). **Even for its real job of
+protecting merge pairs, removing it leaves slightly more.** The merge counts are identical for all 3.
+
+The difference is too small, so the right reading is not "retiring is better" but "**no difference**".
+If it has no effect, take the side that cuts it to one rule and can say plainly "while tidy, just line them up in order".
+It also matches that 66% of what it protected was already unmergeable.
+
+**Side effect**: only valley growing remains in the second stage, so what `board_is_broken`
+applies to dropped to one. The value of the gate itself is checked by A/B.
+
 ### Ideas that did not work (dropped at screening)
 
 - **Raising `size_order_pair_weight` from 1.5 → 9.0**: agreement 88.6%, moves barely change,
@@ -406,7 +431,6 @@ Teacher collection (`train_sim.py`) becoming 3.68x more expensive across the boa
 | Rule | Function | Content | Weight |
 |---|---|---|---|
 | directly above a different type | `_foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
-| blocking a waiting merge by burying | `_bury_block_penalty` | when a bigger fruit of another type blocks, directly above or on the shoulder, a fruit waiting for a same-type pair. **Only when the board is broken** (`board_is_broken`) | 14.0 ×type gap (half on a shoulder) |
 | small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (orange or bigger) escapes to the small side (fires only when it physically cannot go on the small side) | fixed 8.0 |
 | valley-growing bonus | `_valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type. **Only when the board is broken** (`board_is_broken`) | **−3.0** (`VALLEY_GROW_BONUS`. The only bonus in this table) |
 

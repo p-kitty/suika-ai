@@ -60,7 +60,7 @@ VERTICAL_ORDER_WEIGHT = 1.5
 # --- Isolating the stage ---
 # The inversion rate at which a board is considered 'broken'. The fraction of pairs with inverted horizontal size order;
 # 0.5 means complete disorder (no information in the direction). Only on boards beyond this
-# Apply the recovery rules (bury_block / valley growing). Applying them on tidy boards,
+# are the recovery rules (valley growing) applied. Applying them on tidy boards
 # crushes moves placing small fruits on the small side and starts breaking the board (measured: for cherry, a non-dirtying move
 # was a candidate in 97% of positions, yet it was chosen in only 64% of them).
 # At 0.25 it never closes. The measured inversion rate has a median of 0.333, 0.156 over the first 30 moves,
@@ -613,34 +613,6 @@ def _bury_penalty(fruits: list[Fruit]) -> float:
                     penalty += 1.0
                 else:
                     penalty += 0.35
-    return penalty
-
-
-def bury_block_penalty(
-    fruits: list[Fruit] | tuple[Fruit, ...],
-    land_x: float,
-    land_y: float,
-    drop_type: int,
-    held_r: float,
-) -> float:
-    """Penalty for blocking a fruit waiting for a same-type pair with a bigger fruit of another type, from directly above or the shoulder."""
-    bury_block_weight = 14.0
-    bury_shoulder_scale = 0.5
-    penalty = 0.0
-    for under in fruits:
-        if under.type >= drop_type:
-            continue
-        if not any(f.type == under.type and f is not under for f in fruits):
-            continue
-        dx = abs(land_x - under.x)
-        if dx > under.radius + held_r * 0.5:
-            continue
-        # Whether it sits on the head. Merely side by side does not block.
-        over_top = (land_y + held_r) - (under.y - under.radius)
-        if over_top > under.radius:
-            continue
-        scale = 1.0 if dx <= under.radius * 0.5 else bury_shoulder_scale
-        penalty += scale * bury_block_weight * (drop_type - under.type)
     return penalty
 
 
