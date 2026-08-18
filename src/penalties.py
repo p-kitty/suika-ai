@@ -44,6 +44,14 @@ EDGE_ANCHOR_FRAC = 0.35
 # 「大きい実の塊」とみなす最大実からの段数。
 BIG_CLUSTER_SPAN = 2
 
+# --- 落とした実そのものの列 ---
+# 帯を割るための連続量。size_order の中の ideal 乖離は盤全体の平均なので
+# 1/n に薄まり、終盤 (実 20〜25 個) では帯の幅 0.1 の下に沈む
+# (実測: 帯内の size_order の幅は最大 0.034)。落とした実 1 個ぶんは薄めない。
+# 0.004 は帯を割るのに要る重みの中央値 0.00398 から。偶然だが size_order の
+# ideal 係数と同じ値で、あちらが n で割られているだけという読みと合う。
+DROP_IDEAL_WEIGHT = 0.004
+
 # --- 床の埋まり具合 ---
 # 床に着いているとみなす高さ。半径のこの倍率ぶん下端に寄っていれば床置き。
 FLOOR_BAND = 1.35
@@ -554,3 +562,14 @@ def packed_small_side_penalty(
     if _small_side_room_ok(fruits, drop_type, held_r, max_type, sign):
         return 0.0
     return PACKED_SMALL_SIDE_WEIGHT
+
+
+def drop_ideal_penalty(land_x: float, drop_type: int, sign: int) -> float:
+    """落とした実が、その型の ideal な列からどれだけ外れて着地したか。
+
+    盤全体を平均する `_size_order_penalty` の ideal 項と違い、1 手ぶんを
+    薄めない。eval の大きい項は「個数 × 重み」で飽和するので、上位が同点で
+    並んだときに差を作れる連続量がここしかない
+    (NOTES「帯の中では、大きい項がすべて飽和している」)。
+    """
+    return abs(land_x - ideal_x(drop_type, sign)) * DROP_IDEAL_WEIGHT
