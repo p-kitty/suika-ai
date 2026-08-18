@@ -19,6 +19,7 @@
 | ペナルティの重みと意味、方策の設計判断 | NOTES.md |
 | 「A/B は `_apply_variant` に差す」のような手順 | AGENTS.md（出た数字は NOTES.md） |
 | 効果がなかった試行、やらないと決めたこと | NOTES.md |
+| 物理・描画など定数を 1 つ変えた経緯 | commit message（NOTES.md に節は作らない） |
 | module / script が増えた・名前が変わった | README.md の Layout（規約が要るなら AGENTS.md） |
 
 AGENTS.md から詳細を書きたくなったら、書かずに NOTES.md の節へリンクする。
@@ -78,6 +79,8 @@ sim の評価・A/B・学習の実行例は README の Scripts と
 - docstring とコメントは**日本語**、識別子と commit message は**英語**
 - コメントは「何をしているか」ではなく**なぜその値・その形なのか**を書く
   （実測値、踏んだ罠、捨てた代替案）。`src/policy.py` の冒頭と定数群が見本
+- ただし**変更の履歴をコメントで積まない**。定数を変えるときに差し替えるのは値だけで、
+  「前は X だった」「なぜ下げたか」は commit message へ回す
 - `from __future__ import annotations` ＋ 型注釈。`typeCheckingMode = "basic"`
 - module 内だけで使うものは `_` 前置。module をまたいで呼ぶものだけ public にする
 - **`src/penalties.py` の重み・関数を `from .penalties import X` で束縛しない。**
