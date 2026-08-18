@@ -426,7 +426,7 @@ def _merge_pair(
     """
     # held 合体の横ひっぱ。移動量大 (ギリギリ側面) ほど強い。
     side_min = 0.08
-    travel_gain = 14.0
+    travel_gain = 7.0
     speed_gain = 0.06
 
     source = a.fruit_type
