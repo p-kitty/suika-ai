@@ -60,7 +60,7 @@ VERTICAL_ORDER_WEIGHT = 1.5
 # --- 段階の切り分け ---
 # 盤が「崩れている」とみなす逆転率。横の大小順が逆転しているペアの割合で、
 # 0.5 は完全に無秩序 (向きに情報が無い) を意味する。これを超えた盤でだけ、
-# 立て直し側の規則 (bury_block / 谷育成) を掛ける。整った盤でそれらを掛けると、
+# 立て直し側の規則 (谷育成) を掛ける。整った盤でそれを掛けると、
 # 小さい実を小側へ置く手を潰して盤を崩し始める (実測: cherry は汚さない手が
 # 候補にある 97% の局面のうち 64% でしかそれを選べていなかった)。
 # 0.25 では一度も閉じない。実測の逆転率は中央 0.333 で、序盤 30 手が 0.156、
@@ -613,34 +613,6 @@ def _bury_penalty(fruits: list[Fruit]) -> float:
                     penalty += 1.0
                 else:
                     penalty += 0.35
-    return penalty
-
-
-def bury_block_penalty(
-    fruits: list[Fruit] | tuple[Fruit, ...],
-    land_x: float,
-    land_y: float,
-    drop_type: int,
-    held_r: float,
-) -> float:
-    """同種ペア待ちの実を、より大きい異種で直上・肩から塞ぐ減点。"""
-    bury_block_weight = 14.0
-    bury_shoulder_scale = 0.5
-    penalty = 0.0
-    for under in fruits:
-        if under.type >= drop_type:
-            continue
-        if not any(f.type == under.type and f is not under for f in fruits):
-            continue
-        dx = abs(land_x - under.x)
-        if dx > under.radius + held_r * 0.5:
-            continue
-        # 頭に乗っているか。横に並んだだけなら塞いでいない。
-        over_top = (land_y + held_r) - (under.y - under.radius)
-        if over_top > under.radius:
-            continue
-        scale = 1.0 if dx <= under.radius * 0.5 else bury_shoulder_scale
-        penalty += scale * bury_block_weight * (drop_type - under.type)
     return penalty
 
 

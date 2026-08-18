@@ -227,7 +227,7 @@ def _evaluate_drop(
     before = list(fruits)
     sign = _order_sign(before)
     after, merges, merge_types, held_merged = simulate_drop_held(before, drop_type, x)
-    land_x, land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
+    land_x, _land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
 
     score = merge_score(merge_types)
     # held (今回の手) が合体したときは、その反動で弾かれた無関係の実に対する
@@ -240,18 +240,16 @@ def _evaluate_drop(
     penalties += pen.foreign_aim_penalty(before, x, drop_type, held_r)
     if not held_merged:
         penalties += pen.packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
-        # 立て直し側の規則は、盤が実際に崩れているときだけ掛ける。整った盤では
-        # 大小順 (横・縦) を優先させる。どちらも「散らかった盤から合体を拾う」
-        # ための規則で、整った盤に掛けると小さい実を小側へ置く手を潰しにいく:
-        # bury_block は小側候補の 51〜72% で発火し、谷育成は発火 1642 件が
-        # 100% 大側への着地だった。結果、cherry は汚さない手が候補にある 97% の
-        # 局面のうち 64% でしかそれを選べていない。
-        if pen.board_is_broken(before, sign):
-            penalties += pen.bury_block_penalty(before, land_x, land_y, drop_type, held_r)
-            # 谷育成。合体しない手の中では、育つ見込みのある谷への着地を選ばせる。
-            # 合体した手は本家点が付くので、そちらには足さない。
-            if pen.valley_grow_ok(before, land_x, drop_type, next_type):
-                penalties -= pen.VALLEY_GROW_BONUS
+        # 谷育成は立て直し側の規則なので、盤が実際に崩れているときだけ掛ける。
+        # 整った盤では大小順 (横・縦) を優先させる。散らかった盤から合体を拾う
+        # ための規則で、整った盤に掛けると小さい実を小側へ置く手を潰しにいく
+        # (発火 1642 件が 100% 大側への着地だった)。
+        # 合体しない手の中では、育つ見込みのある谷への着地を選ばせる。
+        # 合体した手は本家点が付くので、そちらには足さない。
+        if pen.board_is_broken(before, sign) and pen.valley_grow_ok(
+            before, land_x, drop_type, next_type
+        ):
+            penalties -= pen.VALLEY_GROW_BONUS
     return after, score, penalties, merges, held_merged
 
 
