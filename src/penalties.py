@@ -270,6 +270,27 @@ def _is_nestled(
     return _valley_flanks(fruits, fruit.x, fruit.type) is not None
 
 
+def _size_order_exempt(
+    fruit: Fruit,
+    fruits: list[Fruit] | tuple[Fruit, ...],
+) -> bool:
+    """大小順の対象から外す実か。
+
+    谷にいるだけでは外さない。相方のいない実はその谷から出る当てが無く、
+    ただの並び順違反として残る。外すと、逆転を作った実そのものが谷の壁として
+    数えられ、自分が作った逆転を自分で免除する抜け穴になる (seed=49140 の
+    9 手目: 梨とグレープの盤にデコポンをグレープの右へ置くと、そのデコポンが
+    谷を成立させてグレープの逆転 1.5 が 0.14 に落ち、並べ直す手に 0.20 差で
+    勝つ)。
+
+    held と同種の谷はここからは見えないが、そちらは手ごとの `valley_grow_ok`
+    が `VALLEY_GROW_BONUS` で拾うので、育成を潰すことにはならない。
+    """
+    if not _is_nestled(fruit, fruits):
+        return False
+    return any(f.type == fruit.type and f is not fruit for f in fruits)
+
+
 def valley_grow_ok(
     fruits: list[Fruit] | tuple[Fruit, ...],
     land_x: float,
@@ -425,27 +446,26 @@ def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
 def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
     """左右の大小が逆転しているペアを減点。絶対 ideal より相対順を見る。
 
-    より大きい実の谷にはまっている実は大小順の対象外 (谷育成をレイアウト減点で
-    潰さない)。育成が成立しているかまでは見ない (それは手ごとの
-    `valley_grow_ok` 側の判断)。
+    より大きい実の谷にはまっていて、かつ盤に同種の相方が残っている実だけ
+    大小順の対象外 (谷育成をレイアウト減点で潰さない)。条件は `_size_order_exempt`。
     """
     if not fruits:
         return 0.0
     size_order_pair_weight = 1.5
     size_order_ideal_weight = 0.004
     penalty = 0.0
-    # _is_nestled は 1 個あたり O(n)。ペアごとに引き直すと O(n^3) になるので
-    # 先に 1 回だけ引く。候補ごとに毎回走る場所。
-    nestled = [_is_nestled(f, fruits) for f in fruits]
-    open_fruits = [f for f, nest in zip(fruits, nestled) if not nest]
+    # _size_order_exempt は 1 個あたり O(n)。ペアごとに引き直すと O(n^3) に
+    # なるので先に 1 回だけ引く。候補ごとに毎回走る場所。
+    exempt = [_size_order_exempt(f, fruits) for f in fruits]
+    open_fruits = [f for f, skip in zip(fruits, exempt) if not skip]
     for i, a in enumerate(fruits):
-        if nestled[i]:
+        if exempt[i]:
             continue
         for j in range(i + 1, len(fruits)):
             b = fruits[j]
             if abs(a.x - b.x) < min(a.radius, b.radius) * 0.5:
                 continue
-            if nestled[j]:
+            if exempt[j]:
                 continue
             left, right = (a, b) if a.x <= b.x else (b, a)
             if sign > 0 and left.type < right.type:
