@@ -47,10 +47,6 @@ BIG_CLUSTER_SPAN = 2
 # --- 床の埋まり具合 ---
 # 床に着いているとみなす高さ。半径のこの倍率ぶん下端に寄っていれば床置き。
 FLOOR_BAND = 1.35
-# 埋まっているとみなす隙間の上限 = オレンジの直径。
-# 壁から壁まで繋がっている必要はなく、オレンジが収まらない隙間なら
-# そこへ落とす手が問題にならないので埋まり扱いにする。
-FLOOR_PACKED_GAP = fruit_radius(SPAWN_MAX_TYPE) * 2.0
 
 # --- 床埋め後の大ツモ ---
 # 床が埋まると小さい側に置く場所が無くなる。それでも ideal_x は小さい実を
@@ -131,13 +127,21 @@ def _floor_gap(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
     return worst
 
 
-def _floor_packed(fruits: list[Fruit] | tuple[Fruit, ...]) -> bool:
-    """床が埋まっているか。
+def _floor_packed(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    drop_type: int,
+) -> bool:
+    """このツモにとって床が埋まっているか。
 
-    壁から壁まで繋がっている必要はない。隙間がオレンジの直径以下なら、
-    そこへ落としても問題にならないので埋まっているとみなす。
+    壁から壁まで繋がっている必要はない。落とす実が素直に収まらない隙間なら、
+    そこへ置く手が選択肢にならないので埋まり扱いにする。
+
+    閾値はツモの直径。オレンジ直径で固定していたときは、デコポン (直径 59.6)
+    のツモでも 77.1 までの隙間を「置き場が無い」と読んでいた。実測では
+    実 3〜5 個の盤の 43.8%、6〜8 個の 89.5% が埋まり判定で、一列に並んだだけの
+    盤 (最大隙間 67.1) までデコポンの置き場無しになっていた。
     """
-    return _floor_gap(fruits) <= FLOOR_PACKED_GAP
+    return _floor_gap(fruits) <= fruit_radius(drop_type) * 2.0
 
 
 def _big_cluster_edge(
@@ -536,7 +540,7 @@ def packed_small_side_penalty(
     """
     if drop_type < PACKED_BIG_DRAW_MIN_TYPE:
         return 0.0
-    if not fruits or not _floor_packed(fruits):
+    if not fruits or not _floor_packed(fruits, drop_type):
         return 0.0
     max_type = max(fruit.type for fruit in fruits)
     # 自分と同じか小さい実しか無いなら、大側という概念が立たない。
