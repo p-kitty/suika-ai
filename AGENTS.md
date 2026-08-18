@@ -19,6 +19,7 @@ Where things go when unsure:
 | Penalty weights and their meaning, policy design decisions | NOTES.md |
 | Procedures such as "plug A/B changes into `_apply_variant`" | AGENTS.md (the resulting numbers go to NOTES.md) |
 | Attempts that had no effect, things decided against | NOTES.md |
+| The history of changing one physics or drawing constant | commit message (no NOTES.md section) |
 | A module / script was added or renamed | README.md Layout (AGENTS.md if it needs a convention) |
 
 If you feel like writing details in AGENTS.md, do not; link to a NOTES.md section instead.
@@ -78,6 +79,8 @@ Examples of sim evaluation, A/B and training runs are in the README Scripts sect
 - Docstrings, comments, identifiers and commit messages are all in **English**
 - Comments say **why this value or this shape**, not "what it does"
   (measured values, traps hit, alternatives discarded). The top of `src/policy.py` and its constants are the model
+- But **do not accumulate change history in comments**. When changing a constant, replace only the value;
+  "it used to be X" and "why it was lowered" go in the commit message
 - `from __future__ import annotations` + type annotations. `typeCheckingMode = "basic"`
 - Prefix module-internal names with `_`. Only names called across modules are public
 - **Do not bind weights or functions of `src/penalties.py` with `from .penalties import X`.**
