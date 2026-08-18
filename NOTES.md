@@ -247,6 +247,56 @@ Agreement with master as the baseline, and the inversion increase of changed mov
   looks contradictory, but their jobs differ. That one is an exemption so fruits being grown are not penalized twice;
   this one reads the state of the board
 
+### Added a trapped-fruit penalty (2026-08-18, from tracing seed=74546)
+
+**Trigger**: a report that view_sim showed a plainly dirty board. It collapsed into peach-orange-peach.
+
+**The causation was this.** The collapse started 13 moves earlier:
+
+- **Move 25**: the board is in perfect descending order, `peach@70 orange@172 straw@230 cherry@384`
+  (inversion rate 0.000, trapped 0). When dropping a dekopon, the move trapping the strawberry beat
+  the **13** candidates that do not trap it by **an eval difference of 0.07**. All 33 candidates sit on a tie plateau
+  from −6.12 to −6.21, 0.09 wide
+- **Move 28**: because of that trapping, the strawberry and orange swapped positions, and
+  **every placement was already bad**. Even at ideal_x the local inversion amount was the same 3 units and could not be told apart
+- **Move 38**: a 64-point 3-step cascade. Same result anywhere in x=204-276, and moves not taking the cascade
+  raise trapping from 2→3. **Taking it is right**. The resulting peach appeared right of the orange and became fixed
+
+**peach-orange-peach is the result, not the cause.**
+
+**Wrong guesses (kept as a record)**:
+
+- `packed_small_side_penalty` is the culprit → no. It does add 8.0 at move 28, but
+  removing it does not change the choice. Tried on 241 positions, **100% agreement**; this rule does not affect
+  move choice (though `_floor_packed` reading 48% of boards with 3-5 fruits as "filled"
+  being read is a separate oddity)
+- A local ordering term (counting per move the inversions the dropped fruit creates) works → at both move 25 and
+  move 28, no change up to w=4.0. The fruit it inverts with is the same whether the landing is right or left, and
+  **inversion counts cannot tell them apart**
+
+**What worked was "counting trapping".** `_valley_flanks` already existed, but
+was only used for the valley-growing bonus and the gate, and **the inverse (penalizing valleys that got created)
+was missing**. Screening on 230 positions:
+
+| weight | agreement | trapped with no exit | total trapped | inversions | merges |
+|---|---|---|---|---|---|
+| 0.0 | 100% | +1 | −9 | +34 | 235 |
+| 2.0 | 95.2% | −8 | −18 | +30 | 235 |
+| **4.0** | 93.0% | **−11** | **−20** | **+26** | 234 |
+| 8.0 | 89.1% | −20 | −27 | +28 | 233 |
+
+At 8.0 inversions flip and merges drop, so 4.0 was taken.
+
+**Not applied to fruits with a partner.** At first fruits with a partner were also counted at 1.0, but that crushes moves that
+feed a valley. Measured, midgame cascades stopped, and seed=74546 went from 241 moves → **163 moves**,
+fruits at move 140 went from 9 → 22, and the crown worsened from 228 → 45. It was fighting valley growing.
+
+**Unresolved contradiction**: replaying the same seed=74546 through gives 226 moves /
+score 2298 at weight 2.0 and 219 moves / 2149 at 4.0, worse than baseline (241 moves / 2486).
+It points the opposite way from the 230-position structural screening. One game is
+no evidence at all, as [How to measure](#how-to-measure-traps-we-keep-stepping-in) repeatedly warns,
+so it is settled by A/B. **Both weights 2.0 and 4.0 stay as candidates.**
+
 ### `bury_block` was retired (2026-08-18)
 
 After adding vertical size order and applying the gate, **no effect of `bury_block_penalty` could be detected
@@ -445,6 +495,7 @@ The 3 below apply **only when held itself did not merge** (`held_merged`, not th
 | burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35) | bury_weight 20.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
 | size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left on the board** are exempt = `_size_order_exempt`. Valley fruits without a partner are counted). **Exempt on moves where held merged** (so unrelated fruits knocked by merge recoil are not counted as violations) | pair difference×1.5 + ideal_x deviation×0.004 |
+| trapped | `_trapped_penalty` | a fruit squeezed left and right by bigger fruits **with no same-type partner left on the board**. With a partner it is waiting to merge, so not applied | 4.0 per fruit |
 | vertical size order | `_vertical_order_penalty` | for pairs overlapping horizontally and stacked vertically, when **the upper one is bigger**. Putting small fruits on shoulders (a ladder) has the smaller one on top, so 0 | type gap × 1.5 |
 | big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough (exempt for the diameter of the missing type in between) | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) (gap−diameter of the missing type)×0.025×size factor |
 | bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by 0.15 at dangerous height) | variance×0.08 |

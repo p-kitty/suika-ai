@@ -57,6 +57,18 @@ VERTICAL_STACK_MIN_RISE = 0.35
 # 0.75 is weaker horizontally with the same vertical effect as 1.5.
 VERTICAL_ORDER_WEIGHT = 1.5
 
+# --- Trapping ---
+# Penalty per fruit squeezed left and right by bigger fruits with no prospect of leaving.
+# The inverse of valley growing (VALLEY_GROW_BONUS): valleys that can grow are praised, valleys that cannot are penalized.
+# Not applied to fruits with a partner left on the board. Those are waiting to merge, not trapped,
+# and penalizing them crushes the very moves that feed a valley (measured: counting fruits with partners at 1.0 too,
+# midgame cascades stopped on seed=74546, dropping from 241 moves -> 163. At step 140
+# fruits went 9 -> 22 and the crown 228 -> 45). The split is the same as `_size_order_exempt`.
+# Screening on 230 positions: raising the weight reduces both trapping and inversions, with merge counts
+# nearly unchanged (merges 235/235/234/233 at 1.0/2.0/4.0/8.0). At 8.0 inversions flip
+# (+26 -> +28) and merges drop too, so 4.0 is the turning point. Agreement is 93.0%.
+TRAPPED_WEIGHT = 4.0
+
 # --- Isolating the stage ---
 # The inversion rate at which a board is considered 'broken'. The fraction of pairs with inverted horizontal size order;
 # 0.5 means complete disorder (no information in the direction). Only on boards beyond this
@@ -442,6 +454,9 @@ def board_penalties(
 
     penalty += bury_weight * _bury_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
+    # Trapping is not exempt even on merging moves. Unlike the size-order pair count, it is not a quantity
+    # that wobbles with recoil but the shape of the board that move left behind.
+    penalty += _trapped_penalty(fruits)
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
         penalty += _vertical_order_penalty(fruits)
@@ -567,6 +582,31 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
             / len(open_fruits)
             * size_order_ideal_weight
         )
+    return penalty
+
+
+def _trapped_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """Penalty for fruits squeezed left and right by bigger fruits.
+
+    Where `valley_grow_ok` praises 'valleys that can be grown from now', this penalizes
+    'valleys that got created'. With no inverse rule, eval could barely tell moves that break the board
+    from moves that do not.
+
+    Measured (move 25 of seed=74546): on a perfect board with inversion rate 0.000 and trapped 0,
+    the move trapping the strawberry beat the 13 candidates that do not trap it by **an eval difference of 0.07**
+    (a tie plateau with every candidate within -6.12 to -6.21, 0.09 wide).
+    That trapping lost its place 3 moves later and led to the peach-orange-peach 13 moves later.
+
+    It applies **only to fruits with no partner left**. With a partner it merges, grows and
+    can leave the valley, so that is waiting to merge, not trapped.
+    """
+    penalty = 0.0
+    for fruit in fruits:
+        if any(f.type == fruit.type and f is not fruit for f in fruits):
+            continue
+        if _valley_flanks(fruits, fruit.x, fruit.type) is None:
+            continue
+        penalty += TRAPPED_WEIGHT
     return penalty
 
 
