@@ -237,8 +237,6 @@ def _evaluate_drop(
     # FOREIGN_AIM は merges ではなく「真下の実が異種か」で見る。
     # 同種が真下なら合体待ちで OK。異種真上から転がって床で合体しても減点。
     penalties += pen.foreign_aim_penalty(before, x, drop_type, held_r)
-    # 上位が同点で並んだときに差を作れる連続量。大きい項は飽和して動かない。
-    penalties += pen.drop_ideal_penalty(land_x, drop_type, sign)
     if not held_merged:
         penalties += pen.packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
         # 谷育成。合体しない手の中では、育つ見込みのある谷への着地を選ばせる。

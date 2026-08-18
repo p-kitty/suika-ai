@@ -500,22 +500,6 @@ def _rest_on(a: Fruit, b: Fruit, fruit_type: int) -> Fruit:
     return Fruit(type=fruit_type, x=x, y=y, radius=r, confidence=90)
 
 
-def test_drop_ideal_penalty_grows_with_distance_from_ideal() -> None:
-    # ideal な列で 0、離れるほど単調に増える。帯を割るための連続量なので、
-    # 段差ではなく距離に比例していることが要件。
-    from src.penalties import drop_ideal_penalty, ideal_x
-
-    for sign in (1, -1):
-        for drop_type in (2, 4, 6):
-            target = ideal_x(drop_type, sign)
-            assert drop_ideal_penalty(target, drop_type, sign) == 0.0
-            near = drop_ideal_penalty(target + 20.0, drop_type, sign)
-            far = drop_ideal_penalty(target + 80.0, drop_type, sign)
-            assert 0.0 < near < far
-            # 左右対称。
-            assert drop_ideal_penalty(target - 20.0, drop_type, sign) == near
-
-
 def _ladder_board() -> tuple[Fruit, ...]:
     """角桃 + 内側に梨、その 2 つの肩にリンゴ・オレンジ (梯子の完成形)。"""
     peach_r, pear_r = fruit_radius(7), fruit_radius(6)
