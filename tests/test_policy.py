@@ -131,12 +131,63 @@ def test_prefers_held_that_enables_next_merge() -> None:
 def test_grows_valley_fruit_when_held_and_next_are_one_smaller() -> None:
     # Grape in the valley, held/next are strawberries (one below the valley fruit). Dropping both makes a grape
     # that merges with the grape in the valley, so place it in the valley instead of escaping to the corner.
-    from src.penalties import valley_grow_ok
+    #
+    # Valley growing is a recovery-side (second stage) rule, so it applies only when the board is broken
+    # (`board_is_broken`). On a tidy board size order decides, so a dekopon at the right edge
+    # creates an inversion to enter the second stage. Without this one fruit the inversion rate is 1/3 = 0.333,
+    # below the 0.35 threshold, and the gate stays closed with no valley growing.
+    from src.penalties import board_is_broken, valley_grow_ok
+    from src.policy import _order_sign
 
     orange_r = fruit_radius(4)
     apple_r = fruit_radius(5)
     grape_r = fruit_radius(2)
     straw_r = fruit_radius(1)
+    dekopon_r = fruit_radius(3)
+    sep = orange_r + apple_r + grape_r * 2 + 20.0
+    center = 150.0
+    left = Fruit(
+        type=4,
+        x=center - sep / 2,
+        y=NORMALIZED_HEIGHT - orange_r,
+        radius=orange_r,
+        confidence=90,
+    )
+    right = Fruit(
+        type=5,
+        x=center + sep / 2,
+        y=NORMALIZED_HEIGHT - apple_r,
+        radius=apple_r,
+        confidence=90,
+    )
+    grape = Fruit(
+        type=2, x=center, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90
+    )
+    stray = Fruit(
+        type=3,
+        x=right.x + apple_r + dekopon_r + 8.0,
+        y=NORMALIZED_HEIGHT - dekopon_r,
+        radius=dekopon_r,
+        confidence=90,
+    )
+    fruits = (left, right, grape, stray)
+    assert board_is_broken(fruits, _order_sign(fruits))
+
+    obs = _obs(held_type=1, fruits=fruits, next_type=1)
+    land_x, _land_y = preview_land(fruits, 1, choose_x(obs), straw_r)
+    assert left.x < land_x < right.x
+    assert valley_grow_ok(fruits, land_x, 1, 1)
+
+
+def test_leaves_the_valley_alone_while_the_board_is_still_ordered() -> None:
+    # Even in the same valley as above, valley growing is not applied while the board is tidy (first stage).
+    # Recovery rules applied to a tidy board go to crush moves placing small fruits on the small side.
+    from src.penalties import board_is_broken
+    from src.policy import _order_sign
+
+    orange_r = fruit_radius(4)
+    apple_r = fruit_radius(5)
+    grape_r = fruit_radius(2)
     sep = orange_r + apple_r + grape_r * 2 + 20.0
     center = 150.0
     left = Fruit(
@@ -157,10 +208,8 @@ def test_grows_valley_fruit_when_held_and_next_are_one_smaller() -> None:
         type=2, x=center, y=NORMALIZED_HEIGHT - grape_r, radius=grape_r, confidence=90
     )
     fruits = (left, right, grape)
-    obs = _obs(held_type=1, fruits=fruits, next_type=1)
-    land_x, _land_y = preview_land(fruits, 1, choose_x(obs), straw_r)
-    assert left.x < land_x < right.x
-    assert valley_grow_ok(fruits, land_x, 1, 1)
+
+    assert not board_is_broken(fruits, _order_sign(fruits))
 
 
 def test_does_not_grow_smaller_junk_in_valley() -> None:

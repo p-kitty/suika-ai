@@ -212,6 +212,32 @@ Taking (chosen move − clean move) per term in positions where a clean move was
 - The `_size_order_exempt` exemption is an accomplice. On boards with 16+ fruits, 45-57% of small fruits
   are exempt, but removing every exemption only takes it from 4.91 → 6.20 per pair
 
+### Threshold and weight screening (166 positions, deterministic)
+
+Agreement with master as the baseline, and the inversion increase of changed moves (horizontal and vertical):
+
+| vertical weight | gate | agreement | horizontal inversions | vertical inversions |
+|---|---|---|---|---|
+| 0.00 | 0.25 | 96.4% | −0.67 | **+1.67** |
+| 0.00 | 0.35 | 89.2% | −0.83 | **+1.06** |
+| 1.50 | none | 89.8% | −0.24 | −1.06 |
+| 1.50 | 0.25 | 89.8% | −0.24 | −1.06 |
+| 1.50 | 0.35 | 86.1% | **−0.52** | −0.43 |
+| 3.00 | none | 88.0% | +0.15 | −0.95 |
+
+- **`BROKEN_INVERSION_FRAC = 0.25` is a pure no-op**. With vertical weight 1.5 / 3.0 it matched no gate
+  to the last digit. The inversion rate has a median of 0.333 (0.156 in the first 30 moves, 0.35-0.39 from move 90), so
+  at 0.25 it falls on the "broken" side from the midgame onward and never closes. 0.35 was adopted
+- **The vertical weight is 1.5**. 3.0 starts breaking horizontal order to protect vertical (horizontal turns +0.15)
+- **The gate trades horizontal for vertical, and cannot be called a gain alone**. `bury_block` was
+  also doing vertical work, so removing it gives horizontal −0.52 / vertical −0.43, merely a different split from no gate (horizontal −0.24 /
+  vertical −1.06). **Run the A/B separately for vertical only and vertical + gate**.
+  If both go in at once without a significant difference, which one is responsible cannot be separated
+- The inversion rate is **coarse on small boards**. With 3 fruits there are only 3 pairs, a step of 0.33, so
+  even one inverted pair gives 0.333 ≤ 0.35 and falls into "tidy". Sitting on this boundary,
+  `test_grows_valley_fruit_when_held_and_next_are_one_smaller` was rewritten to a board shape
+  that enters the second stage (that valley growing does not appear on tidy boards is pinned by another test)
+
 ### Ideas that did not work (dropped at screening)
 
 - **Raising `size_order_pair_weight` from 1.5 → 9.0**: agreement 88.6%, moves barely change,

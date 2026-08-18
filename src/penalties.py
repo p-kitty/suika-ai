@@ -53,6 +53,8 @@ VERTICAL_STACK_FRAC = 0.8
 # A lower bound so pairs merely side by side at almost the same height are not read as 'stacked'.
 VERTICAL_STACK_MIN_RISE = 0.35
 # Penalty per pair with the bigger one on top. Multiplied by the type gap.
+# At 3.0 it starts breaking horizontal order to protect vertical (horizontal inversions turn +0.15 over 166 positions).
+# 0.75 is weaker horizontally with the same vertical effect as 1.5.
 VERTICAL_ORDER_WEIGHT = 1.5
 
 # --- Isolating the stage ---
@@ -61,7 +63,10 @@ VERTICAL_ORDER_WEIGHT = 1.5
 # Apply the recovery rules (bury_block / valley growing). Applying them on tidy boards,
 # crushes moves placing small fruits on the small side and starts breaking the board (measured: for cherry, a non-dirtying move
 # was a candidate in 97% of positions, yet it was chosen in only 64% of them).
-BROKEN_INVERSION_FRAC = 0.25
+# At 0.25 it never closes. The measured inversion rate has a median of 0.333, 0.156 over the first 30 moves,
+# and 0.35-0.39 from move 90. At 0.25 it falls on the 'broken' side from the midgame onward,
+# and agreement and chosen moves matched no gate exactly to the last digit (166 positions).
+BROKEN_INVERSION_FRAC = 0.35
 
 # --- How full the floor is ---
 # Height considered on the floor. A floor placement if the bottom is within this multiple of the radius.
