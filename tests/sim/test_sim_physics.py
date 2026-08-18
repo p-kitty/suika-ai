@@ -407,8 +407,8 @@ def test_simulate_drop_held_false_for_unrelated_merge() -> None:
 
 def test_landed_xy_uses_real_position_when_only_unrelated_pair_merged() -> None:
     # Even if an unrelated pair merges, if held itself survives its actual resting position is returned.
-    # Back when it was cut on merges, a geometric estimate was returned here, and the penalties receiving it
-    # (_bury_block_penalty and so on) acted on false coordinates.
+    # Back when it was cut on merges, a geometric estimate was returned here, and the side receiving the landing position
+    # (packed_small_side_penalty / valley_grow_ok) acted on false coordinates.
     cherry_r = fruit_radius(0)
     melon_r = fruit_radius(9)
     orange_r = fruit_radius(4)
