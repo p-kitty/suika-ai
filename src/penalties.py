@@ -44,6 +44,14 @@ EDGE_ANCHOR_FRAC = 0.35
 # Number of tiers below the biggest fruit counted as 'the big-fruit cluster'.
 BIG_CLUSTER_SPAN = 2
 
+# --- The column of the dropped fruit itself ---
+# A continuous quantity for splitting the band. The ideal deviation inside size_order is a board-wide mean, so
+# it thins to 1/n, and late in the game (20-25 fruits) sinks below the band width of 0.1
+# (measured: the width of size_order inside the band is at most 0.034). One dropped fruit's worth is not diluted.
+# 0.004 comes from the median weight needed to split the band, 0.00398. By coincidence it is the same value as size_order's
+# ideal coefficient, which fits the reading that that one is just divided by n.
+DROP_IDEAL_WEIGHT = 0.004
+
 # --- How full the floor is ---
 # Height considered on the floor. A floor placement if the bottom is within this multiple of the radius.
 FLOOR_BAND = 1.35
@@ -554,3 +562,14 @@ def packed_small_side_penalty(
     if _small_side_room_ok(fruits, drop_type, held_r, max_type, sign):
         return 0.0
     return PACKED_SMALL_SIDE_WEIGHT
+
+
+def drop_ideal_penalty(land_x: float, drop_type: int, sign: int) -> float:
+    """How far the dropped fruit landed from the ideal column for its type.
+
+    Unlike the ideal part of `_size_order_penalty`, which averages over the whole board, one move's worth
+    is not diluted. The large terms of eval saturate as 'count × weight', so when the top candidates tie
+    this is the only continuous quantity that can make a difference
+    (NOTES 'Inside the band every large term is saturated').
+    """
+    return abs(land_x - ideal_x(drop_type, sign)) * DROP_IDEAL_WEIGHT
