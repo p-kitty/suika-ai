@@ -189,6 +189,66 @@ a quantity that changes continuously with the landing position, or an evaluation
 The premise of placing bootstrap as "a thin policy before RL"
 (→[Policy (bootstrap) design](#policy-bootstrap-design)) is consistent with this measurement.
 
+### Tried and reverted: ideal_x deviation of the dropped fruit (2026-08-19)
+
+As a continuous quantity to split the band, `drop_ideal_penalty` =
+`|land_x - ideal_x(drop_type, sign)| × 0.004` was added to `_evaluate_drop`.
+**Score was not significant in the n=133 A/B, so it was reverted.**
+
+**It passed the screen.** Inside the band (eps=0.1) this quantity varies with a median of 24.9,
+width > 1 in 71.7% of positions (an order of magnitude different from ladder 8.4% and trapping 1.2-4.7%).
+The median weight needed to split the band, 0.00398, matches what `_size_order_penalty` already has:
+the ideal coefficient 0.004. That fitted the reading that there it is just diluted to 1/n by the board-wide mean.
+Indeed this term **changes 51.4% of moves**.
+
+**It looked good at n=25 but vanished at n=133:**
+
+| | n=25 | n=133 |
+|---|---|---|
+| score | +10.0% t=1.79 | +2.7% t=1.10 CI [−44.0, +154.9] |
+| cascades | +20.3% **t=2.78 ***  | +4.7% t=1.58 CI [−0.2, +1.9] |
+| win/loss | 15/10 | **64/69** |
+| early_crown | −1.2% t=−1.12 | −1.1% **t=−2.21 *** |
+
+At n=133 the only metric whose CI does not cross 0 is `early_crown`, and it **favors A over B**
+(taller early piles). The seed head-to-head is a losing record, and the median paired difference is **−8**.
+
+**The mean +55.5 is variance, not level.** The 64 wins average +526 against
+−381 for the 69 losses, with |difference|>500 being 22 wins / 17 losses.
+Watermelons reached increase (max_type>=10 from 19 → 23 runs), so
+**this term has the shape of "widening the swing" rather than "making it better"**. As a hypothesis it is
+worth keeping, but it does not meet the criterion decided in advance (the score CI), so it is not adopted.
+
+**It is worth recording that cascades, significant at n=25, vanished at n=133.**
+A proxy metric only reduces the required n by a factor of 1.4, and does not justify n=25
+(→[How to measure](#how-to-measure-traps-we-keep-stepping-in)).
+
+**The concern turned out wrong.** Replaying one lost game (seed=982108, max_type 10→8),
+the big-fruit cluster looked scattered, but **it diverged on move 2**, so no causation can be read.
+Pairing on the same 428 positions and comparing cluster spread gives
+**Δ +0.05 (baseline 206, t=0.66, B wider in 51.6% of positions): no difference**.
+An example of how reading structural causation from a single trace goes wrong.
+
+### Investigated: student match is 1.7x the control even accounting for the tie band (2026-08-19)
+
+Since the teacher chooses randomly inside the band, `match` measured by exact agreement drops
+regardless of the student's capacity. Remeasured with `artifacts/policy_sim_v2.npz`
+(band eps=0.1, 32 action bins, **with a random-shot control**):
+
+| Stretch | n | exact agreement | band agreement | random shot | band width (bins) |
+|---|---|---|---|---|---|
+| early (<60) | 360 | 17.2% | 48.3% | 20.1% | 6.4 |
+| late (>=60) | 854 | 7.1% | **27.4%** | **19.6%** | 6.3 |
+| overall | 1214 | 10.1% | 33.6% | 19.8% | 6.3 |
+
+**The gate's scale was indeed too strict** (10.1% → 33.6%). But on ground where the control is 19.8%,
+it is only 1.7x, not at the level of "able to imitate the teacher".
+**The late-game breakdown is the core**: the ratio to control goes from 2.4x early → **1.4x** late.
+In the stretch where the board is decided, the student is nearly random.
+
+**Caveat**: the checkpoint used is hidden=128 (exact agreement 10.1%),
+not the best of the sweep (hidden=256, 29.1%). The ratio could be somewhat higher.
+
 ## How to measure (traps we keep stepping in)
 
 **Score noise is very large.** This is the biggest wall for improving the policy, and every attempt below
