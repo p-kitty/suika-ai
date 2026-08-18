@@ -105,6 +105,28 @@ Examples of sim evaluation, A/B and training runs are in the README Scripts sect
 - For a pure refactor, confirm play does not change
   (whether x / score / penalties / merge match over a few hundred moves on the same seeds)
 
+### Do not run an A/B while obvious blunders remain
+
+**If view_sim shows plainly strange moves, measuring score in that state
+tells you nothing.** Fix the blunders first. Score noise always swallows defects at this granularity
+(→[How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in)).
+
+When a blunder seed and symptom come up, replay that one game and follow it move by move:
+
+1. Replay with `SimEnv(seed=...)` and record the board, inversion rate, trapped count and crown per move
+2. **The move where the collapse becomes visible is often the result, not the cause.**
+   Go back to "the last move where the board was clean" and read forward from there
+3. Lay out **all candidates** of the suspicious move with eval and outcomes (trapped, inversions). The causal move
+   usually has the shape of "drew the worse option inside a tie plateau".
+   If the top candidates are tied, eval has no term that can make that difference
+4. Whether the move you want to fix gets fixed is checked **by tuning weights on that one position**. Deterministic, seconds
+5. For a broad view, measure agreement and structural metrics over the position set of several traces.
+   It is a screen before betting hours on an A/B, and it runs on a single thread
+
+**Do not compare score by playing one game through.** Changing one move makes the board diverge completely,
+so the score difference cannot be told apart from draw luck. All one game can tell you is "was that move fixed"
+and "did a new pathology appear".
+
 ## git
 
 All git operations are collected in this section. Do not scatter them into other sections.

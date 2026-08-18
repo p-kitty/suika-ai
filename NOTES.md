@@ -6,6 +6,7 @@
 - [In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)
 - [How to measure](#how-to-measure-traps-we-keep-stepping-in) ← read before reporting numbers
 - [Investigated: sudden death from scattered low-tier fruits late in the game](#investigated-sudden-death-from-scattered-low-tier-fruits-late-in-the-game)
+- [Investigated: how the board collapses and isolating the stage](#investigated-how-the-board-collapses-and-isolating-the-stage-2026-08-18)
 - [When to move](#when-to-move)
 - [Policy (bootstrap) design](#policy-bootstrap-design)
 - [Training](#training)
@@ -173,12 +174,254 @@ remove several. That `cascades` is consistently the sharpest in [proxy metrics](
 is consistent with this too. If intervening, aiming at **how easily cascades happen**
 looks like the better approach.
 
+## Investigated: how the board collapses and isolating the stage (2026-08-18)
+
+6 games were traced and counted per move (deterministic per-position quantities, so not
+subject to score noise). The policy of "not breaking the board matters more than score"
+was reversed in the weighting of the penalties.
+
+### Symptom
+
+- **The inversion rate of horizontal size order goes from 10% early to 40-50% late**. 50% is complete disorder
+- **Vertically it was lawless from the start**. Of 23079 vertically stacked pairs, 47% have "the upper one bigger".
+  `_size_order_penalty` only looked at `a.x <= b.x`, and there was not a single vertical rule
+- cherry / strawberry are the main culprits (+1.25 / +1.57 pairs per move). Only orange recovers, at −0.93
+- **Clean moves are among the candidates. The evaluation rejects them**: for cherry, a non-dirtying move is
+  a candidate in 97% of positions, yet it is actually chosen in 64%. 2.85 pairs missed per move
+
+### What was beating size order
+
+Taking (chosen move − clean move) per term in positions where a clean move was rejected:
+
+| Term | difference | rate of being the deciding factor |
+|---|---|---|
+| `bury_block` | **−7.43** | 35% |
+| `FOREIGN_AIM` | −6.12 | 6% |
+| valley growing | −1.04 | 35% |
+| `sizeord` | −0.03 | 16% |
+
+**`sizeord` effectively does not distinguish dirty moves from clean ones.** Converted, one inversion pair
+≈ eval 4.91, whereas `bury_block` is 14.0 at type gap 1 and `FOREIGN_AIM` is 100.0.
+
+- `bury_block` fires on 51-72% of small-side candidates (straw/grape/orange), and
+  **66% of the pairs it protects already have a bigger fruit wedged between them and cannot merge**.
+  83% are more than 3x the contact distance apart. It was paying a median of 28.0 / max 133.0
+  for pairs already dead
+- Valley growing: **100% of its 1642 firings land on the big side**. 97% are "a same-type fruit is in the valley,
+  but this move does not merge" = moves that stack next to that fruit
+- The `_size_order_exempt` exemption is an accomplice. On boards with 16+ fruits, 45-57% of small fruits
+  are exempt, but removing every exemption only takes it from 4.91 → 6.20 per pair
+
+### Screening called all three "good" (166-230 positions, deterministic)
+
+**This section records "why it got adopted".** The A/B result is in the next section. It compares
+candidates on the same position, a deterministic quantity with no noise, but **with no correspondence to score**.
+
+| Variant | agreement | horizontal inversions | vertical inversions |
+|---|---|---|---|
+| vertical 1.5 / no gate | 89.8% | −0.24 | −1.06 |
+| vertical 1.5 / gate 0.35 | 86.1% | −0.52 | −0.43 |
+| vertical 3.0 / no gate | 88.0% | **+0.15** | −0.95 |
+
+The trapped-fruit penalty at weights 0/2/4/8 gave total trapped −9/−18/−20/−27, inversions +34/+30/+26/+28,
+merges 235/235/234/233. All read as "both trapping and inversions drop while merges stay the same".
+
+The values decided from this (vertical 1.5, gate 0.35, trapping 4.0) all lost in the A/B.
+
+**Facts picked up as a by-product** (they remain even though the rules were reverted):
+
+- Counting the inversion rate only by the left and right of each pair is not enough. In the order orange, grape, apple,
+  the grape is inverted only against the orange, giving just 1/3 = 0.333, but
+  a fruit squeezed between two big fruits is clearly a broken shape. **A fruit in a valley should be counted as out of place
+  with respect to both walls** (reusing `_valley_flanks` gives 2/3 = 0.667).
+  This error was detected by `test_grows_valley_fruit_when_held_and_next_are_one_smaller`.
+  **The test was right and the metric was wrong**
+- Using only the presence of a valley to judge the board state does not work. With 8+ fruits there is always a valley, so
+  it is always true. The inversion rate including valleys keeps a gradient by fruit count: 98% / 70% / 48% / 16% / 3%
+  (fruits 0-3 / 4-7 / 8-11 / 12-15 / 16+)
+- `_floor_packed` **reads 48% of boards with 3-5 fruits and 74% with 6-8 as "filled"**.
+  The premise of `packed_small_side_penalty`, "the floor is packed and there is no room on the small side",
+  does not hold from the early game. **Open task** (though as far as tried on 241 positions, this rule
+  has never changed the chosen move, so no actual harm has appeared)
+
+### Tried and reverted: vertical size order, stage gate, trapped-fruit penalty (2026-08-18)
+
+**All three lost their A/Bs and were reverted.** How they were made and why they were removed is kept.
+
+**Trigger**: a report that view_sim showed a plainly dirty board. It collapsed into peach-orange-peach.
+
+**The causation was this.** The collapse started 13 moves earlier:
+
+- **Move 25**: the board is in perfect descending order, `peach@70 orange@172 straw@230 cherry@384`
+  (inversion rate 0.000, trapped 0). When dropping a dekopon, the move trapping the strawberry beat
+  the **13** candidates that do not trap it by **an eval difference of 0.07**. All 33 candidates sit on a tie plateau
+  from −6.12 to −6.21, 0.09 wide
+- **Move 28**: because of that trapping, the strawberry and orange swapped positions, and
+  **every placement was already bad**. Even at ideal_x the local inversion amount was the same 3 units and could not be told apart
+- **Move 38**: a 64-point 3-step cascade. Same result anywhere in x=204-276, and moves not taking the cascade
+  raise trapping from 2→3. **Taking it is right**. The resulting peach appeared right of the orange and became fixed
+
+**peach-orange-peach is the result, not the cause.**
+
+**Wrong guesses (kept as a record)**:
+
+- `packed_small_side_penalty` is the culprit → no. It does add 8.0 at move 28, but
+  removing it does not change the choice. Tried on 241 positions, **100% agreement**; this rule does not affect
+  move choice (though `_floor_packed` reading 48% of boards with 3-5 fruits as "filled"
+  being read is a separate oddity)
+- A local ordering term (counting per move the inversions the dropped fruit creates) works → at both move 25 and
+  move 28, no change up to w=4.0. The fruit it inverts with is the same whether the landing is right or left, and
+  **inversion counts cannot tell them apart**
+
+**What was built (all reverted)**
+
+| Rule | Content |
+|---|---|
+| vertical size order | for pairs overlapping horizontally and stacked vertically, type gap × 1.5 when the upper one is bigger |
+| stage gate | apply the recovery rules (bury_block / valley growing) only on boards whose inversion rate exceeds a threshold |
+| trapped-fruit penalty | 4.0 per fruit squeezed left and right by bigger fruits with no same-type partner left |
+
+**A/B (n=25, same seeds, `--seed 526304`). All negative**:
+
+| Variant | score | Δ | t | cascades | max_type |
+|---|---|---|---|---|---|
+| all three | 2045.60 | −5.5% | −1.04 | −7.9% | −1.3% |
+| gate only | 2035.24 | −6.0% | −1.05 | −3.1% | −1.7% |
+| vertical only | 1981.20 | **−8.5%** | −1.73 | −10.8% | — |
+| trapping only | 2077.04 | −4.1% | −0.73 | −5.0% | −1.3% |
+
+Side A was 2165.44 for all (with the 3 rules cut). None is significant (±100 points needs
+n≈127), but **all 4 runs, every metric, are negative**. The worsened seeds all go max_type 10 → 9,
+a clear drop in the metric closest to the double watermelon goal.
+
+**The biggest lesson: home-made structural metrics pointed the wrong way all three times.**
+Weights were chosen by screening on trapped and inversion counts, all three came out "good", yet score
+dropped every time. Exactly the selection bias item in [How to measure](#how-to-measure-traps-we-keep-stepping-in).
+**Do not use a proxy metric not validated against score as the basis for choosing weights.**
+The only one allowed is the already validated `cascades`.
+
+**Individual findings**:
+
+- **The stage gate is logically unsound.** A valley is the shape "squeezed left and right by fruits bigger than itself",
+  so **a big fruit on the small side is itself an ordering violation**. In other words
+  *if there is a valley, there is always an inversion* (inversion rate > 0 on all 332 measured boards). So
+  the state "we want to grow a valley but the board is tidy" does not exist, and the gate at threshold 0 is
+  a pure no-op, while above 0 the only effect is the harm of **forbidding recovery on broken boards**.
+  Measured, it stopped 28 (19%) of 151 positions where valley growing held,
+  and those 28 had an inversion rate of at least 0.174
+- **The premise of vertical size order is doubtful.** "47% of vertically stacked pairs are upside down = disorder = defect"
+  was the reading, but since **merging creates the big fruit right there**, a big fruit sitting on small ones
+  may be the normal state of this game. Horizontal inversions were traced to collapse on seed=74546,
+  but vertically it was made a rule by analogy alone. At −8.5% alone it was the worst
+- **The trapped-fruit penalty did fix the intended move** (the blunder at move 25 disappeared), yet still −4.1%.
+  Counting fruits with partners too made it worse, dropping seed=74546 from 241 moves → 163
+  (it was crushing the moves that feed a valley)
+
+**Note**: all 4 used the same 25 seeds, so they are not independent evidence. It was not
+confirmed on another seed set. But the full playthrough of seed=74546 independently pointed negative too.
+
+### `bury_block` was retired (2026-08-18)
+
+`bury_block_penalty` was deleted because **no effect could be detected with either structural metric**.
+(At the time it was measured with vertical size order and the gate in place, which were later reverted, so
+**this retirement alone remains unmeasured**. It needs a standalone A/B against master.)
+Structurally too it is the type-gap penalty for "a big fruit on top of a small one"
+(`14.0 ×(drop_type - under.type)` is itself the type-gap penalty for "a big fruit on top of a small one"),
+with just a "the fruit below has a partner" condition and a 9x weight attached.
+
+On 166 positions, removing it changes 10% of moves (agreement 89.8%). On top of that:
+
+| Variant | total board dirt (horizontal + vertical inversions) | change in live merge pairs | merges |
+|---|---|---|---|
+| current | +40 | −2 | 168 |
+| **retired** | **+40** | **±0** | 168 |
+| only live pairs | — | −1 | 168 |
+
+Dirt is exactly 0 net (the increases and decreases of the 17 changed moves cancel completely). **Even for its real job of
+protecting merge pairs, removing it leaves slightly more.** The merge counts are identical for all 3.
+
+The difference is too small, so the right reading is not "retiring is better" but "**no difference**".
+If it has no effect, take the side that cuts it to one rule and can say plainly "while tidy, just line them up in order".
+It also matches that 66% of what it protected was already unmergeable.
+
+**Measured (n=25, seed=221700). No harm**. In a master worktree a variant zeroing
+`bury_block_penalty` was set up and run with A=master / B=retired
+(on the branch the whole function is gone, so it cannot be brought back from `_apply_variant`; measured the other way around):
+
+| Metric | A → B | Δ |
+|---|---|---|
+| score | 1978.60 → 2014.88 | +1.8% (t=0.35) |
+| steps | 207.3 → 210.0 | +1.3% |
+| merges | 184.9 → 188.2 | +1.8% |
+| cascades | 18.04 → 18.48 | +2.4% |
+| max_type | 8.92 → 8.92 | ±0 |
+| early_score | 225.44 → 227.60 | +1.0% |
+
+Seed head-to-head win 13 / loss 12. No significant difference (±100 points needs n≈100), but **not one metric
+leaned negative**. A contrast with the 3 rules measured the same day, "all 4 runs, every metric negative".
+
+This is **not evidence of improvement but confirmation of no harm**. It is enough basis for removing one rule.
+
+### Ideas that did not work (dropped at screening)
+
+- **Raising `size_order_pair_weight` from 1.5 → 9.0**: agreement 88.6%, moves barely change,
+  and the inversion increase of changed moves is **+0.11** (no improvement). It is a global statistic, the pair count of the whole board,
+  so dropping one fruit is buried in the baseline and does not move. **This line is dead**
+- In contrast, a local term counting per move "the inversions the dropped fruit itself creates" has
+  agreement 80.7% at w=1.0, and changed moves average **−4.00 pairs**. The difference was local versus global
+
+### Material arithmetic (distance to a double watermelon)
+
+Spawns are uniform over type0-4, so 6.2 cherry units per move. One watermelon = 1024 units,
+a double watermelon = 2048 units. Measured (average of 6 games): 1217 units on the board at 192 moves, 59% of what is needed.
+
+But **by area there is enough**. The area needed to hold the same 1024 units is
+39k for one watermelon, 57k for two melons, 299k for 64 oranges, 651k for 1024 cherries
+(**17x less when consolidated**). The board holds 135k measured at death, so
+holding 2048 units as two watermelons (79k) physically fits.
+**What is missing is neither material nor moves, only consolidation.**
+
+### Metric: inversion rate is unusable for A/B
+
+Using "how clean the board is" as an A/B metric was measured and refuted (n=24).
+
+- The correlation between the all-move mean inversion rate and score is **+0.36** (the reverse sign, dirtier means higher score).
+  The longer it lives the more fruits and inversions there are, so it is confounded with game length
+- Removing the confound at a fixed move (move 40/60/80/100) gives r = 0.00-0.12, uncorrelated
+- Compare: `steps` r=0.95, `cascades` r=0.76
+
+**Use the inversion rate only as a per-move difference, "how much did one move dirty the board".**
+It compares candidates on the same position, a deterministic quantity with no noise, and screens in minutes.
+Do not put it into an A/B as a per-episode aggregate. The metric stays `cascades`.
+
+### Running BC on only the top teacher data
+
+**Won't do.** Both have measured reasons.
+
+1. The student does not reach the teacher ([BC does not reach 60-70% match](#investigated-bc-does-not-reach-60-70-match-2026-08-05)).
+   It cannot even fit the unfiltered teacher, so narrowing to the top only sharpens the target
+2. **`choose_x` is deterministic, so the spread of score between seeds is 100% draw-order luck**
+   (n=24, mean 2012, SD 332). Picking the top to imitate means learning "how it played
+   when lucky"
+
+If done at all the order is reversed: first make `src/training/encode.py` candidate-conditioned
+(feed the `simulate_drop` result of each candidate x as input, and the student only reorders).
+If that works, making the teacher side a wide 8/16 search is also a good idea
+(→[Re-measuring search width 8/16](#re-measuring-search-width-816-2026-08-17). The 3.68x collection cost is one-off for the teacher).
+
 ## When to move
 
 - Do not decide x on a moving board. Waiting for it to settle takes priority over lookahead (`src/game/settle.py`)
 - Wait for creep not only on instantaneous velocity but also on sideways drift while quiet
 
 ## Policy (bootstrap) design
+
+**Priority**: not breaking the board ranks above score. The final goal is not mean score but
+a double watermelon, firing on the big side after waiting to draw one orange or two dekopons
+(the shape `src/ladder.py` only detects). When deciding penalty weights, first check that the accident-avoidance side
+is not overriding size order and trapping. The basis is
+[how the board collapses](#investigated-how-the-board-collapses-and-isolating-the-stage-2026-08-18) and
+[material arithmetic](#material-arithmetic-distance-to-a-double-watermelon).
 
 - `src/policy.py` is a thin policy before RL. Only merging, dangerous height, burying, light size order and accident prevention for rolling / knock-aways
 - The physics of falling, collision and merging is pymunk (`src/sim/sim_physics.py`; UT in `tests/sim/test_sim_physics.py`).
@@ -285,7 +528,6 @@ Teacher collection (`train_sim.py`) becoming 3.68x more expensive across the boa
 | Rule | Function | Content | Weight |
 |---|---|---|---|
 | directly above a different type | `_foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
-| blocking a waiting merge by burying | `_bury_block_penalty` | when a bigger fruit of another type blocks, directly above or on the shoulder, a fruit waiting for a same-type pair | 14.0 ×type gap (half on a shoulder) |
 | small-side escape after the floor fills | `_packed_small_side_penalty` | after the floor packs, when a large draw (orange or bigger) escapes to the small side (fires only when it physically cannot go on the small side) | fixed 8.0 |
 | valley-growing bonus | `_valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type | **−3.0** (`VALLEY_GROW_BONUS`. The only bonus in this table) |
 
