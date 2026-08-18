@@ -20,6 +20,13 @@
 **Physics simulation**
 - Friction between fruits seems low: fruits slide in far more than in the real game.
 
+**Publishing**
+- A history rewrite remains. The display name was painted over in the current `screenshots/`, but
+  old commits still contain the images with the name and `doko1-13.png`, removed from the tests (unused, just under 30MB in total).
+  Drop the `screenshots/` blobs from history with `git filter-repo` and re-add
+  only the latest masked versions. Every commit hash changes, so do it **after the working branch
+  is merged into master**
+
 **Training pipeline**
 - Training episode length: raise `max_steps` and lower `episodes` (fewer, longer games).
   The default in `train_sim.py` is 300 (measured natural ends are median 210 moves and max 311, so
