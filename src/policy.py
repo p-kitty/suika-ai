@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import itertools
 import math
+import random
+import zlib
 from concurrent.futures import Executor
 
 from . import penalties as pen
@@ -37,6 +39,11 @@ NEXT_CANDIDATE_STEP = 32.0
 # Uniform spacing of held candidates. Coarser puts the spot directly above a dangerous pile among the candidates, so do not raise it
 # (test_avoids_dangerous_tall_stack failed at 20). Speed is earned on the lookahead side.
 CANDIDATE_STEP = 12.0
+
+# An experimental width for deliberately choosing randomly inside the tie band. 0 disables it (default).
+# It exists only to measure 'does it matter which one in the band is chosen'. The noise is derived
+# deterministically from the board, so the same position always gives the same move (it does not break sim reproducibility).
+BAND_JITTER = 0.0
 
 
 def _held_eval_job(
@@ -71,6 +78,8 @@ def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
             pool.map(_held_eval_job, itertools.repeat(obs), itertools.repeat(held_r), xs)
         )
 
+    if BAND_JITTER > 0.0:
+        ranked = _jitter_band(ranked, obs)
     ranked.sort(key=lambda row: row[0], reverse=True)
     if obs.next_type is None:
         return ranked[0][1]
@@ -86,6 +95,23 @@ def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
             best_score = value
             best_x = x
     return best_x
+
+
+def _jitter_band(
+    ranked: list[tuple[float, float, list[Fruit]]],
+    obs: Observation,
+) -> list[tuple[float, float, list[Fruit]]]:
+    """Shuffle the ranking inside the tie band randomly (experimental).
+
+    Noise in [0, BAND_JITTER) is added to eval before sorting, so the ranking of candidates
+    outside the band does not change and only the inside gets mixed. The seed comes from the board, so
+    the same position always gives the same result.
+    """
+    key = (obs.held_type, obs.next_type) + tuple(
+        (f.type, round(f.x, 2), round(f.y, 2)) for f in obs.fruits
+    )
+    rng = random.Random(zlib.crc32(repr(key).encode()))
+    return [(ev + rng.uniform(0.0, BAND_JITTER), x, after) for ev, x, after in ranked]
 
 
 def _candidates(
