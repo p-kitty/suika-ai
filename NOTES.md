@@ -112,6 +112,45 @@ the stage reached in one game cannot be told apart from draw luck (→[How to me
 (whether the base is on the wall with the inside open), or reward the side that draws the line of making rung material
 by merging. Counting rungs after the drop has too few positions it can move.
 
+### Investigated: the tie plateau is wide, but trapping does not move inside it (2026-08-19)
+
+The 08-18 investigation found one position where "all 33 candidates sit on a tie plateau 0.09 wide, and the move trapping the strawberry
+beat the 13 that do not trap it by an eval difference of 0.07". How often this
+happens was counted over 428 positions (move 60 onward, 6 seeds).
+
+Trapping is defined as "a fruit squeezed left and right by bigger fruits with no same-type partner left"
+(using `_is_nestled` as is). **The trapped count is not in eval**, so
+if it varies inside the band, eval is missing a difference.
+
+| eps | band size median/max | positions where trapping differs | chosen move worse than the minimum | excess | eval difference needed, median |
+|---|---|---|---|---|---|
+| 0.1 | 9 / 38 | 5/428 (1.2%) | 5/428 (1.2%) | 1.00 | 0.004 |
+| 0.5 | 11 / 39 | 10/428 (2.3%) | 7/428 (1.6%) | 1.00 | 0.006 |
+| 2.0 | 14 / 39 | 20/428 (4.7%) | 14/428 (3.3%) | 1.00 | 0.431 |
+
+The candidate count has a median of 43.
+
+**The plateau is the norm.** Of a median 43 candidates, 9 are within eval 0.1.
+The "33 candidates within 0.09" of 08-18 is not a peculiar position.
+
+**But trapping barely moves inside that band.** A difference appears in 1.2% (eps=0.1),
+and only 4.7% even loosening the band to eps=2.0. In the rest, whichever move in the band is chosen, the trapped count is the same.
+In other words **the trapped-fruit penalty becomes a constant inside the band and cannot choose moves**.
+The same failure shape as [the ladder rung bonus](#tried-and-shelved-ladder-rung-bonus-2026-08-19):
+not a weight problem but a shape problem of "no positions where it can make a difference".
+
+**This is why the trapped-fruit penalty did not work on 08-18.** The A/B then had
+3 variants, "all three / gate only / vertical only", and **the trapped-fruit penalty alone was never measured**
+(the biggest loser was vertical only at −8.5%). Here it is shown not to work alone either.
+
+**A standalone A/B is not recommended.** It can catch 1.2-3.3% of positions, a range buried in
+score noise at n=25. The tiny eval difference needed, 0.004, says the same thing:
+"a tiny addition would catch it, but there are almost no positions to catch".
+
+**The next question is "then what does move inside the band".** eval is a weighted sum, so
+even when the sum ties, individual terms may be moving as trade-offs. What was learned here is that trapping
+is not that axis.
+
 ## How to measure (traps we keep stepping in)
 
 **Score noise is very large.** This is the biggest wall for improving the policy, and every attempt below
