@@ -344,7 +344,23 @@ The difference is too small, so the right reading is not "retiring is better" bu
 If it has no effect, take the side that cuts it to one rule and can say plainly "while tidy, just line them up in order".
 It also matches that 66% of what it protected was already unmergeable.
 
-**Unmeasured**: this retirement was also in side A of the A/B above, so it has not been verified.
+**Measured (n=25, seed=221700). No harm**. In a master worktree a variant zeroing
+`bury_block_penalty` was set up and run with A=master / B=retired
+(on the branch the whole function is gone, so it cannot be brought back from `_apply_variant`; measured the other way around):
+
+| Metric | A → B | Δ |
+|---|---|---|
+| score | 1978.60 → 2014.88 | +1.8% (t=0.35) |
+| steps | 207.3 → 210.0 | +1.3% |
+| merges | 184.9 → 188.2 | +1.8% |
+| cascades | 18.04 → 18.48 | +2.4% |
+| max_type | 8.92 → 8.92 | ±0 |
+| early_score | 225.44 → 227.60 | +1.0% |
+
+Seed head-to-head win 13 / loss 12. No significant difference (±100 points needs n≈100), but **not one metric
+leaned negative**. A contrast with the 3 rules measured the same day, "all 4 runs, every metric negative".
+
+This is **not evidence of improvement but confirmation of no harm**. It is enough basis for removing one rule.
 
 ### Ideas that did not work (dropped at screening)
 
