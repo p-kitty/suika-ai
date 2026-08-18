@@ -17,6 +17,21 @@ def test_reset_ready_with_held_next() -> None:
     assert obs.fruits == ()
 
 
+def test_seed_is_concrete_and_replayable() -> None:
+    """seed 省略でも具体値が残り、その値で同じツモ列を再生できる。"""
+    env = SimEnv()
+    assert isinstance(env.seed, int)
+    drawn = [env.reset().held_type] + [env.step(200.0).observation.held_type for _ in range(4)]
+
+    replay = SimEnv(seed=env.seed)
+    again = [replay.reset().held_type] + [replay.step(200.0).observation.held_type for _ in range(4)]
+    assert again == drawn
+
+
+def test_explicit_seed_is_kept() -> None:
+    assert SimEnv(seed=7).seed == 7
+
+
 def test_bootstrap_plays_several_steps() -> None:
     env = SimEnv(seed=1)
     obs = env.reset()

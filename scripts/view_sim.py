@@ -13,7 +13,11 @@
   Esc      終了 (アニメ中はスキップ)
 
 左: いまの盤 + held の接点 preview / 落下アニメ。右: 落としたあとの結果 (アニメ中も最終盤)。
-ヘッダ右に NEXT の円。ツモは cherry〜orange を毎回ランダム (seed 指定時は再現)。
+ヘッダ右に NEXT の円。ツモは cherry〜orange を毎回ランダム。
+
+footer にその対局の seed が出る。--seed を省いても具体値が決まるので、
+崩れた局面のスクショを撮っておけば `--seed <値>` で同じツモ列を再生できる
+(auto で回していたなら choose_x も決定的なので手順ごと一致する)。
 """
 
 from __future__ import annotations
@@ -79,7 +83,7 @@ def main() -> None:
         "--seed",
         type=int,
         default=None,
-        help="ツモ列の乱数シード (省略時は毎回ランダム)",
+        help="ツモ列の乱数シード (省略時は毎回ランダム。決まった値は footer に出る)",
     )
     parser.add_argument(
         "--scale",
@@ -136,6 +140,7 @@ def main() -> None:
         # 見せるだけ。盤の更新・採点・勝敗は SimEnv に任せる (物理は決定的
         # なので、アニメで見た最終形と env.step の結果は一致する)。
         _play_drop_anim(
+            seed=env.seed,
             before=list(obs.fruits),
             held_type=obs.held_type,
             drop_x=target,
@@ -162,7 +167,10 @@ def main() -> None:
                 message += "  (done — r to reset)"
 
     def _reset() -> None:
-        nonlocal obs, total_score, last_info, message, aim_x
+        # env ごと作り直す。reset() だけだと rng が続きから回り、footer の
+        # seed で再生できるのは 1 局目だけになる。
+        nonlocal env, obs, total_score, last_info, message, aim_x
+        env = SimEnv(seed=args.seed)
         obs = env.reset()
         total_score = 0.0
         last_info = "ok"
@@ -191,6 +199,7 @@ def main() -> None:
             )
 
         frame = _render(
+            seed=env.seed,
             before=list(obs.fruits),
             after=after,
             aim_x=aim,
@@ -229,6 +238,7 @@ def main() -> None:
 
 def _play_drop_anim(
     *,
+    seed: int,
     before: list[Fruit],
     held_type: int,
     drop_x: float,
@@ -259,6 +269,7 @@ def _play_drop_anim(
         if not show:
             continue
         canvas = _render(
+            seed=seed,
             before=after,
             after=final_after,
             aim_x=drop_x,
@@ -286,6 +297,7 @@ def _play_drop_anim(
 
 def _render(
     *,
+    seed: int,
     before: list[Fruit],
     after: list[Fruit],
     aim_x: float,
@@ -336,7 +348,7 @@ def _render(
     mode_badge(canvas, auto_play, fast_forward)
     put_text(
         canvas,
-        f"episode  score={total_score:.0f}  info={info}",
+        f"episode  score={total_score:.0f}  info={info}  seed={seed}",
         (PAD, height - 28),
         (200, 200, 255),
         scale=0.55,
