@@ -426,7 +426,7 @@ def _merge_pair(
     """
     # Sideways pull of held merges. Stronger the larger the movement (a narrow side graze).
     side_min = 0.08
-    travel_gain = 14.0
+    travel_gain = 7.0
     speed_gain = 0.06
 
     source = a.fruit_type
