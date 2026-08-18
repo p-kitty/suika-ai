@@ -147,9 +147,47 @@ not a weight problem but a shape problem of "no positions where it can make a di
 score noise at n=25. The tiny eval difference needed, 0.004, says the same thing:
 "a tiny addition would catch it, but there are almost no positions to catch".
 
-**The next question is "then what does move inside the band".** eval is a weighted sum, so
-even when the sum ties, individual terms may be moving as trade-offs. What was learned here is that trapping
-is not that axis.
+#### Inside the band every large term is saturated (same day)
+
+"Then what does move inside the band?" was measured by breaking eval down per term
+(that the breakdown matches `_held_eval` was checked per position).
+Width inside the band (eps=0.1, median 9 candidates):
+
+| Term | width median | width max | positions with width>0.01 |
+|---|---|---|---|
+| variance (bumpiness) | 0.009 | 2.972 | 168/375 (44.8%) |
+| big_layout | 0.000 | 0.330 | 66/375 (17.6%) |
+| danger | 0.000 | 2.973 | 31/375 (8.3%) |
+| size_order | 0.000 | 0.034 | 8/375 (2.1%) |
+| bury | 0.000 | 0.000 | **0/375 (0.0%)** |
+| foreign_aim | 0.000 | 0.000 | **0/375 (0.0%)** |
+| packed | 0.000 | 0.000 | **0/375 (0.0%)** |
+| score / excess_same / valley_grow | 0.000 | 21 / 20 / 3 | 0.3-0.5% |
+
+**Zero width does not mean "dead".** Measuring absolute values over all candidates, not just the band
+(60 positions / 2660 candidates), bury is nonzero for 41.9% of candidates with minimum −80.0,
+foreign_aim 18.6% with minimum −100.0, size_order 70.3% with minimum −200.1,
+excess_same 69.8% with minimum −280.0. **They work strongly**.
+
+**These terms do the job of "knocking bad candidates out of the band", and the candidates left in the band
+are already all tied on those terms.** Every large term is a discrete "count × weight" quantity, so it
+saturates. Below that resolution eval has nothing to say, and the decision falls to the bumpiness term
+on a 1/1000 scale (median 0.009).
+
+**30% of the band is an artifact of candidate spacing, 70% is real.** Counting distinct landing outcomes inside the band,
+a median 9 candidates → a median 2 distinct boards.
+**In 31.8% of positions the band collapses to a single board** (`CANDIDATE_STEP = 12.0` is just finer than
+the physics resolution, so whichever is chosen it is the same move). The remaining **68.2% really contain 2 or more
+different boards, and 22.0% contain 5 or more**. So in about 2/3 of late-game moves,
+the policy is effectively choosing between different futures at random.
+
+**Adding another count-type term hits the same wall.** Rung counts and trapped counts are
+the same kind of discrete quantity, so they saturate inside the band and do not move either
+(→[ladder rung bonus](#tried-and-shelved-ladder-rung-bonus-2026-08-19), the trapping table above).
+**Two failing today is not a coincidence but the same shape of failure**. Splitting the band needs
+a quantity that changes continuously with the landing position, or an evaluation that does not saturate.
+The premise of placing bootstrap as "a thin policy before RL"
+(→[Policy (bootstrap) design](#policy-bootstrap-design)) is consistent with this measurement.
 
 ## How to measure (traps we keep stepping in)
 
