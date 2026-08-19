@@ -51,6 +51,11 @@ DANGER_CROWN_WEIGHT = 0.5
 BURY_WEIGHT = 20.0
 VARIANCE_WEIGHT = 0.08
 VARIANCE_DANGER_SCALE = 0.15
+# 大実の肩に載せてよい型差の上限。パイン (8) の肩にオレンジ (4) までは許す。
+PERCH_MIN_GAP = 5
+# 肩を見る実の範囲 (最大実から何段下まで)。0 なら最大実だけ。
+PERCH_BIG_SPAN = 1
+PERCH_WEIGHT = 8.0
 
 
 
@@ -233,6 +238,7 @@ def board_penalties(
         penalty += (DANGER_Y - crown) * DANGER_CROWN_WEIGHT
 
     penalty += BURY_WEIGHT * _bury_penalty(fruits)
+    penalty += PERCH_WEIGHT * _perch_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
@@ -379,6 +385,42 @@ def _bury_penalty(fruits: list[Fruit]) -> float:
                     penalty += 1.0
                 else:
                     penalty += 0.35
+    return penalty
+
+
+def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """大実の肩・頭に載った小実の減点。型差が大きいほど重い。
+
+    `_bury_penalty` の裏返し。あちらは「小実の上の異種」を数えるので
+    `over.type > under.type` の側しか見ず、逆向き (大実の上の小実) は
+    どの規則からも漏れていた。横の `_size_order_penalty` も、縦に重なった
+    ペアは列が同じとして除外し、谷にはまった実は `_size_order_exempt` で
+    外すので、ここは素通りだった。
+
+    大実の上面は次の段を作る場所で、型差の大きい実を載せるとその実は
+    相方に会えないまま居座り、下の大実の合体面も塞ぐ。載っている判定は
+    接触ではなく「大実の footprint の中で、下端が大実の中心より上」。
+    直接触れていなくても、間に 1 段挟んで山の上に乗っている形を拾う。
+
+    許した型差を 1 超えるごとに 1.0 を返す。重みは呼び元で掛ける。
+    """
+    if not fruits:
+        return 0.0
+    max_t = max(fruit.type for fruit in fruits)
+    big_min = max_t - PERCH_BIG_SPAN
+    penalty = 0.0
+    for under in fruits:
+        if under.type < big_min:
+            continue
+        for over in fruits:
+            gap_type = under.type - over.type
+            if gap_type < PERCH_MIN_GAP:
+                continue
+            if over.y + over.radius > under.y:
+                continue
+            if abs(over.x - under.x) > under.radius + over.radius:
+                continue
+            penalty += float(gap_type - PERCH_MIN_GAP + 1)
     return penalty
 
 

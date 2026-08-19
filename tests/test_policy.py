@@ -599,3 +599,31 @@ def test_leaves_room_for_missing_rung_between_neighbours() -> None:
     x3 = choose_x(_obs(held_type=3, fruits=tuple(board2)))
     board3, _m, _t = simulate_drop(board2, 3, x3)
     assert [f.type for f in sorted(board3, key=lambda f: f.x)] == [2, 3, 4]
+
+
+def test_does_not_perch_small_fruit_on_biggest() -> None:
+    """大実の山の上に型差の大きい実を載せない。
+
+    盤は seed=642746 の 97 手目 (NOTES「解決済み: 大実の肩に小実を載せる」)。
+    どこへ置いても何かを埋める盤で、パインの山に載せる手だけが減点ゼロだった。
+    狙う列は問わず、さくらんぼがパインの footprint の中でパインの中心より
+    上に収まらないことだけを見る。
+    """
+    fruits = (
+        Fruit(type=5, x=51.2, y=298.8, radius=fruit_radius(5), confidence=90),
+        Fruit(type=8, x=78.4, y=421.6, radius=fruit_radius(8), confidence=90),
+        Fruit(type=4, x=144.6, y=327.7, radius=fruit_radius(4), confidence=90),
+        Fruit(type=2, x=208.7, y=337.8, radius=fruit_radius(2), confidence=90),
+        Fruit(type=7, x=221.9, y=430.7, radius=fruit_radius(7), confidence=90),
+        Fruit(type=6, x=290.2, y=328.3, radius=fruit_radius(6), confidence=90),
+        Fruit(type=4, x=324.4, y=459.6, radius=fruit_radius(4), confidence=90),
+        Fruit(type=2, x=371.6, y=317.4, radius=fruit_radius(2), confidence=90),
+        Fruit(type=0, x=383.9, y=278.8, radius=fruit_radius(0), confidence=90),
+    )
+    pine = fruits[1]
+    cherry_r = fruit_radius(0)
+    x = choose_x(_obs(held_type=0, fruits=fruits, next_type=2))
+    after, _merges, _types, held_merged = simulate_drop_held(fruits, 0, x)
+    land_x, land_y = landed_xy(fruits, after, 0, x, cherry_r, held_merged)
+    on_pine = abs(land_x - pine.x) <= pine.radius + cherry_r
+    assert not (on_pine and land_y + cherry_r <= pine.y)
