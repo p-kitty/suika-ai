@@ -239,7 +239,6 @@ def _evaluate_drop(
     # A same type directly below is OK (waiting to merge). Rolling off a different type and merging on the floor is still penalized.
     penalties += pen.foreign_aim_penalty(before, x, drop_type, held_r)
     if not held_merged:
-        penalties += pen.packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
         # Valley growing. Among non-merging moves, choose landings in valleys likely to grow.
         # Merging moves get the real-game score, so it is not added to them.
         if pen.valley_grow_ok(before, land_x, drop_type, next_type):
