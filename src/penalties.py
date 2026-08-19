@@ -45,9 +45,9 @@ BIG_CLUSTER_SPAN = 2
 # --- Board penalty weights ---
 # The A/B in compare_policy swaps them as module attributes, so
 # they live here rather than as locals of board_penalties.
-# Converted from the old basis of 90.0 by the amount the board moved to the inside-of-the-wall basis.
+# The height from which bumpiness is relaxed. Converted from the old basis of 90.0 by the amount
+# the board moved to the inside-of-the-wall basis.
 DANGER_Y = 70.9
-DANGER_CROWN_WEIGHT = 0.5
 BURY_WEIGHT = 20.0
 VARIANCE_WEIGHT = 0.08
 VARIANCE_DANGER_SCALE = 0.15
@@ -227,16 +227,12 @@ def valley_grow_ok(
 def board_penalties(
     fruits: list[Fruit], *, sign: int = 1, exempt_size_order: bool = False
 ) -> float:
-    """Board penalties after the drop (danger, burying, excess same type, size order, pushing big, bumpiness).
+    """Board penalties after the drop (burying, perch, excess same type, size order, pushing big, bumpiness).
 
     exempt_size_order: True when held merged this move. Unrelated fruits knocked by the merge recoil
     are not penalized as size-order violations (see `policy._evaluate_drop`).
     """
     penalty = 0.0
-    crown = _top_crown(fruits)
-    if crown < DANGER_Y:
-        penalty += (DANGER_Y - crown) * DANGER_CROWN_WEIGHT
-
     penalty += BURY_WEIGHT * _bury_penalty(fruits)
     penalty += PERCH_WEIGHT * _perch_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
@@ -244,7 +240,7 @@ def board_penalties(
         penalty += _size_order_penalty(fruits, sign)
     penalty += _big_layout_penalty(fruits, sign)
     variance = _height_variance(fruits)
-    if crown < DANGER_Y:
+    if _top_crown(fruits) < DANGER_Y:
         variance *= VARIANCE_DANGER_SCALE
     penalty += VARIANCE_WEIGHT * variance
     return penalty

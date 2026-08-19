@@ -1,8 +1,9 @@
 """Decide the drop column. A thin bootstrap policy (the groundwork for RL).
 
 It has no concrete procedures (push-ins, restoring pushes, cascade gap opening, ladder firing and the like).
-It only looks at merging, dangerous height, burying, light size order and rolling accident prevention.
+It only looks at merging, burying, light size order and rolling accident prevention.
 Moves are scored as eval = score (the real game's merge points) - penalties (penalties for accidents and bad moves).
+Only dying moves are not compared by eval: they are removed from the candidates if a living move exists (`choose_x`).
 
 The penalty side is `penalties.py`. This file only generates candidate columns, evaluates one move and looks ahead to next.
 They are referenced as `pen.X` because the A/B in scripts/compare_policy.py
@@ -17,7 +18,7 @@ from concurrent.futures import Executor
 
 from . import penalties as pen
 from .observe import Observation, clamp_drop_x
-from .reward import merge_score
+from .reward import is_lost, merge_score
 from .sim.sim_physics import landed_xy
 from .sim.sim_physics import simulate_drop_held
 from .vision.classify import fruit_radius
@@ -73,6 +74,12 @@ def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
         )
 
     ranked.sort(key=lambda row: row[0], reverse=True)
+    # Dying moves are not compared by eval. Expressed as a penalty, the amount saved by avoiding a dirty board
+    # outweighs the weight of death and it commits suicide (5 cases in 428 positions, chosen while 30-45 living moves existed).
+    # The difference was up to 261, so no finite penalty is enough.
+    alive = [row for row in ranked if not is_lost(row[2])]
+    if alive:
+        ranked = alive
     if obs.next_type is None:
         return ranked[0][1]
 
