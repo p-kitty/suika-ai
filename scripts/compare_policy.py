@@ -58,10 +58,6 @@ def _apply_variant(enabled: bool) -> None:
         from src import penalties
         penalties.PACKED_SMALL_SIDE_WEIGHT = 12.0 if enabled else 8.0
     """
-    from src import policy
-
-    # Choose randomly inside the tie band. If the band is truly indifferent, score does not move.
-    policy.BAND_JITTER = 0.1 if enabled else 0.0
 
 
 def _episode(
