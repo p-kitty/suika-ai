@@ -29,7 +29,8 @@ from .vision.state import Fruit
 # next 手の割引。
 NEXT_DISCOUNT = 0.55
 # 探索の粗さ。物理 (simulate_drop) が支配的で、ここが実行時間をほぼ決める。
-# 旧 8/16 は 1 手 3.8 秒で収集が回らない。1.2 秒 / score -3.4% で取り引き。
+# 広げる案 (8/16) は score +3.8% に対しコスト 3.68 倍で見送った
+# (NOTES「実行コスト: 物理の高速化と探索幅」)。
 # next 先読みを回す held 候補の本数。物理が重いので上位だけ。
 HELD_TOP = 2
 # next 先読みの候補刻み。held (CANDIDATE_STEP) より粗い。

@@ -433,11 +433,8 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
 def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
     """同種が 3 個以上ある超過分を減点。2 個までは合成待ちとして許容。
 
-    三角数化 (超過分を累乗的に効かせる) を試したが、40 エピソードのペア比較
-    (同シード, baseline 2143.57 -> 2079.05) で有意な改善なし。実測で追った
-    死因 (低段位が合体先を失って散在 → 終盤に retreat 先が無くなる) は
-    ペナルティの重みではなく、合体候補の実が大きい異種に側面から挟まれて
-    物理的に合体不能になる配置の問題。手を打つならここではなく候補選び側。
+    超過分を累乗的に効かせる形は測って見送った
+    (NOTES「終盤の低段位散在による即死」の改善試行)。
     """
     excess_same_weight = 20.0
     counts: dict[int, int] = {}
