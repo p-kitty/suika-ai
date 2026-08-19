@@ -77,12 +77,43 @@ The exact opposite of aiming for a corner watermelon. x=216 instead pushes the p
   `max(EDGE_ANCHOR_MIN 24.0, 76.5 × EDGE_ANCHOR_FRAC 0.35) = 26.8`.
   **2.1 px short, it is judged "not on the wall", and the outer pocket is not protected**
 
-**Direction for a fix** (not started): the rule's definition, not weights. Candidates are
-(1) add a big-side room check to `packed_small_side_penalty` to make it symmetric
-(2) penalize "moves pushing into a gap narrower than the draw's diameter" as wedges (a quantity changing
-continuously with the landing position, a shape that can knock candidates out of the band).
-In light of the lesson of [Interventions that tried to split the band and failed](#interventions-that-tried-to-split-the-band-and-failed), (2)
-has a chance since it is not "a new count term".
+**The direction of looking at corner junk was measured and dropped (2026-08-19).** A variant removing
+the `is_wall_anchored` gate of the corner pocket penalty was measured on 125 positions (5 seeds, move 20 onward):
+
+| | result |
+|---|---|
+| agreement | 114/125 (91.2%). 11 moves change |
+| total corner junk after the drop | current 42 → no gate **42 (±0)** |
+| positions where corner junk differs between candidates | 14/125 (11.2%) |
+| **positions where it differs inside the tie band (eps=0.1)** | **0/125 (0.0%)** |
+| **positions where the chosen move is worse than the band's minimum** | **0/125 (0.0%)** |
+
+**The policy already chooses "the move with the least corner junk inside the band" every time.** Corner junk is
+completely saturated inside the band, and neither adding a term nor loosening the gate can move it
+(the same shape as `bury` / `foreign_aim` / `packed`. →[What the band actually looks like](#what-the-band-actually-looks-like)).
+That is why moves change 8.8% while the structural metric is ±0. **Not put through an A/B.**
+
+**This settles the shape of move 52. The junk-free x=216 did not lose inside the band; it was
+knocked out of the band** (1.84 below 1st, with a band width of 0.1). What knocked it out was
+the 8.0 of `packed_small_side_penalty`. Moreover:
+
+| Move | board penalty after the drop | packed | eval |
+|---|---|---|---|
+| x=60 (the chosen move) | **+5.64** | 0.0 | −5.64 |
+| x=216 | **−0.52** | **+8.0** | −7.48 |
+
+**`packed_small_side_penalty` points the opposite way from `board_penalties`.**
+It charges 8.0 to the move that improves the post-drop board, making it choose the move that worsens it.
+This rule decides firing from pre-drop geometry alone (`_floor_packed` and `_small_side_room_ok`),
+the only penalty that does not look at the post-drop result.
+
+**If measured next** (not started): how often packed penalizes "candidates with a smaller post-drop board penalty".
+If high, shrinking or retiring the rule is the way, which amounts to touching what
+[The existing weights have no leverage](#the-existing-weights-have-no-leverage) calls
+"the definition on the side that decides who enters the band".
+Note that packed was made permanent after an n=100 A/B
+(→[In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)),
+so removing it should be remeasured on the same footing.
 
 ### Reference: move 224 is a different kind despite the same "orange toward the pineapple"
 
