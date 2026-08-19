@@ -127,10 +127,32 @@ and tuning the weight (x0.5-x2.0) moves only the usual 3-4%.
 As [The existing weights have no leverage](#the-existing-weights-have-no-leverage) concluded, what worked
 was not the weight but **the definition of what counts as a penalty**.
 
-**Score was not measured.** The full playthrough of seed 642746 (at w=8.0) went 1783 → 2186 /
-191 → 234 moves, but changing a move makes the board diverge completely, so **this is not evidence**
-(→[How to measure](#how-to-measure-traps-we-keep-stepping-in)). **No A/B was run**, and
-the only basis for adding it is the per-position quantities above and the fraction escaping the band.
+The full playthrough of seed 642746 (at w=8.0) went 1783 → 2186 / 191 → 234 moves, but
+changing a move makes the board diverge completely, so **this is not evidence**
+(→[How to measure](#how-to-measure-traps-we-keep-stepping-in)).
+
+**A/B n=10 (seed 956314-, max_steps=400, A=no perch / B=with perch)**:
+
+| Metric | A | B | Δ | t |
+|---|---|---|---|---|
+| score | 2173.10 | 2124.60 | −2.2% | −0.26 |
+| steps | 223.2 | 215.5 | −3.4% | −0.49 |
+| merges | 202.6 | 196.0 | −3.3% | −0.43 |
+| cascades | 19.10 | 21.10 | **+10.5%** | 1.36 |
+| max_type | 9.20 | 9.30 | +1.1% | 0.43 |
+
+**It says nothing.** Not a single row is significant (the score 95% CI is [−464.8, +367.8],
+paired SD=582.0, n=130 needed to speak to ±100 points), and the seed head-to-head is win 5 / loss 5.
+
+- **The −2.2% is made by a single seed.** seed=956317 goes 3189 → 1780 (−1409);
+  without it the mean is +102.7. The median difference is −3.5, essentially zero
+- **Seeds reaching max_type 10 are 3 vs 3.** 956317 and 956321 drop from 10 → 9, while
+  956318 and 956319 rise from 9 → 10. [When the vertical size order was reverted](#vertical-size-order-stage-gate-trapped-fruit-penalty-2026-08-18-reverted)
+  the worsened seeds all went max_type 10 → 9, but that pattern does not appear here
+- Only cascades is +10.5% (t=1.36), the one metric that leans plausibly
+
+**How to read it**: n=10 only detects a large collapse, and none appeared. It is not evidence of improvement either.
+The basis for keeping the rule is still the per-position quantities above and the fraction escaping the band.
 
 ### Reference: move 224 is a different kind despite the same "orange toward the pineapple"
 

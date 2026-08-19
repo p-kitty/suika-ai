@@ -58,6 +58,10 @@ def _apply_variant(enabled: bool) -> None:
         from src import penalties
         penalties.BURY_WEIGHT = 30.0 if enabled else 20.0
     """
+    from src import penalties
+
+    # A = no perch penalty (master as of 2026-08-19), B = with it.
+    penalties.PERCH_WEIGHT = 16.0 if enabled else 0.0
 
 
 def _episode(
