@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import itertools
 import math
-import random
-import zlib
 from concurrent.futures import Executor
 
 from . import penalties as pen
@@ -39,11 +37,6 @@ NEXT_CANDIDATE_STEP = 32.0
 # held 候補の均等刻み。粗くすると危険な山の真上が候補に乗るので下げない
 # (20 で test_avoids_dangerous_tall_stack が落ちた)。速度は先読み側で稼ぐ。
 CANDIDATE_STEP = 12.0
-
-# 同点帯の中を意図的にランダムに選ばせるための実験用の幅。0 で無効 (既定)。
-# 「帯の中はどれを選んでも同じか」を測るためだけにある。乱数は盤面から
-# 決定的に作るので、同じ局面なら常に同じ手になる (sim の再現性を壊さない)。
-BAND_JITTER = 0.0
 
 
 def _held_eval_job(
@@ -78,8 +71,6 @@ def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
             pool.map(_held_eval_job, itertools.repeat(obs), itertools.repeat(held_r), xs)
         )
 
-    if BAND_JITTER > 0.0:
-        ranked = _jitter_band(ranked, obs)
     ranked.sort(key=lambda row: row[0], reverse=True)
     if obs.next_type is None:
         return ranked[0][1]
@@ -95,23 +86,6 @@ def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
             best_score = value
             best_x = x
     return best_x
-
-
-def _jitter_band(
-    ranked: list[tuple[float, float, list[Fruit]]],
-    obs: Observation,
-) -> list[tuple[float, float, list[Fruit]]]:
-    """同点帯の中の順位をランダムに入れ替える (実験用)。
-
-    eval に [0, BAND_JITTER) の揺らぎを足してから並べ替えるので、帯の外の
-    候補の順位は変わらず、帯の中だけが混ざる。種は盤面から作るため、
-    同じ局面では常に同じ結果になる。
-    """
-    key = (obs.held_type, obs.next_type) + tuple(
-        (f.type, round(f.x, 2), round(f.y, 2)) for f in obs.fruits
-    )
-    rng = random.Random(zlib.crc32(repr(key).encode()))
-    return [(ev + rng.uniform(0.0, BAND_JITTER), x, after) for ev, x, after in ranked]
 
 
 def _candidates(

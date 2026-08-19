@@ -58,10 +58,6 @@ def _apply_variant(enabled: bool) -> None:
         from src import penalties
         penalties.PACKED_SMALL_SIDE_WEIGHT = 12.0 if enabled else 8.0
     """
-    from src import policy
-
-    # 同点帯の中をランダムに選ばせる。帯が本当に無差別なら score は動かない。
-    policy.BAND_JITTER = 0.1 if enabled else 0.0
 
 
 def _episode(
