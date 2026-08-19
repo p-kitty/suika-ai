@@ -68,6 +68,65 @@ The board is `peach@69 pear@192 dekopon@273 grape@329 cherry@384`, held=orange.
 - **Score was not measured.** "Total buried fruits" is a home-made structural metric not validated against score, and
   weights must not be chosen on its basis (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
 
+### Resolved: putting small fruits on a big fruit's shoulder (2026-08-20)
+
+**Symptom**: on a board that has grown a pineapple + pear, cherries and strawberries are placed on top of that pile.
+A small fruit once placed there stays 20+ moves without meeting a partner (the same fruit sits on the pineapple at moves 97-101
+and on the peach at moves 103-122).
+
+**The cause is a hole in the rules, not a weight.** No term looked at "a small fruit on top of a big fruit":
+
+- `_bury_penalty` counts only the `over.type > under.type` side. The inverted
+  shape of "a small fruit sitting on a big one" slips through
+- `_size_order_penalty` excludes vertically stacked pairs with `abs(a.x - b.x) < min(r) * 0.5`
+  as the same column
+- The remaining sideways pairs are removed by `_size_order_exempt` too. **One partner anywhere on the board is enough**,
+  so the cherry at move 97 is exempted on the basis of its partner at the far edge (x=384)
+
+Splitting move 97 (board `appl@51 pine@78 oran@145 grap@209 peac@222 pear@290 oran@324 grap@372 cher@384`,
+held=cherry) by candidate, only the 4 that put it on the pineapple pile have eval 0.275 with every term near 0,
+and all the rest carry bury 20.0 and score −18.8 or lower. **It is not a tie band; a single term decides the order**
+(→[telling them apart in the tracing procedure](AGENTS.md#do-not-run-an-ab-while-obvious-blunders-remain)).
+On a board where every placement buries something, only "putting it on top" was free.
+
+**What was added**: `_perch_penalty` (→[rule list](#current-penalty-rules)).
+The inverse of `_bury_penalty`; the check is not contact but "inside the big fruit's footprint, with its bottom
+above that big fruit's center". The cherry at move 97 does not touch the pineapple; it sits in the valley between apple and orange
+(gap to the pineapple top 46.3), so a contact-based check cannot pick it up.
+
+**Weight sweep (150 positions / 5 seeds, deterministic per-position quantities)**:
+
+| | master | w=4.0 | w=8.0 | w=16.0 |
+|---|---|---|---|---|
+| agreement with master | (baseline) | 86.7% | **81.3%** | — |
+| moves that created a perch | 38/150 | 30 | **25** | 21 |
+| of which avoidable but remaining | 19 | 11 | **6** | 2 |
+
+- **In 19 of the 38, every candidate creates a perch** (unavoidable), so that is the floor.
+  w=8.0 fixes 13 of the 19 avoidable ones
+- w=16.0 fixes nearly all, but cherry × pineapple becomes 64.0, entering the range of foreign_aim (100.0).
+  In band_escape the weight level barely matters (below), so the middle value 8.0 was taken
+- The 18.7% change in moves is second only to fixing the bury window (21.6%)
+
+**Does it escape the band** (266 positions, `--eps 0.1`, measured by adding `x0.0` to `band_escape.py`):
+
+| Term | Moves change | Escapes the band |
+|---|---|---|
+| foreign_aim x0.0 | 23.3% | 23.3% |
+| **perch x0.0** | **22.2%** | **22.2%** |
+| bury x0.0 | 21.8% | 21.4% |
+| big_layout x0.0 | 17.7% | 1.1% |
+| perch x0.5 / x1.5 / x2.0 | 3.0% / 3.8% / 4.5% | 3.0% / 3.4% / 4.1% |
+
+**Every changed move escapes the band.** Like foreign_aim and bury it works as a binary filter of "applies or not",
+and tuning the weight (x0.5-x2.0) moves only the usual 3-4%.
+As [The existing weights have no leverage](#the-existing-weights-have-no-leverage) concluded, what worked
+was not the weight but **the definition of what counts as a penalty**.
+
+**Score was not measured.** The full playthrough of seed 642746 went 1783 → 2186 / 191 → 234 moves, but
+changing a move makes the board diverge completely, so **this is not evidence**
+(→[How to measure](#how-to-measure-traps-we-keep-stepping-in)). No A/B was run.
+
 ### Reference: move 224 is a different kind despite the same "orange toward the pineapple"
 
 The board is `apple@51 pineapple@78 melon@97 … pineapple@265 peach@331`. It chose x=72, but
@@ -231,6 +290,10 @@ Since the inside of the band is indifferent, **"what fraction of moves change" i
 **the fraction of chosen moves that leave the original band**. `python scripts/band_escape.py`
 (one physics pass + an analytic sweep, minutes). `drop_ideal` 50.2% → 6.3% and
 bumpiness x4 17.5% → 7.0% in the table above verify its predictive power.
+
+**Whether a new term is worthwhile can be read from the same table.** With the term added, looking at `x0.0` (cutting that term)
+puts it on the same footing as the existing weights. The measurement when adding `_perch_penalty`
+The [measurement](#resolved-putting-small-fruits-on-a-big-fruits-shoulder-2026-08-20) is an example.
 
 ### The existing weights have no leverage
 
@@ -580,6 +643,7 @@ The valley-growing bonus applies **only when held itself did not merge** (`held_
 |---|---|---|---|
 | dangerous height | inline | when the topmost crown is above `DANGER_Y`(70.9) | (DANGER_Y − crown) × `DANGER_CROWN_WEIGHT` 0.5 |
 | burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35). The contact window is based on **both radii** `(under.radius + over.radius) × 0.9` (based on the lower fruit alone, the window narrows the more a big fruit sits on a small one and it escapes detection) | `BURY_WEIGHT` 20.0x |
+| perch | `_perch_penalty` | small fruits inside the footprint of a big fruit (from the biggest down to `PERCH_BIG_SPAN` 1 tier below) with their bottom above that big fruit's center. Counts the amount by which the type gap exceeds `PERCH_MIN_GAP` 5 (up to orange on a pineapple's shoulder is 0, dekopon 1 / grape 2 / strawberry 3 / cherry 4). Contact is not required, so shapes sitting on the pile with one tier in between are caught too | `PERCH_WEIGHT` 8.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
 | size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left on the board** are exempt = `_size_order_exempt`). **Exempt on moves where held merged** | pair difference×1.5 + ideal_x deviation×0.004 |
 | big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough (exempt for the diameter of the missing type in between) | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) (gap−diameter of the missing type)×0.025×size factor |
