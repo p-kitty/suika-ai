@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 from .observe import Observation
 from .vision.colors import MAX_FRUIT_TYPE
+from .vision.state import Fruit
 
 WATERMELON = MAX_FRUIT_TYPE
 # この y より上に頭頂が出たら負け (y は下向き)。盤面が壁の内側基準に
@@ -32,12 +33,20 @@ CREATE_SCORE: tuple[int, ...] = (
 CLEAR_SCORE = 65
 
 
-def is_game_over(obs: Observation) -> bool:
-    """頭頂が負けラインを超えているか。"""
-    if not obs.fruits:
+def is_lost(fruits: Sequence[Fruit]) -> bool:
+    """頭頂が負けラインを超えているか。落下後の盤をそのまま渡せる形。
+
+    方策が候補を「その手で死ぬか」で振り分けるのに使うので、
+    Observation ではなく実の列で受ける (`policy.choose_x`)。
+    """
+    if not fruits:
         return False
-    crown = min(f.y - f.radius for f in obs.fruits)
+    crown = min(f.y - f.radius for f in fruits)
     return crown < GAME_OVER_Y
+
+
+def is_game_over(obs: Observation) -> bool:
+    return is_lost(obs.fruits)
 
 
 def watermelon_count(obs: Observation) -> int:

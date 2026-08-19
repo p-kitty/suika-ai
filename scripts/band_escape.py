@@ -67,15 +67,12 @@ def _components(
     after, _merges, merge_types, held_merged = simulate_drop_held(before, drop_type, x)
     land_x, _land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
 
-    crown = pen._top_crown(after)
     variance = pen._height_variance(after)
-    danger = (pen.DANGER_Y - crown) * pen.DANGER_CROWN_WEIGHT if crown < pen.DANGER_Y else 0.0
-    if crown < pen.DANGER_Y:
+    if pen._top_crown(after) < pen.DANGER_Y:
         variance *= pen.VARIANCE_DANGER_SCALE
 
     parts = {
         "score": merge_score(merge_types),
-        "danger": -danger,
         "bury": -pen.BURY_WEIGHT * pen._bury_penalty(after),
         "perch": -pen.PERCH_WEIGHT * pen._perch_penalty(after),
         "excess_same": -pen._excess_same_penalty(after),

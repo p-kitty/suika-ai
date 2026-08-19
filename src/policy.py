@@ -1,8 +1,9 @@
 """落とす列を決める。薄い bootstrap 方策 (RL の土台)。
 
 具体手順 (押し込み・復元押し・連鎖隙間空け・梯子発火など) は持たない。
-合成・危険高さ・埋め込み・薄い大小順・転がり事故防止だけ見る。
+合成・埋め込み・薄い大小順・転がり事故防止だけ見る。
 手の採点は eval = score (本家の合成点) - penalties (事故・悪手の減点)。
+死ぬ手だけは eval で競わせず、生きる手があるなら候補から外す (`choose_x`)。
 
 減点側は `penalties.py`。ここは候補列の生成・1 手評価・next 先読みだけ。
 `pen.X` の形で参照するのは、scripts/compare_policy.py の A/B が
@@ -17,7 +18,7 @@ from concurrent.futures import Executor
 
 from . import penalties as pen
 from .observe import Observation, clamp_drop_x
-from .reward import merge_score
+from .reward import is_lost, merge_score
 from .sim.sim_physics import landed_xy
 from .sim.sim_physics import simulate_drop_held
 from .vision.classify import fruit_radius
@@ -73,6 +74,12 @@ def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
         )
 
     ranked.sort(key=lambda row: row[0], reverse=True)
+    # 死ぬ手は eval で競わせない。減点で表すと、汚い盤を避けた分が死の重さを
+    # 上回って自殺する (428 局面で 5 件。生きる手が 30〜45 本あるのに選んでいた)。
+    # 差は最大 261 あったので、有限の減点では足りない。
+    alive = [row for row in ranked if not is_lost(row[2])]
+    if alive:
+        ranked = alive
     if obs.next_type is None:
         return ranked[0][1]
 
