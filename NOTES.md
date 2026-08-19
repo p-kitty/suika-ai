@@ -277,9 +277,46 @@ was measured. It adds no new feature, so side effects can be read.
 No metric's CI stays off 0. The score CI is [−135.0, +81.7].
 There is no reason to move the existing 0.08.
 
-### Splitting the band is not good in itself (2026-08-19)
+### Settled: the tie band really is indifferent (2026-08-19)
 
 **This is the most useful conclusion from the series of measurements on 08-19.**
+
+A variant that **deliberately shuffles** the ranking inside the tie band randomly was measured at n=133
+(uniform noise in [0, 0.1) is added to held eval before sorting. The ranking outside the band
+does not change. The noise is derived deterministically from the board, so it stays reproducible):
+
+| Metric | A | B (band randomized) | Δ | t |
+|---|---|---|---|---|
+| score | 2111.60 | 2105.01 | −0.3% | −0.13 |
+| steps | 218.4 | 217.7 | −0.3% | −0.18 |
+| merges | 196.0 | 195.3 | −0.3% | −0.15 |
+| cascades | 18.69 | 18.74 | +0.2% | +0.08 |
+| max_type | 9.02 | 9.03 | +0.2% | +0.20 |
+
+win/loss 68/65, paired difference −6.6 (SD of the difference 582). **Choosing at random inside the band
+loses nothing.** The current tie-break (the third decimal of bumpiness) does no work.
+
+**The framing "the plateau is a defect" was wrong.** The candidates in the band really do
+lead to equally good futures. The policy correctly recognized "these moves are equivalent";
+it was not failing to choose.
+The single position of 08-18 (the trapping move winning by 0.07) is a real observation,
+but not a systematic defect.
+
+**This explains the failures of 08-19 in one stroke.** Even though `drop_ideal` changed
+51.4% of moves and bumpiness x4 shrank the band from 9→6, score did not move, because
+**everything they changed stayed inside this indifferent band**.
+
+**It also decides where to touch next.** The large terms of eval actually do the job of deciding
+"which candidates enter the band" (knocking them out of the band). To go further, it is
+**not how to choose inside the band but the side that decides who enters it** (the weights and definitions of bury, excess_same,
+size_order, big_layout, foreign_aim), or
+an evaluator that sees differences the current features cannot (a learned value function).
+the road of a deeper search was measured and shelved
+(→[Re-measuring search width 8/16](#re-measuring-search-width-816-2026-08-17)).
+
+### Splitting the band is not good in itself (2026-08-19)
+
+A record of two interventions to split the band measured before the conclusion above.
 
 That the band (tie plateau) is wide
 [was confirmed by measurement](#inside-the-band-every-large-term-is-saturated-same-day). But
