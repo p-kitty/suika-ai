@@ -9,10 +9,10 @@ from ..vision.colors import FRUIT_NAMES
 from ..vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 
 N_TYPES = len(FRUIT_NAMES)
-# 大きい実を優先して載せる上限。中盤以降 20 個を超える盤も珍しくなく
-# (実測: 終盤 23 個)、旧 16 だと真っ先に切り捨てられるのが cherry/strawberry
-# など低段位の散在実 — まさに盤面を埋め尽くして事故を招く張本人が学習側から
-# 見えていなかった。32 に上げて実質切り捨てなしにする。
+# 大きい実を優先して載せる上限。ここが盤の実数を下回ると、真っ先に切り捨て
+# られるのが cherry/strawberry など低段位の散在実 — 事故の張本人が学習側から
+# 見えなくなる。中盤以降 20 個超の盤も珍しくない (実測: 終盤 23 個) ので、
+# 実質切り捨てが起きない値にしてある。
 MAX_FRUITS = 32
 # 各実: type_norm, x_norm, y_norm, r_norm
 FRUIT_DIM = 4
