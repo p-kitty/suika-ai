@@ -15,8 +15,9 @@ Controls:
 Left: the current board + held contact preview / drop animation. Right: the result after dropping (the final board even during animation).
 NEXT circle at the right of the header. Draws are random cherry-orange every time.
 
-The footer shows that game's seed. Even when --seed is omitted a concrete value is fixed, so
-if you screenshot a broken position, `--seed <value>` replays the same draw sequence
+The footer shows the seed and move (which move the held fruit is, 1-based).
+Even when --seed is omitted a concrete value is fixed, so if you screenshot a broken position
+`--seed <value>` replays the same draw sequence, and move names the move number of the blunder
 (if it was running on auto, choose_x is deterministic too, so the whole sequence matches).
 """
 
@@ -101,6 +102,7 @@ def main() -> None:
     pool = ProcessPoolExecutor()
     aim_x = NORMALIZED_WIDTH / 2
     total_score = 0.0
+    drops = 0
     last_info = "ok"
     auto_play = False
     fast_forward = False
@@ -128,7 +130,7 @@ def main() -> None:
         message = f"fast={'ON' if fast_forward else 'off'}"
 
     def _drop(x: float | None = None) -> None:
-        nonlocal obs, total_score, last_info, message, aim_x, auto_play
+        nonlocal obs, total_score, drops, last_info, message, aim_x, auto_play
         if last_info in ("dead", "win"):
             message = "done — r to reset"
             return
@@ -146,6 +148,7 @@ def main() -> None:
             drop_x=target,
             next_type=obs.next_type,
             total_score=total_score,
+            move=drops + 1,
             info=last_info,
             auto_play=auto_play,
             on_toggle_auto=_toggle_auto,
@@ -154,6 +157,7 @@ def main() -> None:
         step = env.step(target)
         obs = step.observation
         total_score += step.score
+        drops += 1
         last_info = step.info
         message = (
             f"drop x={target:.0f}  score+{step.score:.0f}  "
@@ -169,10 +173,11 @@ def main() -> None:
     def _reset() -> None:
         # Recreate the whole env. reset() alone continues the rng, and replaying with the footer's
         # seed would only work for the first game.
-        nonlocal env, obs, total_score, last_info, message, aim_x
+        nonlocal env, obs, total_score, drops, last_info, message, aim_x
         env = SimEnv(seed=args.seed)
         obs = env.reset()
         total_score = 0.0
+        drops = 0
         last_info = "ok"
         aim_x = NORMALIZED_WIDTH / 2
         message = "reset"
@@ -210,6 +215,7 @@ def main() -> None:
             score=score,
             penalties=penalties,
             total_score=total_score,
+            move=drops if last_info in ("dead", "win") else drops + 1,
             info=last_info,
             message=message,
             auto_play=auto_play,
@@ -244,6 +250,7 @@ def _play_drop_anim(
     drop_x: float,
     next_type: int | None,
     total_score: float,
+    move: int,
     info: str,
     auto_play: bool = False,
     on_toggle_auto: Callable[[], None] | None = None,
@@ -280,6 +287,7 @@ def _play_drop_anim(
             score=result_score,
             penalties=result_penalties,
             total_score=total_score,
+            move=move,
             info=info,
             message=f"animating… merges={merges}  (Esc skip / g auto)",
             left_title="LIVE",
@@ -308,6 +316,7 @@ def _render(
     score: float,
     penalties: float,
     total_score: float,
+    move: int,
     info: str,
     message: str,
     left_title: str = "NOW",
@@ -348,7 +357,7 @@ def _render(
     mode_badge(canvas, auto_play, fast_forward)
     put_text(
         canvas,
-        f"episode  score={total_score:.0f}  info={info}  seed={seed}",
+        f"episode  move={move}  score={total_score:.0f}  info={info}  seed={seed}",
         (PAD, height - 28),
         (200, 200, 255),
         scale=0.55,
