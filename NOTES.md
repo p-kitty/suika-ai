@@ -416,6 +416,17 @@ got buried here. Read this section before reporting numbers.
   and comparing A with B always shows "the top got worse, the bottom improved". Splitting by B's score
   gives the mirror image. This was nearly stepped on with the n=100 of `SUIKA_PACKED`.
   To compare distributions, compare quantiles directly
+- **The value of a single move cannot be measured with rollouts.** Changing the move from a position and playing
+  to the end, the board diverges completely from there, so draw luck does not cancel. Even pairing on the same draw sequence
+  only lowers the SD of the difference from 580 → 449. **Even the lowest-eval blunder
+  cannot be told apart from the chosen move** (400 pairs, Δ+31.8, t=1.37, win rate 49.8%).
+  The required n is about 850 pairs for a 31.8-point difference, and **over 10,000 pairs** for the real 8.4-point difference.
+  To see a difference, work **per policy** (`compare_policy.py`) instead of per position
+- **Divide out the required n before running.** The failure above could have been avoided by computing
+  `(1.96×450/8.4)² ≈ 11000` as soon as the first run (624) showed the control was only 4.4% worse.
+  What was actually done was doubling the sample while saying "it is underpowered"
+  and rerunning, which just made the ruler bigger for a distance it could not reach.
+  **The SD is printed by `compare_policy.py` output every time**, so the material is always at hand
 - Do not fix seeds (omitting `--seed` makes them random). Reusing fixed seeds makes a chance collapse
   easy to misread as "reproduced". Compare changes paired on the same seeds
 
