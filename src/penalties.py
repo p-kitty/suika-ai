@@ -45,9 +45,9 @@ BIG_CLUSTER_SPAN = 2
 # --- 盤面減点の重み ---
 # compare_policy の A/B がモジュール属性として差し替えるので、
 # board_penalties のローカルではなくここに置く。
-# 盤面が壁の内側基準になった分だけ、旧基準の 90.0 を座標変換してある。
+# 凸凹をどこから緩めるかの高さ。盤面が壁の内側基準になった分だけ、
+# 旧基準の 90.0 を座標変換してある。
 DANGER_Y = 70.9
-DANGER_CROWN_WEIGHT = 0.5
 BURY_WEIGHT = 20.0
 VARIANCE_WEIGHT = 0.08
 VARIANCE_DANGER_SCALE = 0.15
@@ -227,16 +227,12 @@ def valley_grow_ok(
 def board_penalties(
     fruits: list[Fruit], *, sign: int = 1, exempt_size_order: bool = False
 ) -> float:
-    """落としたあとの盤面減点（危険・埋め込み・同種過多・サイズ順・大寄せ・凸凹）。
+    """落としたあとの盤面減点（埋め込み・肩乗り・同種過多・サイズ順・大寄せ・凸凹）。
 
     exempt_size_order: held がこの手で合体したとき True。合体の反動で
     弾かれた無関係の実まで大小順違反として減点しない (`policy._evaluate_drop` 参照)。
     """
     penalty = 0.0
-    crown = _top_crown(fruits)
-    if crown < DANGER_Y:
-        penalty += (DANGER_Y - crown) * DANGER_CROWN_WEIGHT
-
     penalty += BURY_WEIGHT * _bury_penalty(fruits)
     penalty += PERCH_WEIGHT * _perch_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
@@ -244,7 +240,7 @@ def board_penalties(
         penalty += _size_order_penalty(fruits, sign)
     penalty += _big_layout_penalty(fruits, sign)
     variance = _height_variance(fruits)
-    if crown < DANGER_Y:
+    if _top_crown(fruits) < DANGER_Y:
         variance *= VARIANCE_DANGER_SCALE
     penalty += VARIANCE_WEIGHT * variance
     return penalty
