@@ -428,63 +428,6 @@ def _floor(fruit_type: int, x: float) -> Fruit:
     return Fruit(type=fruit_type, x=x, y=NORMALIZED_HEIGHT - r, radius=r, confidence=90)
 
 
-def test_floor_packed_measures_the_gap_against_the_drawn_fruit() -> None:
-    # It need not be connected from wall to wall. A gap the draw does not fit counts as filled.
-    from src.penalties import _floor_packed
-
-    assert not _floor_packed((), 4)
-
-    row: list[Fruit] = []
-    cursor = 0.0
-    for fruit_type in (7, 6, 5, 5, 4, 4):
-        r = fruit_radius(fruit_type)
-        row.append(_floor(fruit_type, cursor + r))
-        cursor += 2 * r
-    assert _floor_packed(row, 4)
-    # Removing the whole right side opens a hole.
-    assert not _floor_packed(row[:2], 4)
-
-    # A gap exactly the draw's diameter is filled, and any wider is not.
-    left = _floor(7, fruit_radius(7))
-    edge = _floor(4, NORMALIZED_WIDTH - fruit_radius(4))
-    for drop_type in (3, 4):
-        gap = fruit_radius(drop_type) * 2.0
-        right_x = left.x + left.radius + gap + fruit_radius(7)
-        assert _floor_packed([left, _floor(7, right_x), edge], drop_type)
-        assert not _floor_packed([left, _floor(7, right_x + 2.0), edge], drop_type)
-
-    # Do not read a gap a dekopon fits cleanly as 'no room' on the orange basis.
-    right_x = left.x + left.radius + fruit_radius(3) * 2.0 + 4.0 + fruit_radius(7)
-    board = [left, _floor(7, right_x), edge]
-    assert _floor_packed(board, 4)
-    assert not _floor_packed(board, 3)
-
-
-def test_small_side_room_ignores_gap_blocked_by_overhang() -> None:
-    # Even if a floor gap is geometrically wide, it does not fit when a roof (another fruit) spans above it.
-    # Judging by geometry alone wrongly says there is room (changed to a physics check after it was pointed out).
-    from src.penalties import _small_side_room_ok
-
-    peach_r = fruit_radius(7)
-    peach = _floor(7, peach_r + 2)
-    roof_r = fruit_radius(6)
-    roof = Fruit(
-        type=6,
-        x=NORMALIZED_WIDTH - roof_r - 2,
-        y=NORMALIZED_HEIGHT - roof_r - 120,
-        radius=roof_r,
-        confidence=90,
-    )
-    pillar_r = fruit_radius(0)
-    pillar = _floor(0, roof.x - roof_r - pillar_r + 4)
-    fruits = (peach, roof, pillar)
-
-    orange_r = fruit_radius(4)
-    assert not _small_side_room_ok(fruits, 4, orange_r, 7, sign=1)
-    # Control: without the roof, the same gap width has room.
-    assert _small_side_room_ok((peach,), 4, orange_r, 7, sign=1)
-
-
 def _rest_on(a: Fruit, b: Fruit, fruit_type: int) -> Fruit:
     """A fruit of type resting on top touching both a and b. Scaffolding for tests building ladder shoulders."""
     r = fruit_radius(fruit_type)

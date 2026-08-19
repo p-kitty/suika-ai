@@ -30,90 +30,43 @@ The tracing procedure is in
 [AGENTS.md](AGENTS.md#do-not-run-an-ab-while-obvious-blunders-remain).
 Only the symptoms found and their diagnoses are kept here.
 
-**Status: 2633 points / 268 moves / dead.** The highest stage reached is melon, and the board has
-pineapple + melon on the left and pineapple + peach settled on the right.
+**Name moves by `move` in the `view_sim` footer (1-based).** Changing the policy makes play
+diverge before that move, so the same move number points to the same position only before the change. To check whether it was fixed,
+do not play through; replay the pre-change moves up to that position and compare there.
 
-### Unfixed: move 52 knocks the pineapple out of the corner (2026-08-19)
+### Resolved: moves 52 and 45 (2026-08-19)
 
-**`packed_small_side_penalty` drives moves to the big side even when there is no place there.**
-Unlike indifference inside the band, **a real blunder decided by a single term**.
+**Move 52 — knocking the pineapple out of the corner.** The cause was `packed_small_side_penalty`, resolved by
+deleting it (→[Retired: packed_small_side_penalty](#retired-packed_small_side_penalty-2026-08-19)).
 
-Move 52, held=orange (diameter 77.1), sign=+1 (the left is big). Floor gaps:
+**Move 45 — burying a grape by putting an orange on it.** With packed removed, this one appeared instead.
+The board is `peach@69 pear@192 dekopon@273 grape@329 cherry@384`, held=orange.
 
-| Stretch | width |
-|---|---|
-| left wall - `pineapple@105.4` | **28.9** |
-| pineapple - `grape@228.6` | 20.2 |
-| `strawberry@275.7` - `cherry@383.9` | 73.2 |
-| cherry - right wall | 1.9 |
+- The chosen x=312 makes the orange **sit on both the dekopon and the grape at once**
+  (vertical gaps −14.2 / −7.4 = sinking into contact)
+- **Yet `bury` is 0.00 for every candidate.** Against sideways offsets of 41.7 / 30.0, the window is
+  only `under.radius * 0.9` = 26.8 / 23.8
+- **The smaller the lower fruit, the narrower the window.** The shape we most want to crush, "burying a small fruit with a big one",
+  escaped detection the more it was that shape: a definition working against its intent
+- Fixing the window to `(under.radius + over.radius) * 0.9` gives 61.5 / 58.5 and detects both.
+  x=312 drops out of the top 10 and it picks x=96, which buries nothing
 
-The largest gap 73.2 < 77.1, so `_floor_packed` is True (correct on the draw basis),
-and `_small_side_room_ok` is False too. **8.0 is added to every small-side candidate:**
+**Comparison on 125 positions / 5 seeds:**
 
-| | top candidates |
-|---|---|
-| `packed=8.0` (current) | x=60 (−9.75) / 84 / 48 / 72 / **216 (−11.59)** |
-| `packed=0.0` | **x=216 (−3.59)** / 264 / … / 60 (−9.75) |
-
-**The outcomes are opposite:**
-
-| Move | pineapple movement | gap from the wall |
+| Configuration | agreement with master | total buried fruits |
 |---|---|---|
-| x=60 (the move actually chosen) | 105.4 → **208.0** (+102.6) | 28.9 → **131.5** |
-| x=216 (the move chosen with packed cut) | 105.4 → 79.8 (−25.7) | 28.9 → **3.3** |
+| master (with packed, old bury) | (baseline) | 15 |
+| no packed, old bury | 95.2% | 18 |
+| with packed, new bury | 78.4% | 12 |
+| **no packed, new bury (adopted)** | **76.8%** | **13** |
 
-**It is jamming an orange of diameter 77.1 into the 28.9 gap between the left wall and the pineapple.**
-It does not fit, becomes a wedge, and **the pineapple is knocked 102.6 from the corner to the center of the board**.
-The exact opposite of aiming for a corner watermelon. x=216 instead pushes the pineapple toward the wall and seats it.
-
-**Why no penalty stops it**
-
-- The intent of `packed_small_side_penalty` is "put it on the big side's **shoulder**", but
-  **it does not check whether there is a place on the big side**. It only looks at room on the small side
-  (`_small_side_room_ok`). It penalizes the small side equally even when the big side is blocked, so
-  when "there is nowhere to put it" the move driving a wedge into the gap by the wall remains
-- The corner pocket penalty (`_big_layout_penalty`) works only when the biggest fruit is on the wall.
-  Against the pineapple's wall gap of 28.9, the anchor threshold is
-  `max(EDGE_ANCHOR_MIN 24.0, 76.5 × EDGE_ANCHOR_FRAC 0.35) = 26.8`.
-  **2.1 px short, it is judged "not on the wall", and the outer pocket is not protected**
-
-**The direction of looking at corner junk was measured and dropped (2026-08-19).** A variant removing
-the `is_wall_anchored` gate of the corner pocket penalty was measured on 125 positions (5 seeds, move 20 onward):
-
-| | result |
-|---|---|
-| agreement | 114/125 (91.2%). 11 moves change |
-| total corner junk after the drop | current 42 → no gate **42 (±0)** |
-| positions where corner junk differs between candidates | 14/125 (11.2%) |
-| **positions where it differs inside the tie band (eps=0.1)** | **0/125 (0.0%)** |
-| **positions where the chosen move is worse than the band's minimum** | **0/125 (0.0%)** |
-
-**The policy already chooses "the move with the least corner junk inside the band" every time.** Corner junk is
-completely saturated inside the band, and neither adding a term nor loosening the gate can move it
-(the same shape as `bury` / `foreign_aim` / `packed`. →[What the band actually looks like](#what-the-band-actually-looks-like)).
-That is why moves change 8.8% while the structural metric is ±0. **Not put through an A/B.**
-
-**This settles the shape of move 52. The junk-free x=216 did not lose inside the band; it was
-knocked out of the band** (1.84 below 1st, with a band width of 0.1). What knocked it out was
-the 8.0 of `packed_small_side_penalty`. Moreover:
-
-| Move | board penalty after the drop | packed | eval |
-|---|---|---|---|
-| x=60 (the chosen move) | **+5.64** | 0.0 | −5.64 |
-| x=216 | **−0.52** | **+8.0** | −7.48 |
-
-**`packed_small_side_penalty` points the opposite way from `board_penalties`.**
-It charges 8.0 to the move that improves the post-drop board, making it choose the move that worsens it.
-This rule decides firing from pre-drop geometry alone (`_floor_packed` and `_small_side_room_ok`),
-the only penalty that does not look at the post-drop result.
-
-**If measured next** (not started): how often packed penalizes "candidates with a smaller post-drop board penalty".
-If high, shrinking or retiring the rule is the way, which amounts to touching what
-[The existing weights have no leverage](#the-existing-weights-have-no-leverage) calls
-"the definition on the side that decides who enters the band".
-Note that packed was made permanent after an n=100 A/B
-(→[In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)),
-so removing it should be remeasured on the same footing.
+- Fixing the bury window cuts burying by 20%, from 15 → 12. But **21.6% of moves change**
+  (over 4x the 4.8% of deleting packed). A larger footprint than any existing intervention
+- packed still slightly reduces burying even with the new bury (12 vs 13). Not a complete replacement
+- **What looked like "0 buried" over one game of 80 moves was a chance board after divergence; 13 remain over 125 positions.**
+  The lesson not to read structural metrics from a single playthrough was stepped on here too
+- **Score was not measured.** "Total buried fruits" is a home-made structural metric not validated against score, and
+  weights must not be chosen on its basis (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
 
 ### Reference: move 224 is a different kind despite the same "orange toward the pineapple"
 
@@ -312,17 +265,9 @@ This matches how [Policy (bootstrap) design](#policy-bootstrap-design) has posit
 ## In progress: big draws and ladders after the floor fills
 
 After the floor fills, placing big draws such as orange / dekopon on the small side crushes the fruits below and
-the board collapses. Handled by `packed_small_side_penalty` (`src/penalties.py`). **Always on**.
-
-**Measured at n=100 (2026-08-06), no significant difference**
-(`--episodes 100 --max-steps 400`, 0 truncated, 2.6 hours):
-
-- score 2047.0 → 2093.9 (**+46.9**, t=0.85, 95% CI **[-62.3, +156.1]**). **Not significant**
-- seed head-to-head win 52 / loss 38 / tie 10. There are 90 firing opportunities
-- By quantile only the bottom rose (min 1045→1315), but **choosing the bottom after the fact and testing it is
-  post-hoc selection**. Next time, fix a threshold such as "number of runs with score<1500" before measuring
-- Significance needs **n=529 (about 14 hours)**. Not worth it, so based on the positive point estimate, the shape matching the intent and
-  firing 90/100, it was **made permanent as ON** (the A/B toggle is removed)
+the board collapses. **`packed_small_side_penalty` was retired on 2026-08-19**
+(→[Retired: packed_small_side_penalty](#retired-packed_small_side_penalty-2026-08-19)).
+What stops this harm now is `_bury_penalty`.
 
 **The ladder** (a pear next to the inside of a corner peach, an apple and an orange on the **shoulders** of those two, and the final orange
 firing a 4→5→6→7 cascade) is a shape that arises naturally as a result of this placement rule.
@@ -443,6 +388,53 @@ independently pointed negative too.
 
 **The biggest lesson**: home-made structural metrics pointed the wrong way all three times
 (→[How to measure](#how-to-measure-traps-we-keep-stepping-in)).
+
+### Retired: `packed_small_side_penalty` (2026-08-19)
+
+**It was the only penalty that decided firing from pre-drop geometry alone.** It predicted before the drop the floor gaps (`_floor_packed`) and
+whether the fruit could go on the small side (`_small_side_room_ok`), and imposed a fixed 8.0 when hit.
+A rule measured at n=100 on 2026-08-06 and **made permanent as ON** (score 2047.0 → 2093.9, **+46.9**,
+t=0.85, 95% CI [−62.3, +156.1], **not significant**. Seed head-to-head win 52 / loss 38 / tie 10.
+Significance would need n=529 = about 14 hours, so it was adopted because the point estimate was positive, the shape matched the intent and it fired 90/100).
+**That decision was overturned and it was deleted.**
+
+**Basis for deletion** (125 positions / 5 seeds, deterministic per-position quantities):
+
+| | |
+|---|---|
+| candidate-based firing | 189/5146 (3.7%) |
+| position-based firing | 16/125 (12.8%). only dekopon and orange draws |
+| **applies to the chosen move** | **0/125 (0.0%)** |
+| removing it changes the move | 6/125 (4.8%). 6/16 (37.5%) restricted to positions where it fired |
+| **penalized candidates whose post-drop board is better than the "chosen move"** | **75/189 (39.7%)** |
+
+- **The rule only works on the side of excluding candidates** (it never applies to the chosen move)
+- **40% of penalized candidates have a better post-drop board than the move actually chosen.** In other words
+  it points the opposite way from `board_penalties`
+- `_big_layout_penalty` **never agrees** with packed. Of 189 candidates, 0 point the same way,
+  132 (69.8%) have the same value, and 57 (30.2%, median −0.429) point the opposite way. It is an order of magnitude
+  smaller than the weight 8.0 and cannot compete
+
+**Concrete example: move 52 of seed 642746** (`move` in `view_sim`). An orange draw, sign=+1.
+The largest floor gap 73.2 < orange diameter 77.1, so `_floor_packed` is true and `_small_side_room_ok`
+is false. 8.0 is added to every small-side candidate. Splitting the board penalties per term:
+
+| Term | x=60 (the chosen move) | x=216 | difference |
+|---|---|---|---|
+| size_order | 6.213 | 0.055 | **+6.159** |
+| big_layout | 0.000 | 0.000 | 0.000 |
+| others | — | — | about 0 |
+| packed | 0.000 | **8.000** | **−8.000** |
+| total | 9.749 | 11.592 | −1.843 |
+
+**`_size_order_penalty` was correctly charging 6.159 more. The fixed 8.0 of packed
+overrode it and let the blunder win.** As a result it jammed an orange of diameter 77.1 into the 28.9 gap between the left wall and the pineapple,
+and **the pineapple is knocked 102.6 from the corner to the center of the board** (gap from the wall
+28.9 → 131.5). With packed cut it picks x=216, which instead pushes the pineapple toward the wall (28.9 → 3.3).
+
+**No A/B was run.** Since it overturns a decision to make something permanent, it should have been measured on the same footing (n=100),
+but the adoption A/B itself was not significant (its CI crosses 0), and the per-position evidence above is decisive, so
+it was deleted first. **Rechecking by score has not been done.**
 
 ### `bury_block` was retired (2026-08-18)
 
@@ -577,10 +569,9 @@ is not overriding size order and trapping. The basis is
 | Rule | Function | Content | Weight |
 |---|---|---|---|
 | directly above a different type | `foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
-| small-side escape after the floor fills | `packed_small_side_penalty` | after the floor packs, when a large draw (dekopon, orange) escapes to the small side (fires only when it physically cannot go on the small side). Floor-filled is judged by the draw's diameter | fixed 8.0 |
 | valley-growing bonus | `valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type | **−3.0** (the only bonus in this table) |
 
-The 3 below apply **only when held itself did not merge** (`held_merged`, not the merge count
+The valley-growing bonus applies **only when held itself did not merge** (`held_merged`, not the merge count
 `merges`, so that an unrelated merge elsewhere on the board does not grant the exemption).
 
 **Board-wide penalties (`board_penalties`, on the post-drop board every time)**
@@ -588,7 +579,7 @@ The 3 below apply **only when held itself did not merge** (`held_merged`, not th
 | Rule | Function | Content | Weight |
 |---|---|---|---|
 | dangerous height | inline | when the topmost crown is above `DANGER_Y`(70.9) | (DANGER_Y − crown) × `DANGER_CROWN_WEIGHT` 0.5 |
-| burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35) | `BURY_WEIGHT` 20.0x |
+| burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35). The contact window is based on **both radii** `(under.radius + over.radius) × 0.9` (based on the lower fruit alone, the window narrows the more a big fruit sits on a small one and it escapes detection) | `BURY_WEIGHT` 20.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
 | size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left on the board** are exempt = `_size_order_exempt`). **Exempt on moves where held merged** | pair difference×1.5 + ideal_x deviation×0.004 |
 | big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough (exempt for the diameter of the missing type in between) | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) (gap−diameter of the missing type)×0.025×size factor |

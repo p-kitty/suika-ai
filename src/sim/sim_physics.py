@@ -276,7 +276,7 @@ def landed_xy(
     its actual resting position is picked from the same type remaining on the board. If only an unrelated merge
     happened elsewhere on the board, held remains, so its actual position is returned
     (cutting on the merge count `merges` would return a fabricated estimate in this case,
-    the side receiving the landing position (`packed_small_side_penalty` / `valley_grow_ok`) would
+    the side receiving the landing position (`valley_grow_ok`) would
     act on false coordinates).
     """
     x0 = max(held_r, min(NORMALIZED_WIDTH - held_r, x))
