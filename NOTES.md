@@ -479,6 +479,43 @@ independently pointed negative too.
 **The biggest lesson**: home-made structural metrics pointed the wrong way all three times
 (→[How to measure](#how-to-measure-traps-we-keep-stepping-in)).
 
+### Deciding perch acceptance by "orange or bigger" (2026-08-20, rejected)
+
+The idea of changing the criterion `_perch_penalty` uses to decide which fruits may sit on top from **the type gap to the biggest fruit** (current,
+`PERCH_MIN_GAP` 5) to **the fruit's own type** (orange or bigger is fine).
+
+**Trigger**: move 34 of seed=956317. A dekopon (3) sits on the left shoulder of a peach (7),
+and at move 40 that dekopon ate the orange on the bottom rung of the ladder and crushed it. The type gap is 4, so the current rule
+does not fire (perch is 0.000 in that position, and the shoulder side wins with size_order 6.078 against bury 7.0).
+With an absolute threshold, move 34 sends the dekopon to the right (368,431), and the left pile stays as the ladder
+`peac@69 / oran@160 / pear@226`. Agreement over 150 positions was also nearly the same,
+80.0% → 79.3%.
+
+**A/B n=10 (seed 956314-, A=current / B=proposal)**:
+
+| Metric | A | B | Δ | t |
+|---|---|---|---|---|
+| score | 2124.60 | 1902.90 | −10.4% | −1.14 |
+| steps | 215.5 | 202.2 | −6.2% | −0.85 |
+| merges | 196.0 | 179.9 | −8.2% | −1.01 |
+| cascades | 21.10 | 18.60 | −11.8% | −1.08 |
+| **max_type** | **9.30** | **8.70** | **−6.5%** | **−2.71** ← 95% CI [−1.1, −0.1] |
+
+**Every metric is negative, and only max_type is significantly negative.** With n@5% of 9, max_type is one of the few
+metrics n=10 can speak to, and it dropped. Worsened seeds: 956319 went 10 → 8, 956314 10 → 9,
+956320 9 → 8, 956318 10 → 9.
+The same shape as [when the vertical size order was reverted](#vertical-size-order-stage-gate-trapped-fruit-penalty-2026-08-18-reverted)
+(every metric negative, max_type of the worsened seeds drops), with symptoms stronger than then.
+
+**Assessment**: the proposal **locks dekopons out of every big fruit's shoulder**, but a dekopon on a peach's shoulder
+is also the correct place for building the next rung. Move 34 was a blunder not because it sat on the shoulder but
+**because at move 40 that dekopon ate the orange on the bottom rung of the ladder**; the shoulder was not the cause.
+Forbidding it sends mid-size fruits to the other side and the ladder does not grow. On top of that the proposal also loosens toward
+**missing an orange on a melon's shoulder** (it allows type gap 5), so it lost on both the tightening and the loosening side.
+
+**Remaining task**: the symptom of move 34 itself is unresolved. To pursue it,
+the term should look not at "sitting on a shoulder" but at "a merge that eats the bottom rung of a ladder".
+
 ### Retired: `packed_small_side_penalty` (2026-08-19)
 
 **It was the only penalty that decided firing from pre-drop geometry alone.** It predicted before the drop the floor gaps (`_floor_packed`) and
