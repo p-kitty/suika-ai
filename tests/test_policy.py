@@ -15,6 +15,7 @@ from src.penalties import (
     ideal_x,
 )
 from src.policy import _score, choose_x
+from src.reward import is_lost
 from src.sim.sim_physics import landed_xy, preview_land, simulate_drop, simulate_drop_held
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
@@ -627,3 +628,25 @@ def test_does_not_perch_small_fruit_on_biggest() -> None:
     land_x, land_y = landed_xy(fruits, after, 0, x, cherry_r, held_merged)
     on_pine = abs(land_x - pine.x) <= pine.radius + cherry_r
     assert not (on_pine and land_y + cherry_r <= pine.y)
+
+
+def test_does_not_kill_itself_when_a_surviving_drop_exists() -> None:
+    """生きる手があるうちは、死ぬ手を選ばないこと。
+
+    盤は seed=982108 の 172 手目 (NOTES「危険な高さの傾斜をフィルタに置き換えた」)。
+    致死候補 2 本・生存候補 31 本で、致死手が eval で 23.7 勝っている局面。
+    減点で死を表していた頃はここで左端の山にオレンジを重ねて自滅していた。
+    狙う列は問わず、落ちたあとの盤が負けラインを越えないことだけを見る。
+    """
+    raw = (
+        (3, 368.3, 126.3), (5, 51.2, 130.5), (7, 330.6, 215.9), (8, 78.4, 253.2),
+        (1, 205.4, 295.7), (1, 298.5, 297.9), (3, 251.5, 316.2), (0, 383.9, 328.0),
+        (7, 323.0, 382.4), (2, 28.3, 395.9), (9, 161.8, 403.0), (4, 40.8, 459.6),
+        (3, 368.3, 468.3),
+    )
+    fruits = tuple(
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90) for t, x, y in raw
+    )
+    x = choose_x(_obs(held_type=4, fruits=fruits, next_type=0))
+    after, _merges, _types = simulate_drop(fruits, 4, x)
+    assert not is_lost(after)
