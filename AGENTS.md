@@ -129,14 +129,20 @@ tells you nothing.** Fix the blunders first. Score noise always swallows defects
 
 When a blunder seed and symptom come up, replay that one game and follow it move by move:
 
-1. Replay with `SimEnv(seed=...)` and record the board, inversion rate, trapped count and crown per move
-2. **The move where the collapse becomes visible is often the result, not the cause.**
+1. Note the move number from **move** in the `view_sim.py --seed <value>` footer (1-based).
+   The `SimEnv` replay loop is 0-based, so move number `move` is `i = move - 1`
+2. Replay with `SimEnv(seed=...)` and record the board, inversion rate, trapped count and crown per move
+3. **The move where the collapse becomes visible is often the result, not the cause.**
    Go back to "the last move where the board was clean" and read forward from there
-3. Lay out **all candidates** of the suspicious move with eval and outcomes (trapped, inversions). The causal move
-   usually has the shape of "drew the worse option inside a tie plateau".
-   If the top candidates are tied, eval has no term that can make that difference
-4. Whether the move you want to fix gets fixed is checked **by tuning weights on that one position**. Deterministic, seconds
-5. For a broad view, measure agreement and structural metrics over the position set of several traces.
+4. Lay out **all candidates** of the suspicious move with eval broken down per term. They fall into two kinds,
+   and **the remedies are completely different, so always tell them apart**:
+   - **The top candidates are tied** … inside the band. eval has no term that makes a difference. Tuning weights
+     does not fix it (→[Settled](NOTES.md#settled-the-tie-band-really-is-indifferent-2026-08-19))
+   - **A single term decides the order at the top** … suspect that term's definition. Not the weight:
+     check whether its firing condition matches reality
+5. Whether the move you want to fix gets fixed is checked **by tuning weights on that one position**. Deterministic, seconds.
+   Look at the move chosen when the term is cut and at its outcome (where the big fruits go)
+6. For a broad view, measure agreement and structural metrics over the position set of several traces.
    It is a screen before betting hours on an A/B, and it runs on a single thread
 
 **Do not compare score by playing one game through.** Changing one move makes the board diverge completely,

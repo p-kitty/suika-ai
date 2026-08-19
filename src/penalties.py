@@ -433,11 +433,8 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
 def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
     """Penalize the excess when there are 3 or more of the same type. Up to 2 are allowed as waiting to merge.
 
-    Making it triangular (the excess counting faster than linearly) was tried, but a 40-episode paired comparison
-    (same seeds, baseline 2143.57 -> 2079.05) showed no significant improvement. The cause of death traced by measurement
-    (low tiers lose merge partners and scatter → no retreat left late in the game) is
-    not a matter of penalty weights but of layouts where merge candidates get squeezed from the side by big fruits of other types
-    and become physically unmergeable. If anything is done, it belongs in candidate selection, not here.
+    A shape making the excess count grow faster than linearly was measured and shelved
+    (the improvement attempts in NOTES 'Investigated: sudden death from scattered low-tier fruits late in the game').
     """
     excess_same_weight = 20.0
     counts: dict[int, int] = {}

@@ -29,7 +29,8 @@ from .vision.state import Fruit
 # Discount for the next move.
 NEXT_DISCOUNT = 0.55
 # Search coarseness. The physics (simulate_drop) dominates, and this nearly decides the run time.
-# The old 8/16 took 3.8 seconds per move and collection could not keep up. Traded for 1.2 seconds / score -3.4%.
+# The idea of widening (8/16) was shelved at score +3.8% for 3.68x the cost
+# (NOTES 'Run cost: faster physics and search width').
 # Number of held candidates that get the next lookahead. The physics is heavy, so only the top.
 HELD_TOP = 2
 # Candidate spacing of the next lookahead. Coarser than held (CANDIDATE_STEP).
