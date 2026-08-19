@@ -448,6 +448,23 @@ lethal candidates are dropped before comparing eval. All 10 cases are fixed. On 
 **What was removed**: the slope `(DANGER_Y − crown) × DANGER_CROWN_WEIGHT` and
 `DANGER_CROWN_WEIGHT`. `DANGER_Y` remains as the threshold that relaxes bumpiness.
 
+**Effect in full playthroughs** (6 seeds × 240 moves, compared with master on the same seeds):
+
+| | master (slope only) | filter |
+|---|---|---|
+| moves | 1211 | 1299 |
+| chose a lethal move while a surviving move existed | **6 (0.5%)** | 0 (the filter blocked 35 moves, 2.7%) |
+| stuck positions (every candidate lethal) | 0 | 4 (0.3%) |
+| deaths | **6 / 6 games** | 4 / 6 games (2 survived to the 240-move cap) |
+
+**All 6 deaths on master were avoidable.** Zero stuck positions = even at the moment of death
+a surviving move remained, yet a lethal one was chosen. All 4 deaths on the filter side are stuck positions,
+with zero suicides. The filter firing 2.7% more than suicide at 0.5% is because removing the slope
+made lethal moves rise to the top more easily (the filter takes over what the slope was holding back).
+
+steps 1211 → 1299 and score 11961 → 12862 also came out, but **these are n=6 full playthroughs, so they are not evidence**
+(→[How to measure](#how-to-measure-traps-we-keep-stepping-in)). Only the structural metrics above are read.
+
 **Score was not measured.** The band escape of the slope alone is 4.7% (eps=0.1) /
 3.0% (eps=0.5), in the null zone of [the screen](#screen-on-does-it-escape-the-band)
 (`drop_ideal` 6.3% → null, bumpiness x4 7.0% → null). **No A/B was run**.
