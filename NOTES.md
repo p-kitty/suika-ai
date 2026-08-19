@@ -465,7 +465,8 @@ Meanwhile, cutting the slope made 5 cases where a lethal and a surviving move **
 
 **What was added**: a lethal-move filter in `choose_x`. If there is even one surviving candidate,
 lethal candidates are dropped before comparing eval. All 10 cases are fixed. On a board where every candidate is lethal
-(stuck) it picks the best move as before.
+(stuck) it picks the best move as before. These two behaviors are
+pinned in `tests/test_policy.py` (the board is move 172 of seed=982108).
 
 **What was removed**: the slope `(DANGER_Y − crown) × DANGER_CROWN_WEIGHT` and
 `DANGER_CROWN_WEIGHT`. `DANGER_Y` remains as the threshold that relaxes bumpiness.
