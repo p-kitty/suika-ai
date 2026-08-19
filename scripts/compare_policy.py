@@ -56,7 +56,7 @@ def _apply_variant(enabled: bool) -> None:
 
     例:
         from src import penalties
-        penalties.PACKED_SMALL_SIDE_WEIGHT = 12.0 if enabled else 8.0
+        penalties.BURY_WEIGHT = 30.0 if enabled else 20.0
     """
 
 

@@ -239,7 +239,6 @@ def _evaluate_drop(
     # 同種が真下なら合体待ちで OK。異種真上から転がって床で合体しても減点。
     penalties += pen.foreign_aim_penalty(before, x, drop_type, held_r)
     if not held_merged:
-        penalties += pen.packed_small_side_penalty(before, land_x, drop_type, held_r, sign)
         # 谷育成。合体しない手の中では、育つ見込みのある谷への着地を選ばせる。
         # 合体した手は本家点が付くので、そちらには足さない。
         if pen.valley_grow_ok(before, land_x, drop_type, next_type):
