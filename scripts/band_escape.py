@@ -40,10 +40,19 @@ from src.vision.classify import fruit_radius
 
 # 帯を測るのは終盤。序盤の盤は実が少なく、梯子も詰まりも成立していない。
 DEFAULT_SKIP = 60
-# 掃引する倍率。1.0 は恒等なので入れない。
-MULTIPLIERS = (0.5, 1.5, 2.0)
+# 掃引する倍率。1.0 は恒等なので入れない。x0.0 はその項を切ったとき。
+# 新しく足した項の是非も、入れた状態で x0.0 を見れば同じ土俵で読める。
+MULTIPLIERS = (0.0, 0.5, 1.5, 2.0)
 # 倍率で掃引できる項 (重み付きの寄与をそのまま定数倍する)。
-SWEEP_KEYS = ("bury", "excess_same", "size_order", "big_layout", "foreign_aim", "variance")
+SWEEP_KEYS = (
+    "bury",
+    "perch",
+    "excess_same",
+    "size_order",
+    "big_layout",
+    "foreign_aim",
+    "variance",
+)
 
 
 def _components(
@@ -68,6 +77,7 @@ def _components(
         "score": merge_score(merge_types),
         "danger": -danger,
         "bury": -pen.BURY_WEIGHT * pen._bury_penalty(after),
+        "perch": -pen.PERCH_WEIGHT * pen._perch_penalty(after),
         "excess_same": -pen._excess_same_penalty(after),
         "size_order": 0.0 if held_merged else -pen._size_order_penalty(after, sign),
         "big_layout": -pen._big_layout_penalty(after, sign),
