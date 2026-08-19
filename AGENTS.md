@@ -107,6 +107,10 @@ sim の評価・A/B・学習の実行例は README の Scripts と
 
 - **数字を出す前に [測定のしかた](NOTES.md#測定のしかた何度も踏んでいる罠) を読む。**
   score のノイズは大きく、平均の増減だけでは何も言えない
+- **A/B の前に `python scripts/band_escape.py` を通す。** 同点帯の中は無差別なので
+  （[測定](NOTES.md#決着-同点帯は本当に無差別-2026-08-19)）、「手が何割変わるか」は
+  足切りにならない。見るのは**帯の外へ出た割合**。ここが数 % なら A/B を回しても
+  score は動かない。数分で終わる
 - A/B は `scripts/compare_policy.py` の `_apply_variant` に変更を差して走らせる。
   恒久化するときは変種を戻し、**ON/OFF トグルはコードに残さない**。
   別 commit と比べたくなったら [git](#git) の worktree の項
