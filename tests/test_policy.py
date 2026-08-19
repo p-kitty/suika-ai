@@ -7,14 +7,14 @@
 
 import math
 
-from src.observe import Observation
+from src.observe import Observation, clamp_drop_x
 from src.penalties import (
     FOREIGN_AIM_CENTER_FRAC,
     FOREIGN_AIM_PENALTY,
     foreign_aim_penalty,
     ideal_x,
 )
-from src.policy import _score, choose_x
+from src.policy import _candidates, _score, choose_x
 from src.reward import is_lost
 from src.sim.sim_physics import landed_xy, preview_land, simulate_drop, simulate_drop_held
 from src.vision.classify import fruit_radius
@@ -650,3 +650,29 @@ def test_does_not_kill_itself_when_a_surviving_drop_exists() -> None:
     x = choose_x(_obs(held_type=4, fruits=fruits, next_type=0))
     after, _merges, _types = simulate_drop(fruits, 4, x)
     assert not is_lost(after)
+
+
+def test_still_drops_when_every_candidate_is_lethal() -> None:
+    """詰み盤 (どこへ落としても負けライン) でも手を返すこと。
+
+    盤は seed=221700 の 214 手目、致死手フィルタを入れた側が実際に死んだ局面。
+    生存候補が 0 本のとき候補を空にしてしまうと、方策が手を返せなくなる。
+    """
+    raw = (
+        (1, 22.6, 38.4), (1, 172.2, 42.3), (4, 261.7, 65.7), (5, 109.3, 73.0),
+        (5, 348.8, 75.7), (2, 198.7, 81.2), (3, 31.8, 88.0), (3, 252.4, 133.4),
+        (2, 28.3, 144.0), (6, 170.6, 158.3), (7, 330.7, 190.8), (7, 69.3, 228.3),
+        (5, 228.0, 246.1), (1, 158.4, 252.8), (8, 321.6, 346.4), (9, 151.5, 368.4),
+        (0, 16.1, 427.1), (4, 300.7, 459.4), (3, 31.7, 468.2), (3, 368.3, 468.3),
+        (2, 237.0, 471.6), (2, 87.7, 471.7), (1, 190.3, 477.4), (0, 128.0, 483.9),
+    )
+    fruits = tuple(
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90) for t, x, y in raw
+    )
+    grape_r = fruit_radius(2)
+    xs = [clamp_drop_x(x, 2) for x in _candidates(list(fruits), 2, grape_r, extra_type=1)]
+    # 前提: 生存候補が 1 本も無い。ここが崩れたら test は詰みを見ていない。
+    assert all(is_lost(simulate_drop(fruits, 2, x)[0]) for x in xs)
+
+    x = choose_x(_obs(held_type=2, fruits=fruits, next_type=1))
+    assert grape_r <= x <= NORMALIZED_WIDTH - grape_r
