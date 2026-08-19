@@ -55,7 +55,7 @@ VARIANCE_DANGER_SCALE = 0.15
 PERCH_MIN_GAP = 5
 # 肩を見る実の範囲 (最大実から何段下まで)。0 なら最大実だけ。
 PERCH_BIG_SPAN = 1
-PERCH_WEIGHT = 8.0
+PERCH_WEIGHT = 16.0
 
 
 
