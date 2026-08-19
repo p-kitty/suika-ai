@@ -55,7 +55,7 @@ VARIANCE_DANGER_SCALE = 0.15
 PERCH_MIN_GAP = 5
 # Range of fruits whose shoulders are checked (how many tiers below the biggest). 0 means only the biggest.
 PERCH_BIG_SPAN = 1
-PERCH_WEIGHT = 8.0
+PERCH_WEIGHT = 16.0
 
 
 
