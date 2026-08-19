@@ -53,6 +53,9 @@ python scripts/train_sim.py --bc-episodes 100 --episodes 50 --lr 0.002
 
 # Run detection on saved images → debug/check/
 python scripts/check_detection.py
+
+# Screen a weight change before spending hours on an A/B
+python scripts/band_escape.py
 ```
 
 ## Tests
@@ -87,6 +90,7 @@ scripts/
   eval_policy.py
   train_sim.py
   check_detection.py
+  band_escape.py        # pre-A/B screen: does a weight change escape the tied band?
 tests/                  # mirrors src/ (game/, sim/, training/, util/, vision/)
 ```
 

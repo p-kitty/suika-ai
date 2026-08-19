@@ -314,6 +314,53 @@ an evaluator that sees differences the current features cannot (a learned value 
 the road of a deeper search was measured and shelved
 (→[Re-measuring search width 8/16](#re-measuring-search-width-816-2026-08-17)).
 
+### Screen on "does it escape the band" (2026-08-19)
+
+Since the inside of the tie band is indifferent (above), **"what fraction of moves change" is not a screen**.
+Swaps inside the band do not move score. What to look at is **the fraction of chosen moves that leave the original band**.
+`python scripts/band_escape.py` (one physics pass + an analytic sweep, minutes).
+
+**Its predictive power was verified on two known failures:**
+
+| Intervention | moves change | **escapes the band** | A/B at n=133 |
+|---|---|---|---|
+| `drop_ideal` w=0.004 | 50.2% | **6.3%** | score −/+ unclear (null) |
+| bumpiness x4 | 17.5% | **7.0%** | score −1.3% (null) |
+
+In both, over 90% of the change was inside the band. **Measured by "moves change" it is 50.2%, but
+the meaningful change is 6.3%.**
+
+### The existing weights have no leverage (2026-08-19)
+
+What decides which candidates enter the band is the large terms, so their weights were swept
+(428 positions, `--eps 0.1`). **Fraction escaping the band:**
+
+| Term | x0.5 | x1.5 | x2.0 |
+|---|---|---|---|
+| bury | 0.9% | 0.9% | 1.6% |
+| excess_same | 0.5% | 1.2% | 1.9% |
+| size_order | **3.0%** | 1.2% | 1.9% |
+| big_layout | 0.5% | 0.2% | 0.2% |
+| foreign_aim | **0.0%** | **0.0%** | **0.0%** |
+
+It reproduces with every term at 2.8% or less on 3 independent seeds (176 positions).
+
+- **The maximum is 3.0% from halving size_order.** Even `drop_ideal`, which changed 50% of moves, was
+  null at n=133, so measuring 3% finds nothing
+- **`foreign_aim` does not change a single move at 0.5x or 2x.** The weight 100.0 is
+  so large that candidates it applies to are out of contention from the start. It effectively works as a binary
+  "applies or not" filter, and the weight value itself does not affect play
+- **`big_layout` changes 5.1% of moves but only 0.2% escape the band**
+
+**Conclusion: bootstrap is somewhere weight tuning cannot get out of.**
+The inside of the band is indifferent, the weights deciding who enters the band have no leverage,
+new count terms do not move inside the band (ladder, trapping, same-type proximity),
+new continuous terms only move inside the band (ideal_x), and the road of a deeper search was
+[measured and shelved on 08-17](#re-measuring-search-width-816-2026-08-17).
+What remains is **an evaluator that can see differences the current features cannot**,
+This matches how [Policy (bootstrap) design](#policy-bootstrap-design) has positioned it from the start:
+"a thin policy before RL".
+
 ### Splitting the band is not good in itself (2026-08-19)
 
 A record of two interventions to split the band measured before the conclusion above.

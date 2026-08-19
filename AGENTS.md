@@ -107,6 +107,10 @@ Examples of sim evaluation, A/B and training runs are in the README Scripts sect
 
 - **Read [How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in) before reporting numbers.**
   Score noise is large; a rise or fall in the mean alone says nothing
+- **Run `python scripts/band_escape.py` before an A/B.** Inside the tie band the choice is indifferent, so
+  ([measured](NOTES.md#settled-the-tie-band-really-is-indifferent-2026-08-19)), so "what fraction of moves change"
+  is not a screen. Look at **the fraction that escapes the band**. If that is a few %, running the A/B
+  score does not move. It finishes in minutes
 - Run an A/B by plugging the change into `_apply_variant` in `scripts/compare_policy.py`.
   When making it permanent, revert the variant and **leave no ON/OFF toggle in the code**.
   To compare with another commit, see the worktree item under [git](#git)
