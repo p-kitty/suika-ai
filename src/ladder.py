@@ -12,7 +12,7 @@ and only tests/test_policy.py references it. What measurement has shown:
 - Without a filled floor the shape does not hold. The pear is pushed out like a wedge and self-destructs,
   and wherever you drop you get only one rung (15 points). A filled floor is a gate condition
 - Rewarding the rung count directly does not work. 91.6% of positions have no candidate that extends the rungs,
-  and raising the weight until it bites loses firing (NOTES 'Tried and shelved: ladder rung bonus')
+  and raising the weight until it bites loses firing (NOTES 'Interventions that tried to split the band and failed')
 
 Details in NOTES.md 'In progress: big draws and ladders after the floor fills'.
 """

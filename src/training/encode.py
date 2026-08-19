@@ -9,10 +9,10 @@ from ..vision.colors import FRUIT_NAMES
 from ..vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 
 N_TYPES = len(FRUIT_NAMES)
-# Cap on fruits loaded, biggest first. Boards with over 20 fruits are common from the midgame on
-# (measured: 23 late in the game), and with the old 16 the first to be cut were scattered low-tier fruits such as cherry/strawberry
-# — the very culprits that fill the board and cause accidents were invisible
-# to the learner. Raised to 32 so effectively nothing is cut.
+# Cap on fruits loaded, biggest first. If it falls below the number of fruits on the board, the first to be cut
+# are scattered low-tier fruits such as cherry/strawberry — the culprits of accidents become invisible
+# to the learner. Boards with over 20 fruits are common from the midgame on (measured: 23 late in the game), so
+# the value is set so that effectively nothing is cut.
 MAX_FRUITS = 32
 # Per fruit: type_norm, x_norm, y_norm, r_norm
 FRUIT_DIM = 4
