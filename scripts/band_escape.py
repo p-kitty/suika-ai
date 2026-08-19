@@ -40,10 +40,19 @@ from src.vision.classify import fruit_radius
 
 # The band is measured late in the game. Early boards have few fruits, and neither ladders nor packing have formed.
 DEFAULT_SKIP = 60
-# Multipliers swept. 1.0 is the identity so it is not included.
-MULTIPLIERS = (0.5, 1.5, 2.0)
+# Multipliers swept. 1.0 is the identity so it is not included. x0.0 is with that term cut.
+# Whether a newly added term is worthwhile can be read on the same footing by looking at x0.0 with it added.
+MULTIPLIERS = (0.0, 0.5, 1.5, 2.0)
 # Terms that can be swept by a multiplier (the weighted contribution is scaled as is).
-SWEEP_KEYS = ("bury", "excess_same", "size_order", "big_layout", "foreign_aim", "variance")
+SWEEP_KEYS = (
+    "bury",
+    "perch",
+    "excess_same",
+    "size_order",
+    "big_layout",
+    "foreign_aim",
+    "variance",
+)
 
 
 def _components(
@@ -68,6 +77,7 @@ def _components(
         "score": merge_score(merge_types),
         "danger": -danger,
         "bury": -pen.BURY_WEIGHT * pen._bury_penalty(after),
+        "perch": -pen.PERCH_WEIGHT * pen._perch_penalty(after),
         "excess_same": -pen._excess_same_penalty(after),
         "size_order": 0.0 if held_merged else -pen._size_order_penalty(after, sign),
         "big_layout": -pen._big_layout_penalty(after, sign),

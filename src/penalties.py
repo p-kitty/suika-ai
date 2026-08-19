@@ -51,6 +51,11 @@ DANGER_CROWN_WEIGHT = 0.5
 BURY_WEIGHT = 20.0
 VARIANCE_WEIGHT = 0.08
 VARIANCE_DANGER_SCALE = 0.15
+# Upper limit of the type gap allowed on a big fruit's shoulder. Up to an orange (4) on a pineapple's (8) shoulder is allowed.
+PERCH_MIN_GAP = 5
+# Range of fruits whose shoulders are checked (how many tiers below the biggest). 0 means only the biggest.
+PERCH_BIG_SPAN = 1
+PERCH_WEIGHT = 16.0
 
 
 
@@ -233,6 +238,7 @@ def board_penalties(
         penalty += (DANGER_Y - crown) * DANGER_CROWN_WEIGHT
 
     penalty += BURY_WEIGHT * _bury_penalty(fruits)
+    penalty += PERCH_WEIGHT * _perch_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
@@ -379,6 +385,42 @@ def _bury_penalty(fruits: list[Fruit]) -> float:
                     penalty += 1.0
                 else:
                     penalty += 0.35
+    return penalty
+
+
+def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """Penalty for small fruits sitting on a big fruit's shoulders or top. Heavier with a larger type gap.
+
+    The inverse of `_bury_penalty`. That one counts 'a different type above a small fruit', so
+    it looks only at the `over.type > under.type` side, and the reverse (a small fruit on a big fruit)
+    slipped through every rule. The horizontal `_size_order_penalty` also excludes vertically stacked
+    pairs as the same column, and fruits stuck in valleys are removed by `_size_order_exempt`,
+    so it went through untouched.
+
+    The top of a big fruit is where the next rung is built, and putting a fruit with a large type gap there makes it
+    stay without meeting a partner and also blocks the merging face of the big fruit below. Sitting on it is judged
+    not by contact but by 'inside the big fruit's footprint, with its bottom above the big fruit's center'.
+    Even without direct contact, it catches shapes sitting on the pile with one tier in between.
+
+    Returns 1.0 for each step the type gap exceeds the allowed gap. The caller applies the weight.
+    """
+    if not fruits:
+        return 0.0
+    max_t = max(fruit.type for fruit in fruits)
+    big_min = max_t - PERCH_BIG_SPAN
+    penalty = 0.0
+    for under in fruits:
+        if under.type < big_min:
+            continue
+        for over in fruits:
+            gap_type = under.type - over.type
+            if gap_type < PERCH_MIN_GAP:
+                continue
+            if over.y + over.radius > under.y:
+                continue
+            if abs(over.x - under.x) > under.radius + over.radius:
+                continue
+            penalty += float(gap_type - PERCH_MIN_GAP + 1)
     return penalty
 
 
