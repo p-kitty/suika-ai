@@ -15,8 +15,9 @@
 左: いまの盤 + held の接点 preview / 落下アニメ。右: 落としたあとの結果 (アニメ中も最終盤)。
 ヘッダ右に NEXT の円。ツモは cherry〜orange を毎回ランダム。
 
-footer にその対局の seed が出る。--seed を省いても具体値が決まるので、
-崩れた局面のスクショを撮っておけば `--seed <値>` で同じツモ列を再生できる
+footer に seed と move (いま持っている実が何手目か。1 始まり) が出る。
+--seed を省いても具体値が決まるので、崩れた局面のスクショを撮っておけば
+`--seed <値>` で同じツモ列を再生でき、move で悪手の手番を名指しできる
 (auto で回していたなら choose_x も決定的なので手順ごと一致する)。
 """
 
@@ -101,6 +102,7 @@ def main() -> None:
     pool = ProcessPoolExecutor()
     aim_x = NORMALIZED_WIDTH / 2
     total_score = 0.0
+    drops = 0
     last_info = "ok"
     auto_play = False
     fast_forward = False
@@ -128,7 +130,7 @@ def main() -> None:
         message = f"fast={'ON' if fast_forward else 'off'}"
 
     def _drop(x: float | None = None) -> None:
-        nonlocal obs, total_score, last_info, message, aim_x, auto_play
+        nonlocal obs, total_score, drops, last_info, message, aim_x, auto_play
         if last_info in ("dead", "win"):
             message = "done — r to reset"
             return
@@ -146,6 +148,7 @@ def main() -> None:
             drop_x=target,
             next_type=obs.next_type,
             total_score=total_score,
+            move=drops + 1,
             info=last_info,
             auto_play=auto_play,
             on_toggle_auto=_toggle_auto,
@@ -154,6 +157,7 @@ def main() -> None:
         step = env.step(target)
         obs = step.observation
         total_score += step.score
+        drops += 1
         last_info = step.info
         message = (
             f"drop x={target:.0f}  score+{step.score:.0f}  "
@@ -169,10 +173,11 @@ def main() -> None:
     def _reset() -> None:
         # env ごと作り直す。reset() だけだと rng が続きから回り、footer の
         # seed で再生できるのは 1 局目だけになる。
-        nonlocal env, obs, total_score, last_info, message, aim_x
+        nonlocal env, obs, total_score, drops, last_info, message, aim_x
         env = SimEnv(seed=args.seed)
         obs = env.reset()
         total_score = 0.0
+        drops = 0
         last_info = "ok"
         aim_x = NORMALIZED_WIDTH / 2
         message = "reset"
@@ -210,6 +215,7 @@ def main() -> None:
             score=score,
             penalties=penalties,
             total_score=total_score,
+            move=drops if last_info in ("dead", "win") else drops + 1,
             info=last_info,
             message=message,
             auto_play=auto_play,
@@ -244,6 +250,7 @@ def _play_drop_anim(
     drop_x: float,
     next_type: int | None,
     total_score: float,
+    move: int,
     info: str,
     auto_play: bool = False,
     on_toggle_auto: Callable[[], None] | None = None,
@@ -280,6 +287,7 @@ def _play_drop_anim(
             score=result_score,
             penalties=result_penalties,
             total_score=total_score,
+            move=move,
             info=info,
             message=f"animating… merges={merges}  (Esc skip / g auto)",
             left_title="LIVE",
@@ -308,6 +316,7 @@ def _render(
     score: float,
     penalties: float,
     total_score: float,
+    move: int,
     info: str,
     message: str,
     left_title: str = "NOW",
@@ -348,7 +357,7 @@ def _render(
     mode_badge(canvas, auto_play, fast_forward)
     put_text(
         canvas,
-        f"episode  score={total_score:.0f}  info={info}  seed={seed}",
+        f"episode  move={move}  score={total_score:.0f}  info={info}  seed={seed}",
         (PAD, height - 28),
         (200, 200, 255),
         scale=0.55,
