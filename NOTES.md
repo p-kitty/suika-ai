@@ -436,6 +436,66 @@ the orange side was already correct and only dekopon (diameter 59.6) was off.
 
 ## Rules tried and reverted or retired
 
+### Replaced the dangerous height slope with a filter (2026-08-20)
+
+**Trigger**: "isn't the dangerous-height rule unnecessary? It is always close to the edge right before a double watermelon".
+
+**How close to the edge**: the trigger line `DANGER_Y` 70.9 against the losing line `GAME_OVER_Y` 14.9.
+The 56.0 difference is 11.2% of the board height 500 (it only starts at 85.8% stacked from the floor),
+a width that cannot fit one apple (diameter 98.6). The penalty is at most 28.0 even right at the death line,
+smaller than a watermelon merge 55 / double watermelon clear 65. **It never stops a climb by rejecting a merge.**
+
+**Measured per candidate** (428 positions, 19287 candidates, move 60 onward on 6 seeds × 240 moves):
+
+| | rate |
+|---|---|
+| candidates with nonzero `danger` | 21.4% |
+| lethal candidates (crown < 14.9 after the drop) | 1.1% |
+| positions with at least 1 lethal candidate | 30 (7.0%) |
+| chosen move has nonzero `danger` | 19.9% |
+| **chosen move is lethal** | **5 (1.2%)** |
+
+**It committed suicide even with the slope in place.** In those 5, a lethal move won even though 30-45 surviving candidates existed,
+with differences of 8.5 / 24.3 / 40.9 / 121.5 / **261.3**. Not merge points but
+`bury`, `excess_same` and `size_order` made the difference (the lethal side's merge points are 0-10).
+**A slope capped at 28 cannot reach that, and no amount of finite penalties can exceed 261.**
+
+Meanwhile, cutting the slope made 5 cases where a lethal and a surviving move **tie at 0.00 difference** fall to the lethal side
+(10 in total, 2.3%). In other words the slope only worked "as a tie-break".
+
+**What was added**: a lethal-move filter in `choose_x`. If there is even one surviving candidate,
+lethal candidates are dropped before comparing eval. All 10 cases are fixed. On a board where every candidate is lethal
+(stuck) it picks the best move as before.
+
+**What was removed**: the slope `(DANGER_Y − crown) × DANGER_CROWN_WEIGHT` and
+`DANGER_CROWN_WEIGHT`. `DANGER_Y` remains as the threshold that relaxes bumpiness.
+
+**Effect in full playthroughs** (6 seeds × 240 moves, compared with master on the same seeds):
+
+| | master (slope only) | filter |
+|---|---|---|
+| moves | 1211 | 1299 |
+| chose a lethal move while a surviving move existed | **6 (0.5%)** | 0 (the filter blocked 35 moves, 2.7%) |
+| stuck positions (every candidate lethal) | 0 | 4 (0.3%) |
+| deaths | **6 / 6 games** | 4 / 6 games (2 survived to the 240-move cap) |
+
+**All 6 deaths on master were avoidable.** Zero stuck positions = even at the moment of death
+a surviving move remained, yet a lethal one was chosen. All 4 deaths on the filter side are stuck positions,
+with zero suicides. The filter firing 2.7% more than suicide at 0.5% is because removing the slope
+made lethal moves rise to the top more easily (the filter takes over what the slope was holding back).
+
+steps 1211 → 1299 and score 11961 → 12862 also came out, but **these are n=6 full playthroughs, so they are not evidence**
+(→[How to measure](#how-to-measure-traps-we-keep-stepping-in)). Only the structural metrics above are read.
+
+**Score was not measured.** The band escape of the slope alone is 4.7% (eps=0.1) /
+3.0% (eps=0.5), in the null zone of [the screen](#screen-on-does-it-escape-the-band)
+(`drop_ideal` 6.3% → null, bumpiness x4 7.0% → null). **No A/B was run**.
+The only basis is the per-position quantities above.
+
+**Note**: no term looks at absolute height any more. The only deterrent to height is "does the next move die",
+which works only two plies ahead. Whether a pathology of walking into a stuck board by itself has appeared should be checked
+in [the fixed-point observation](#current-approach-fixed-point-observation-of-seed-642746-2026-08-19).
+
 ### Vertical size order, stage gate, trapped-fruit penalty (2026-08-18, reverted)
 
 **Trigger**: a report that view_sim showed a board collapsed into peach-orange-peach.
@@ -705,13 +765,18 @@ The valley-growing bonus applies **only when held itself did not merge** (`held_
 
 | Rule | Function | Content | Weight |
 |---|---|---|---|
-| dangerous height | inline | when the topmost crown is above `DANGER_Y`(70.9) | (DANGER_Y − crown) × `DANGER_CROWN_WEIGHT` 0.5 |
 | burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35). The contact window is based on **both radii** `(under.radius + over.radius) × 0.9` (based on the lower fruit alone, the window narrows the more a big fruit sits on a small one and it escapes detection) | `BURY_WEIGHT` 20.0x |
 | perch | `_perch_penalty` | small fruits inside the footprint of a big fruit (from the biggest down to `PERCH_BIG_SPAN` 1 tier below) with their bottom above that big fruit's center. Counts the amount by which the type gap exceeds `PERCH_MIN_GAP` 5 (up to orange on a pineapple's shoulder is 0, dekopon 1 / grape 2 / strawberry 3 / cherry 4). Contact is not required, so shapes sitting on the pile with one tier in between are caught too | `PERCH_WEIGHT` 16.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
 | size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left on the board** are exempt = `_size_order_exempt`). **Exempt on moves where held merged** | pair difference×1.5 + ideal_x deviation×0.004 |
 | big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough (exempt for the diameter of the missing type in between) | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) (gap−diameter of the missing type)×0.025×size factor |
-| bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by `VARIANCE_DANGER_SCALE` 0.15 at dangerous height) | variance× `VARIANCE_WEIGHT` 0.08 |
+| bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by `VARIANCE_DANGER_SCALE` 0.15 when the crown is above `DANGER_Y`(70.9)) | variance× `VARIANCE_WEIGHT` 0.08 |
+
+**Not a penalty: the lethal-move filter (`choose_x`)**
+
+Candidates whose post-drop board crosses the losing line (`GAME_OVER_Y` 14.9) are discarded before comparing eval
+as long as there is even one surviving candidate. It is not a penalty, so it is not in the table above
+(→[Replaced the dangerous height slope with a filter](#replaced-the-dangerous-height-slope-with-a-filter-2026-08-20)).
 
 Notes:
 - The rules above have no ON/OFF toggles (the policy is not to keep toggles for permanent rules.

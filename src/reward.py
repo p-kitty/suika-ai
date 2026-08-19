@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 from .observe import Observation
 from .vision.colors import MAX_FRUIT_TYPE
+from .vision.state import Fruit
 
 WATERMELON = MAX_FRUIT_TYPE
 # Losing when the crown rises above this y (y points down). Converted from the old
@@ -32,12 +33,20 @@ CREATE_SCORE: tuple[int, ...] = (
 CLEAR_SCORE = 65
 
 
-def is_game_over(obs: Observation) -> bool:
-    """Whether the crown is past the losing line."""
-    if not obs.fruits:
+def is_lost(fruits: Sequence[Fruit]) -> bool:
+    """Whether the crown is past the losing line. Takes the post-drop board as is.
+
+    The policy uses it to sort candidates by 'does this move die',
+    so it takes a list of fruits rather than an Observation (`policy.choose_x`).
+    """
+    if not fruits:
         return False
-    crown = min(f.y - f.radius for f in obs.fruits)
+    crown = min(f.y - f.radius for f in fruits)
     return crown < GAME_OVER_Y
+
+
+def is_game_over(obs: Observation) -> bool:
+    return is_lost(obs.fruits)
 
 
 def watermelon_count(obs: Observation) -> int:
