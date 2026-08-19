@@ -226,6 +226,9 @@ def main() -> None:
 
     # 集計より先に保存する。長い実行の生データを、集計側の些細な不具合で失わない。
     if args.out is not None:
+        # docstring は -OO で剥がれるので、無い前提で読む。ここで落ちると
+        # 走り終わった数時間ぶんの生データを保存前に失う。
+        variant_doc = (_apply_variant.__doc__ or "").strip().splitlines()
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(
             json.dumps(
@@ -233,7 +236,7 @@ def main() -> None:
                     "seed": seed,
                     "episodes": args.episodes,
                     "max_steps": args.max_steps,
-                    "variant": _apply_variant.__doc__.splitlines()[0],
+                    "variant": variant_doc[0] if variant_doc else "",
                     "a": base,
                     "b": new,
                 },
