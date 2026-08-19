@@ -276,7 +276,7 @@ def landed_xy(
     盤に残っている同 type から実際の静止位置を拾う。盤の別の場所で無関係な
     合体が起きただけなら held は残っているので、そちらは実位置を返す
     (合体の有無 `merges` で切ると、この場合に捏造した推定値を返してしまい、
-    着地位置を受け取る側 (`packed_small_side_penalty` / `valley_grow_ok`) が
+    着地位置を受け取る側 (`valley_grow_ok`) が
     嘘の座標で動く)。
     """
     x0 = max(held_r, min(NORMALIZED_WIDTH - held_r, x))

@@ -428,63 +428,6 @@ def _floor(fruit_type: int, x: float) -> Fruit:
     return Fruit(type=fruit_type, x=x, y=NORMALIZED_HEIGHT - r, radius=r, confidence=90)
 
 
-def test_floor_packed_measures_the_gap_against_the_drawn_fruit() -> None:
-    # 壁から壁まで繋がっている必要はない。そのツモが収まらない隙間なら埋まり扱い。
-    from src.penalties import _floor_packed
-
-    assert not _floor_packed((), 4)
-
-    row: list[Fruit] = []
-    cursor = 0.0
-    for fruit_type in (7, 6, 5, 5, 4, 4):
-        r = fruit_radius(fruit_type)
-        row.append(_floor(fruit_type, cursor + r))
-        cursor += 2 * r
-    assert _floor_packed(row, 4)
-    # 右側をごっそり抜くと穴が空く。
-    assert not _floor_packed(row[:2], 4)
-
-    # 隙間がツモ直径ちょうどなら埋まり、少しでも広ければ埋まりでない。
-    left = _floor(7, fruit_radius(7))
-    edge = _floor(4, NORMALIZED_WIDTH - fruit_radius(4))
-    for drop_type in (3, 4):
-        gap = fruit_radius(drop_type) * 2.0
-        right_x = left.x + left.radius + gap + fruit_radius(7)
-        assert _floor_packed([left, _floor(7, right_x), edge], drop_type)
-        assert not _floor_packed([left, _floor(7, right_x + 2.0), edge], drop_type)
-
-    # デコポンが素直に入る隙間を、オレンジ基準で「置き場が無い」と読まない。
-    right_x = left.x + left.radius + fruit_radius(3) * 2.0 + 4.0 + fruit_radius(7)
-    board = [left, _floor(7, right_x), edge]
-    assert _floor_packed(board, 4)
-    assert not _floor_packed(board, 3)
-
-
-def test_small_side_room_ignores_gap_blocked_by_overhang() -> None:
-    # 床の隙間が幾何的に広くても、上に屋根 (別の実) が渡してあれば入らない。
-    # 幾何だけで判定すると誤って room ありにする (指摘を受けて物理確認に変更)。
-    from src.penalties import _small_side_room_ok
-
-    peach_r = fruit_radius(7)
-    peach = _floor(7, peach_r + 2)
-    roof_r = fruit_radius(6)
-    roof = Fruit(
-        type=6,
-        x=NORMALIZED_WIDTH - roof_r - 2,
-        y=NORMALIZED_HEIGHT - roof_r - 120,
-        radius=roof_r,
-        confidence=90,
-    )
-    pillar_r = fruit_radius(0)
-    pillar = _floor(0, roof.x - roof_r - pillar_r + 4)
-    fruits = (peach, roof, pillar)
-
-    orange_r = fruit_radius(4)
-    assert not _small_side_room_ok(fruits, 4, orange_r, 7, sign=1)
-    # 対照: 屋根が無ければ同じ隙間幅で room ありになる。
-    assert _small_side_room_ok((peach,), 4, orange_r, 7, sign=1)
-
-
 def _rest_on(a: Fruit, b: Fruit, fruit_type: int) -> Fruit:
     """a と b の両方に接して上に乗る type の実。梯子の肩を組むテスト足場。"""
     r = fruit_radius(fruit_type)

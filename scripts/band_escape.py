@@ -73,13 +73,9 @@ def _components(
         "big_layout": -pen._big_layout_penalty(after, sign),
         "variance": -pen.VARIANCE_WEIGHT * variance,
         "foreign_aim": -pen.foreign_aim_penalty(before, x, drop_type, held_r),
-        "packed": 0.0,
         "valley_grow": 0.0,
     }
     if not held_merged:
-        parts["packed"] = -pen.packed_small_side_penalty(
-            before, land_x, drop_type, held_r, sign
-        )
         if pen.valley_grow_ok(before, land_x, drop_type, next_type):
             parts["valley_grow"] = pen.VALLEY_GROW_BONUS
     return parts, sum(parts.values())
