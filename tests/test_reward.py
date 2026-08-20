@@ -8,6 +8,7 @@ from src.reward import (
     WATERMELON,
     cleared_double_watermelon,
     is_game_over,
+    is_lost,
     merge_points,
     merge_score,
     watermelon_count,
@@ -96,6 +97,18 @@ def test_game_over_by_crown() -> None:
     dead = _obs((Fruit(type=5, x=100, y=30, radius=big_r, confidence=90),))
     assert not is_game_over(safe)
     assert is_game_over(dead)
+
+
+def test_is_lost_reads_a_plain_fruit_list() -> None:
+    """落下後の盤 (Observation ではなく実の列) をそのまま判定できること。
+
+    方策は候補ごとの after をこの形で持つので、ここが列を受けないと
+    `policy.choose_x` の致死手フィルタが書けない。
+    """
+    big_r = fruit_radius(5)
+    assert not is_lost([])
+    assert not is_lost([Fruit(type=5, x=100, y=200, radius=big_r, confidence=90)])
+    assert is_lost([Fruit(type=5, x=100, y=30, radius=big_r, confidence=90)])
 
 
 def test_watermelon_count() -> None:
