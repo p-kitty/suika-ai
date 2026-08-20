@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -40,9 +41,9 @@ from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
 from src.reward import GAME_OVER_Y
 from src.sim.sim_env import SimEnv
-from src.sim.sim_physics import DT, iter_simulate_drop, land_y
+from src.sim.sim_physics import DROP_START_Y, DT, iter_simulate_drop, land_y
 from src.vision.classify import fruit_radius
-from src.vision.colors import FRUIT_NAMES
+from src.vision.colors import FRUIT_NAMES, SPAWN_MAX_TYPE
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
 
@@ -51,12 +52,48 @@ GAP = 20
 HEADER = 72
 FOOTER = 56
 NEXT_PREVIEW_R = 18
-# Display per physics step. 1 is real time, 2 is 2x.
-ANIM_STRIDE = 1
-ANIM_WAIT_MS = max(1, int(round(1000.0 * DT / ANIM_STRIDE)))
+# Playback speed of the drop animation. 1.0 is the same speed as the real game, 2.0 is double.
+ANIM_SPEED = 1.0
+# Margin added above the board. Fruits fall from DROP_START_Y, so showing only the board (y 0..500)
+# ends the first 35-39% of the fall outside the screen. The part accelerating from rest is not visible, and it appears
+# at the top edge already at around 500px/s, so it looks fast even when the physics is right.
+# On the real machine the fruit is visible floating at the release position, so match that.
+HEADROOM = abs(DROP_START_Y) + fruit_radius(SPAWN_MAX_TYPE) + 2.0
 WINDOW = "suika-ai sim"
 # Set in main to fit the screen size.
 SCALE = 1.5
+
+
+class _Pacer:
+    """Play back according to physics time. Frames the drawing cannot keep up with are dropped.
+
+    A fixed wait (`cv2.waitKey(1000*DT)`) adds the whole time spent in the preceding `_render`
+    on top. Measured, `_render` takes 11.2ms and the wait 17ms, so one frame takes
+    28.2ms to advance only 16.7ms of physics = 1.69x slower than real time.
+
+    This is not just a cosmetic issue. When GRAVITY was corrected to the measured value (1400),
+    the physics matched the real game within 5% yet looked 1.6x slower on screen. Conversely,
+    the 2x-too-fast 2800 cancelled out this 1.69x and looked
+    'right'. **Unless playback is real time, the speed of the physics cannot be judged by eye.**
+    """
+
+    __slots__ = ("speed", "start")
+
+    def __init__(self, speed: float) -> None:
+        self.speed = speed
+        self.start = time.perf_counter()
+
+    def _deadline(self, frame: int) -> float:
+        return self.start + frame * DT / self.speed
+
+    def behind(self, frame: int) -> bool:
+        """Whether it is more than one frame behind. Skip drawing and only advance the physics."""
+        return time.perf_counter() > self._deadline(frame) + DT / self.speed
+
+    def wait_ms(self, frame: int) -> int:
+        """ms to wait until the next frame time. cv2.waitKey needs 1 or more."""
+        remaining = self._deadline(frame) - time.perf_counter()
+        return max(1, int(round(remaining * 1000.0)))
 
 
 def _fit_scale(max_scale: float = 2.0) -> float:
@@ -72,7 +109,7 @@ def _fit_scale(max_scale: float = 2.0) -> float:
     # Leave room for the title bar and taskbar.
     max_w = max(640, screen_w - 48)
     max_h = max(480, screen_h - 96)
-    scale_h = (max_h - PAD * 2 - HEADER - FOOTER) / NORMALIZED_HEIGHT
+    scale_h = (max_h - PAD * 2 - HEADER - FOOTER) / (NORMALIZED_HEIGHT + HEADROOM)
     scale_w = (max_w - PAD * 2 - GAP) / (NORMALIZED_WIDTH * 2)
     return float(max(0.8, min(max_scale, scale_h, scale_w)))
 
@@ -269,12 +306,15 @@ def _play_drop_anim(
         return
     skip = False
     frame_i = 0
+    shown = 0
     auto_on = auto_play
+    pacer = _Pacer(ANIM_SPEED)
+    started = time.perf_counter()
     for after, merges, _merge_types in iter_simulate_drop(before, held_type, drop_x):
-        show = (not skip) and (frame_i % ANIM_STRIDE == 0)
         frame_i += 1
-        if not show:
+        if skip or pacer.behind(frame_i):
             continue
+        shown += 1
         canvas = _render(
             seed=seed,
             before=after,
@@ -295,12 +335,31 @@ def _play_drop_anim(
             auto_play=auto_on,
         )
         cv2.imshow(WINDOW, canvas)
-        key = cv2.waitKey(ANIM_WAIT_MS) & 0xFF
+        key = cv2.waitKey(pacer.wait_ms(frame_i)) & 0xFF
         if key == 27:
             skip = True
         elif key == ord("g") and on_toggle_auto is not None:
             on_toggle_auto()
             auto_on = not auto_on
+
+    if not skip:
+        _report_pacing(started, frame_i, shown)
+
+
+def _report_pacing(started: float, frames: int, shown: int) -> None:
+    """Report every time whether playback was real time.
+
+    To judge the speed of the physics by eye, playback first has to be honest. It used to
+    run 1.69x slower with a fixed wait, cancelling out a 2x-too-fast GRAVITY and
+    making it look 'right'. So a drift can be noticed from the numbers.
+    """
+    physics = frames * DT
+    real = time.perf_counter() - started
+    ratio = real / physics if physics > 0 else 0.0
+    print(
+        f"anim: physics {physics:.3f}s / real {real:.3f}s ({ratio:.2f}x)"
+        f"  shown {shown}/{frames} frames"
+    )
 
 
 def _render(
@@ -325,7 +384,7 @@ def _render(
     fast_forward: bool = False,
 ) -> np.ndarray:
     panel_w = int(round(NORMALIZED_WIDTH * SCALE))
-    panel_h = int(round(NORMALIZED_HEIGHT * SCALE))
+    panel_h = int(round((NORMALIZED_HEIGHT + HEADROOM) * SCALE))
     width = PAD * 2 + panel_w * 2 + GAP
     height = PAD * 2 + panel_h + HEADER + FOOTER
     canvas = np.full((height, width, 3), 36, dtype=np.uint8)
@@ -375,11 +434,17 @@ def _board_panel(
     title: str,
 ) -> np.ndarray:
     panel_w = int(round(NORMALIZED_WIDTH * SCALE))
-    panel_h = int(round(NORMALIZED_HEIGHT * SCALE))
-    img = np.full((panel_h, panel_w, 3), (45, 55, 70), dtype=np.uint8)
-    # Floor and frame
-    cv2.rectangle(img, (0, 0), (panel_w - 1, panel_h - 1), (90, 100, 120), 2)
-    danger_y = int(round(GAME_OVER_Y * SCALE))
+    panel_h = int(round((NORMALIZED_HEIGHT + HEADROOM) * SCALE))
+    img = np.full((panel_h, panel_w, 3), (32, 38, 50), dtype=np.uint8)
+    # Brighten only inside the board to tell it apart from the margin above (release position to board top).
+    top = _panel_y(0.0)
+    img[top:, :] = (45, 55, 70)
+    # Floor and frame only within the board
+    cv2.rectangle(img, (0, top), (panel_w - 1, panel_h - 1), (90, 100, 120), 2)
+    # Release height. The position where the fruit appears floating on the real machine.
+    release = _panel_y(DROP_START_Y)
+    cv2.line(img, (0, release), (panel_w - 1, release), (70, 80, 100), 1)
+    danger_y = _panel_y(GAME_OVER_Y)
     cv2.line(img, (0, danger_y), (panel_w - 1, danger_y), (40, 40, 160), 1)
 
     ax = int(round(aim_x * SCALE))
@@ -431,9 +496,14 @@ def _draw_next_preview(
     )
 
 
+def _panel_y(y: float) -> int:
+    """Convert a normalized y to a panel row. Shifted down by the top margin (HEADROOM)."""
+    return int(round((y + HEADROOM) * SCALE))
+
+
 def _draw_fruit(img: np.ndarray, fruit: Fruit) -> None:
     cx = int(round(fruit.x * SCALE))
-    cy = int(round(fruit.y * SCALE))
+    cy = _panel_y(fruit.y)
     r = max(2, int(round(fruit.radius * SCALE)))
     bgr = FRUIT_BGR[fruit.type]
     overlay = img.copy()
