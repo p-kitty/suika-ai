@@ -51,7 +51,6 @@ SWEEP_KEYS = (
     "size_order",
     "big_layout",
     "foreign_aim",
-    "variance",
 )
 
 
@@ -67,10 +66,6 @@ def _components(
     after, _merges, merge_types, held_merged = simulate_drop_held(before, drop_type, x)
     land_x, _land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
 
-    variance = pen._height_variance(after)
-    if pen._top_crown(after) < pen.DANGER_Y:
-        variance *= pen.VARIANCE_DANGER_SCALE
-
     parts = {
         "score": merge_score(merge_types),
         "bury": -pen.BURY_WEIGHT * pen._bury_penalty(after),
@@ -78,8 +73,9 @@ def _components(
         "excess_same": -pen._excess_same_penalty(after),
         "size_order": 0.0 if held_merged else -pen._size_order_penalty(after, sign),
         "big_layout": -pen._big_layout_penalty(after, sign),
-        "variance": -pen.VARIANCE_WEIGHT * variance,
         "foreign_aim": -pen.foreign_aim_penalty(before, x, drop_type, held_r),
+        # 同点をほどくだけの項だが、入れないと合計が eval と合わない。
+        "center": -pen.center_tiebreak(x),
         "valley_grow": 0.0,
     }
     if not held_merged:

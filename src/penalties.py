@@ -16,7 +16,6 @@ scripts/compare_policy.py の A/B に掛けてから。`_apply_variant` は
 from __future__ import annotations
 
 import math
-import statistics
 
 from .vision.classify import fruit_radius
 from .vision.colors import MAX_FRUIT_TYPE
@@ -30,6 +29,13 @@ MERGE_SLACK = 18.0
 FOREIGN_AIM_CENTER_FRAC = 0.20
 # 真下の異種中心帯に着地したときの減点。
 FOREIGN_AIM_PENALTY = 100.0
+# 同点候補の順位を決めるためだけの重み。他の項が全部並ぶ局面は常態で、これが無いと
+# 勝つ手が候補 set の列挙順 = float のハッシュ順という実装詳細で決まってしまう。
+# 最小の合成点が 1.0 (cherry -> straw) なので、本物の差を覆さないよう最大でも
+# その 5 分の 1 に収める (`|x - 中央|` は高々 190 なので 0.001 で 0.19)。
+# 手の良し悪しをこれで表そうとしないこと。
+CENTER_TIEBREAK_WEIGHT = 0.001
+
 # 谷育成ボーナス (減点から引く形で入れる)。`valley_grow_ok` が成立する着地だけ。
 # 実合体より強くしない。8.0 だと grape 合体 (6 点) を蹴って非合体の谷を選んだ。
 # 2.0 で育成側に倒れ、3.0 でも合体は取り続ける (実測)。
@@ -45,12 +51,7 @@ BIG_CLUSTER_SPAN = 2
 # --- 盤面減点の重み ---
 # compare_policy の A/B がモジュール属性として差し替えるので、
 # board_penalties のローカルではなくここに置く。
-# 凸凹をどこから緩めるかの高さ。盤面が壁の内側基準になった分だけ、
-# 旧基準の 90.0 を座標変換してある。
-DANGER_Y = 70.9
 BURY_WEIGHT = 20.0
-VARIANCE_WEIGHT = 0.08
-VARIANCE_DANGER_SCALE = 0.15
 # 大実の肩に載せてよい型差の上限。パイン (8) の肩にオレンジ (4) までは許す。
 PERCH_MIN_GAP = 5
 # 肩を見る実の範囲 (最大実から何段下まで)。0 なら最大実だけ。
@@ -70,6 +71,11 @@ def ideal_x(fruit_type: int, sign: int = 1) -> float:
     return base
 
 
+def center_tiebreak(x: float) -> float:
+    """同点をほどくためだけの中央寄り減点。端の手から先に落ちる。"""
+    return CENTER_TIEBREAK_WEIGHT * abs(x - NORMALIZED_WIDTH / 2)
+
+
 def wall_gap(fruit: Fruit, sign: int) -> float:
     """大側 (sign) の壁との隙間。"""
     if sign > 0:
@@ -81,26 +87,6 @@ def is_wall_anchored(fruit: Fruit, sign: int) -> bool:
     """大側の壁に付いているか。"""
     limit = max(EDGE_ANCHOR_MIN, fruit.radius * EDGE_ANCHOR_FRAC)
     return wall_gap(fruit, sign) <= limit
-
-
-def _top_crown(fruits: list[Fruit]) -> float:
-    """一番上の頭頂 y。空なら床。"""
-    if not fruits:
-        return float(NORMALIZED_HEIGHT)
-    return min(f.y - f.radius for f in fruits)
-
-
-def _height_variance(fruits: list[Fruit]) -> float:
-    """列ビンごとの頭頂のばらつき。空なら 0。"""
-    flat_bin = 40.0
-    bins: dict[int, float] = {}
-    for fruit in fruits:
-        key = int(fruit.x // flat_bin)
-        top = fruit.y - fruit.radius
-        bins[key] = min(bins.get(key, float(NORMALIZED_HEIGHT)), top)
-    if len(bins) < 2:
-        return 0.0
-    return float(statistics.pstdev(list(bins.values())))
 
 
 def _straight_fall_contact(
@@ -227,7 +213,7 @@ def valley_grow_ok(
 def board_penalties(
     fruits: list[Fruit], *, sign: int = 1, exempt_size_order: bool = False
 ) -> float:
-    """落としたあとの盤面減点（埋め込み・肩乗り・同種過多・サイズ順・大寄せ・凸凹）。
+    """落としたあとの盤面減点（埋め込み・肩乗り・同種過多・サイズ順・大寄せ）。
 
     exempt_size_order: held がこの手で合体したとき True。合体の反動で
     弾かれた無関係の実まで大小順違反として減点しない (`policy._evaluate_drop` 参照)。
@@ -239,10 +225,6 @@ def board_penalties(
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
     penalty += _big_layout_penalty(fruits, sign)
-    variance = _height_variance(fruits)
-    if _top_crown(fruits) < DANGER_Y:
-        variance *= VARIANCE_DANGER_SCALE
-    penalty += VARIANCE_WEIGHT * variance
     return penalty
 
 

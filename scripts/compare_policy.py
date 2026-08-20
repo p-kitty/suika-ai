@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import secrets
 import sys
 import time
@@ -58,22 +57,7 @@ def _apply_variant(enabled: bool) -> None:
     例:
         from src import penalties
         penalties.BURY_WEIGHT = 30.0 if enabled else 20.0
-
-    いまは「その項が要るか」の除去実験。長い実行の最中に file を書き換えると
-    走っている側に影響しうるので、どの項を切るかは環境変数 AB_ABLATE で選ぶ。
     """
-    if not enabled:
-        return
-    from src import penalties
-
-    term = os.environ.get("AB_ABLATE", "")
-    if term == "variance":
-        penalties.VARIANCE_WEIGHT = 0.0
-    elif term == "excess_same":
-        # 重み 20.0 は関数のローカルなので、関数ごと差し替えて切る。
-        penalties._excess_same_penalty = lambda fruits: 0.0
-    else:
-        raise SystemExit(f"AB_ABLATE が未設定か不正: {term!r}")
 
 
 def _episode(
