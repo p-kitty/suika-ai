@@ -2,11 +2,14 @@
 
 用法:
   python scripts/train_sim.py bc
-  python scripts/train_sim.py bc --max-steps 300 --episodes 100
+  python scripts/train_sim.py bc --max-steps 400 --episodes 100
   python scripts/train_sim.py rl
   python scripts/train_sim.py rl --load artifacts/policy_sim.npz
 
-max-steps は打ち切り上限 (負けラインではない)。
+max-steps は打ち切り上限 (負けラインではない)。自然終了は中央 234 / 最大 320 手なので、
+既定の 400 では打ち切られない。学習では打ち切りが報告の偏りでは済まず、REINFORCE の
+リターンそのものが欠けた値になるので、ここを下げるときは NOTES の
+「測定のしかた」を読んでから。
 """
 
 from __future__ import annotations
@@ -247,7 +250,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="mode", required=True)
 
     bc = sub.add_parser("bc", help="教師収集 + BC")
-    bc.add_argument("--max-steps", type=int, default=300, help="手数上限 (既定 300)")
+    bc.add_argument("--max-steps", type=int, default=400, help="手数上限 (既定 400)")
     bc.add_argument("--seed", type=int, default=0)
     bc.add_argument(
         "--episodes",
@@ -277,7 +280,7 @@ def _build_parser() -> argparse.ArgumentParser:
     tune_bc.add_argument("--batch-size", type=int, default=64)
 
     rl = sub.add_parser("rl", help="BC 済み npz から REINFORCE")
-    rl.add_argument("--max-steps", type=int, default=300, help="手数上限 (既定 300)")
+    rl.add_argument("--max-steps", type=int, default=400, help="手数上限 (既定 400)")
     rl.add_argument("--seed", type=int, default=0)
     rl.add_argument(
         "--load",
