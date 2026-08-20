@@ -245,6 +245,8 @@ def _evaluate_drop(
     # FOREIGN_AIM looks at 'is the fruit directly below a different type', not merges.
     # A same type directly below is OK (waiting to merge). Rolling off a different type and merging on the floor is still penalized.
     penalties += pen.foreign_aim_penalty(before, x, drop_type, held_r)
+    # A term only for breaking ties. It decides the order when every term above ties.
+    penalties += pen.center_tiebreak(x)
     if not held_merged:
         # Valley growing. Among non-merging moves, choose landings in valleys likely to grow.
         # Merging moves get the real-game score, so it is not added to them.

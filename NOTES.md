@@ -248,7 +248,9 @@ The noise is derived deterministically from the board, so it stays reproducible)
 | max_type | 9.02 | 9.03 | +0.2% | +0.20 |
 
 win/loss 68/65, paired difference −6.6 (SD of the difference 582). **Choosing at random inside the band loses
-nothing is lost.** The current tie-break (the third decimal of bumpiness) does no work.
+nothing.** The tie-break of the time (the third decimal of bumpiness) was doing no work and was later
+[retired](#retired-bumpiness-height-variance-2026-08-21). What decides the order inside the band now is
+`center_tiebreak`, but **given this result, do not look for meaning in that ordering.**
 
 **The framing "the plateau is a defect" was wrong.** The candidates in the band really do lead to
 equally good futures. The policy correctly recognized "these moves are equivalent";
@@ -350,7 +352,8 @@ x0.0 is with that term cut.
   `foreign_aim` stays at 0.2% or less at both 0.5x and 2x; the weight 100.0 is so large that
   candidates it applies to are out of contention from the start
 - **`variance` moves 58.2% for 12.9%, `big_layout` moves 18.5% for 5.7%.**
-  continuous quantities only swap candidates inside the band
+  Continuous quantities only swap candidates inside the band (`variance` was
+  [retired](#retired-bumpiness-height-variance-2026-08-21) with this table as one reason. The table is kept as measured at the time)
 - **`excess_same` gives only 3.3% even when cut.** Despite being a heavy penalty of 20.0 for 3+ of the same type,
   it barely decides the chosen move. It likely saturates by taking the same value for most candidates
   (the same shape as "discrete quantities saturate" in [What the band actually looks like](#what-the-band-actually-looks-like))
@@ -407,21 +410,10 @@ the sum of sub-terms was checked to match the real eval on every position).
 | big_layout corner pocket / not close enough | 0.00 | 83.5% / 85.0% |
 | everything else | 0.00 | 99.7-100% |
 
-**`_height_variance` is a de facto tie-breaker.** It differs between candidates in every position (flat 0.0%),
-while everything else is nearly 100% flat inside the band. The only backup is the ideal part of `size_order`, which works in only 44%
-of bands. **Read it not as "a weak flattening term that cannot escape the band" but as "the term that decides
-the move after everything else ties"**. When [Settled](#settled-the-tie-band-really-is-indifferent-2026-08-19) above
-wrote "the current tie-break does no work", it meant this term.
-
-**`VARIANCE_WEIGHT = 0.08` is not a measured value.** `_height_variance`
-came in meant to replace the per-move landing height penalty (`(DANGER_Y − crown) × 3.0`) with "the bumpiness of the whole board",
-with an original weight of **1.2**. In the commit that switched eval's basis from the home-made `MERGE_SCORE = 140.0`
-to the real game's merge points, all weights were rescaled at once, and it went
-**1.2 → 0.08** (1/15). In the same commit bury went 90.0 → 20.0 (1/4.5), so
-**bumpiness alone was crushed more than 3x harder**. Moreover the explicit tie-break term of the time
-(`|x − center| × 0.05`, commented "center on ties") disappeared in a later refactor,
-and **the crushed bumpiness took over that role without anyone assigning it**, which is the current state.
-"x4 is null so there is no reason to move 0.08" does not mean 0.08 is right.
+**A term that can make a difference inside the band works as a de facto tie-breaker.** At the time of this measurement,
+bumpiness (`_height_variance`), which played that role, was
+[retired](#retired-bumpiness-height-variance-2026-08-21). The bumpiness rows remain in the two tables above because
+the retirement decision came from this measurement. Now `center_tiebreak` carries that role explicitly.
 
 ## In progress: big draws and ladders after the floor fills
 
@@ -506,6 +498,43 @@ the orange side was already correct and only dekopon (diameter 59.6) was off.
   A change that fixes a wrong premise; it makes no claim of moving the score
 
 ## Rules tried and reverted or retired
+
+### Retired: bumpiness (height variance)(2026-08-21)
+
+**Trigger**: "I think this term was for stabilizing on the real machine. Now it just needs to be strong in the sim".
+
+**Measured**: an A/B with `VARIANCE_WEIGHT = 0.0` (term cut), n=100, `--max-steps 400`,
+0 truncated (`dead` is 100/100 for both A and B, so no discount needed).
+
+| Metric | A (with bumpiness) | B (cut) | Δ | t | 95% CI |
+|---|---|---|---|---|---|
+| score | 2312.42 | 2346.60 | +1.5% | 0.53 | [−94.5, +162.8] |
+| steps | 236.8 | 239.1 | +1.0% | 0.45 | |
+| merges | 214.0 | 216.5 | +1.2% | 0.46 | |
+| cascades | 22.00 | 22.22 | +1.0% | 0.30 | |
+| max_type | 9.23 | 9.28 | +0.5% | 0.71 | |
+
+win/loss 52/48, paired difference +34.2 (SD of the difference=648.1). **Every metric's CI crosses 0.**
+If anything the sign favors cutting it. → deleted.
+
+**Why it did not work**: it was a continuous quantity that could only move inside the band
+(→[Split composite terms into sub-terms](#split-composite-terms-into-sub-terms-2026-08-21)). This term
+came in meant to look at "the bumpiness of the whole board", with an original weight of **1.2**. In the commit that switched eval's basis
+from the home-made `MERGE_SCORE = 140.0` to the real game's merge points, all weights were rescaled at once,
+and it went **1.2 → 0.08** (1/15. In the same commit bury went 90.0 → 20.0 = 1/4.5,
+so bumpiness alone was crushed more than 3x harder). **0.08 is not a measured value.**
+Having lost the strength to do its flattening job, it remained only as a term deciding the ranking inside the band.
+
+**Taken along**: `DANGER_Y` and `_top_crown` were only used to relax bumpiness, so they were deleted together
+(`DANGER_Y` "kept as the threshold relaxing bumpiness" was written in
+[Replaced the dangerous height slope with a filter](#replaced-the-dangerous-height-slope-with-a-filter-2026-08-20)).
+
+**Added as a replacement**: `center_tiebreak`. With bumpiness removed, exact ties become the norm,
+and left alone the winning move would be decided by an implementation detail: the candidate set enumeration order = float hash order.
+**Since the inside of the band is settled as indifferent it does not affect score**, but
+an explicit order is placed for trace reproducibility. The weight is 0.001 (max 0.19) so it does not exceed the smallest merge score of 1.0.
+**Do not make this term express how good a move is** — making it stronger adds
+yet another term that only moves inside the band.
 
 ### Replaced the dangerous height slope with a filter (2026-08-20)
 
@@ -840,6 +869,7 @@ is not overriding size order and trapping. The basis is
 |---|---|---|---|
 | directly above a different type | `foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
 | valley-growing bonus | `valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type | **−3.0** (the only bonus in this table) |
+| center tie-break | `center_tiebreak` | distance between the drop column and the center. **A term only for ordering**, it does not express how good a move is | `CENTER_TIEBREAK_WEIGHT` 0.001 (max 0.19 < minimum merge score 1.0) |
 
 The valley-growing bonus applies **only when held itself did not merge** (`held_merged`, not the merge count
 `merges`, so that an unrelated merge elsewhere on the board does not grant the exemption).
@@ -853,7 +883,6 @@ The valley-growing bonus applies **only when held itself did not merge** (`held_
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
 | size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left on the board** are exempt = `_size_order_exempt`). **Exempt on moves where held merged** | pair difference×1.5 + ideal_x deviation×0.004 |
 | big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough (exempt for the diameter of the missing type in between) | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) (gap−diameter of the missing type)×0.025×size factor |
-| bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by `VARIANCE_DANGER_SCALE` 0.15 when the crown is above `DANGER_Y`(70.9)) | variance× `VARIANCE_WEIGHT` 0.08 |
 
 **Not a penalty: the lethal-move filter (`choose_x`)**
 
