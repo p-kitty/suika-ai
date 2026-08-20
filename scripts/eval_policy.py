@@ -172,6 +172,15 @@ def main() -> None:
         f"median={statistics.median(steps):.1f}  max={max(steps):.0f}  "
         f"打ち切り={truncated}/{len(rows)}"
     )
+    # 上限を決めるのに要るのは平均ではなく裾。打ち切られるのは伸びた対局なので、
+    # 「この上限だと何割切れるか」は分位点をそのまま読めばよい (打ち切りが 0 の
+    # 実行なら、任意の上限に対する打ち切り率がこの 1 回から出る)。
+    tail = sorted(steps)
+    marks = " ".join(
+        f"p{int(q * 100)}={tail[min(len(tail) - 1, int(q * len(tail)))]:.0f}"
+        for q in (0.5, 0.9, 0.95, 0.99)
+    )
+    print(f"steps  {marks}")
     print(f"score  mean={statistics.mean(scores):.2f}")
     print(f"merges mean={statistics.mean(merges):.1f}")
     print(f"max_type mean={statistics.mean(max_types):.2f}  best={max(max_types):.0f}")
