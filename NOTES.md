@@ -34,6 +34,49 @@ Only the symptoms found and their diagnoses are kept here.
 diverge before that move, so the same move number points to the same position only before the change. To check whether it was fixed,
 do not play through; replay the pre-change moves up to that position and compare there.
 
+### Status: one game after the fall calibration (2026-08-20)
+
+After calibrating `GRAVITY`, seed 642746 **dies at move 209** (269 moves before calibration).
+The following are deterministic quantities of this one game, not score.
+
+- **The cause of death is being stuck, not suicide.** 10 positions contain at least one lethal candidate, but
+  **there are 0 moves where a lethal move was chosen while a surviving move existed**. At the last move, 209, all 37 candidates are lethal
+- **Getting stuck comes in one move.** Surviving candidates go 51/56 at move 207 → 50/61 at 208 → **0/37** at 209.
+  Before calibration they were whittled down over 10 moves; now there is slack right up to the end and then a sudden drop
+
+### Won't do: deepen the lethal filter to two plies (2026-08-20)
+
+The idea of discarding, before eval, surviving candidates where "wherever next is dropped, the game dies". On the game above,
+**of 10 dangerous positions, 0 have candidates split by being stuck on the second move**.
+At move 208, **all 50 surviving candidates are stuck on the second move**, so there is no room to choose at all.
+
+The board drops from "50 surviving candidates" to "all 50 are dead ends" in one move, so
+**the branching point is 3 or more moves earlier and in principle invisible to a two-move lookahead**.
+The cost is running every x of next per candidate (over 30x the search), so it does not pay even if limited to dangerous positions.
+
+*The physics before calibration gave the same conclusion (only 2 of 20 dangerous positions split,
+and in both the chosen move was not on the stuck side).*
+
+### Measuring fruits that never merge (fossils) (2026-08-20)
+
+`scripts/fossils.py`. Gives each fruit an id and counts the moves until it merges away.
+On seed 642746 (209 moves), **253 fruits are born, with median age 3 moves**. However,
+**12 (4.7%) stay 50 moves or more**. Classified by the gap above them (in fruit-moves):
+
+| age | touch | near | far | none | partner on board |
+|---|---|---|---|---|---|
+| 0-5 | 2.0% | 0.0% | 0.0% | **98.0%** | 58.2% |
+| 5-20 | 13.6% | 3.9% | 1.8% | 80.7% | 58.1% |
+| 20-50 | 11.9% | 20.1% | 6.6% | 61.3% | 58.8% |
+| **50+** | **46.6%** | 16.9% | 2.7% | 33.8% | **66.1%** |
+
+- **Short-lived fruits have nothing above them 98% of the time.** Having a roof clearly correlates with staying
+- **Fruits that stay have a partner on the board in 66.1% of moves.** They are missed merges, not waiting merges.
+  This is the supply-side hole in "merging cannot keep up with supply" (→[scattered low tiers late](#investigated-sudden-death-from-scattered-low-tier-fruits-late-in-the-game))
+  a supply-side hole, **not yet addressed**
+- **The numbers are diagnostics and must not be the basis for choosing a weight**
+  (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
+
 ### Measured when adding a new term: perch (2026-08-20)
 
 **Symptom**: on a board that has grown a pineapple + pear, cherries and strawberries are placed on top of that pile.
@@ -125,9 +168,12 @@ The basis for keeping the rule is still the per-position quantities above and th
 - Friction between fruits seems low: fruits slide in far more than in the real game.
 
 **Training pipeline**
-- Training episode length: raise `max_steps` and lower `episodes` (fewer, longer games).
-  The default in `train_sim.py` is 300 (measured natural ends are median 210 moves and max 311, so
-  about 2% are truncated. 320 for 0%)
+- Training episode length: the default `max_steps=300` of `train_sim.py`, against post-calibration measurements
+  (median 234 / p95 303 / max 320 moves, →[How to measure](#how-to-measure-traps-we-keep-stepping-in)),
+  **truncates 5-10%**. **In training it is not merely a reporting bias: the REINFORCE
+  return itself comes out missing**, so set it to 400 to match the other scripts.
+  The cost barely rises (games over 300 are under 10% and the longest is 320, so
+  removing the cap extends by at most 2 moves on average)
 
 ## How to measure (traps we keep stepping in)
 
@@ -159,10 +205,15 @@ got buried here. Read this section before reporting numbers.
   Removing the confound with a fixed number of moves gives r = 0.00-0.12, uncorrelated (compare: `steps` r=0.95,
   `cascades` r=0.76). **Use it only as a per-move difference, "how much did one move dirty the board"**
 - **Discount the numbers when truncation happens.** Truncated games are the ones that went long, so
-  the better the change the more it is underestimated. Natural ends over 200 measured runs: mean 213 / median 210 / max 311 moves.
-  `--max-steps` **truncates 0% at 320 or more**; the default is 400. At 200 it is 64%,
+  the better the change the more it is underestimated. **Natural game ends retaken after the fall calibration, n=60:
+  mean 239 / median 234 / p90 290 / p95 303 / max 320 moves** (`eval_policy.py
+  --max-steps 400` gives `truncated=0/60`). `--max-steps` truncates **0% at 320,
+  5-10% at 300** (p95=303). The default 400 stays. At 200 it is 64%,
   **at 100, 100% are truncated** (the 08-03 accident was this). `compare_policy.py`
   warns if even one is truncated
+  - Setting the cap needs the tail, not the mean, so `eval_policy.py` also prints quantiles.
+    **With one run that has zero truncations, the truncation rate for any cap can be read from it**
+    (do not rerun per cap)
 - **Do not stratify by the outcome and compare the same outcome (regression to the mean).** Splitting into top/bottom by A's score
   and comparing A with B always shows "the top got worse, the bottom improved".
   To compare distributions, compare quantiles directly
@@ -276,24 +327,34 @@ is an example ([measured](#measured-when-adding-a-new-term-perch-2026-08-20)).
 
 ### The existing weights have no leverage
 
-What decides which candidates enter the band is the large terms, so their weights were swept
-(428 positions, `--eps 0.1`). **Fraction escaping the band:**
+What decides which candidates enter the band is the large terms, so their weights were swept.
+Below was retaken **after the fall calibration** (459 positions, 6 seeds, `--eps 0.1`, median band size 6).
+x0.0 is with that term cut.
 
-| Term | x0.5 | x1.5 | x2.0 |
-|---|---|---|---|
-| bury | 0.9% | 0.9% | 1.6% |
-| excess_same | 0.5% | 1.2% | 1.9% |
-| size_order | **3.0%** | 1.2% | 1.9% |
-| big_layout | 0.5% | 0.2% | 0.2% |
-| foreign_aim | **0.0%** | **0.0%** | **0.0%** |
+| Term | x0.0 moves change | x0.0 outside the band | x0.5 | x1.5 | x2.0 |
+|---|---|---|---|---|---|
+| perch | 27.7% | **27.7%** | 4.8% | 4.1% | 6.1% |
+| bury | 17.2% | **17.2%** | 4.4% | 3.3% | 5.7% |
+| foreign_aim | 16.1% | **16.1%** | 0.2% | 0.0% | 0.0% |
+| size_order | 15.9% | 14.8% | 4.1% | 2.4% | 3.9% |
+| variance | 58.2% | 12.9% | 0.4% | 0.4% | 1.1% |
+| big_layout | 18.5% | 5.7% | 0.7% | 0.4% | 0.9% |
+| excess_same | 3.3% | 3.3% | 1.1% | 0.2% | 0.9% |
 
-It reproduces with every term at 2.8% or less on 3 independent seeds (176 positions).
-
-- **The maximum is 3.0% from halving size_order.** Even `drop_ideal`, which changed 50% of moves, was
-  null at n=133, so measuring 3% finds nothing
-- **`foreign_aim` does not change a single move at 0.5x or 2x.** The weight 100.0 is so large that
-  candidates it applies to are out of contention from the start. Effectively a binary "applies or not" filter
-- **`big_layout` changes 5.1% of moves but only 0.2% escape the band**
+- **There is still no leverage on the weight-tuning side** (at most 6.1%). Even
+  `drop_ideal`, which changed 50% of moves, was null at n=133, so measuring this range finds nothing
+- **The 3 terms that work (perch, bury, foreign_aim) all have "moves change = escapes the band".**
+  That they act as binary filters of applies-or-not also shows from the cutting side.
+  `foreign_aim` stays at 0.2% or less at both 0.5x and 2x; the weight 100.0 is so large that
+  candidates it applies to are out of contention from the start
+- **`variance` moves 58.2% for 12.9%, `big_layout` moves 18.5% for 5.7%.**
+  continuous quantities only swap candidates inside the band
+- **`excess_same` gives only 3.3% even when cut.** Despite being a heavy penalty of 20.0 for 3+ of the same type,
+  it barely decides the chosen move. It likely saturates by taking the same value for most candidates
+  (the same shape as "discrete quantities saturate" in [What the band actually looks like](#what-the-band-actually-looks-like))
+- **This table keeps its order and structure across the calibration that halved gravity (GRAVITY 2800 → 1400).**
+  Before calibration it was perch 28.3 / foreign_aim 21.3 / bury 20.6 / big_layout 2.1 /
+  excess_same 1.5%, so **whether there is leverage is decided by the shape of the policy, not by the physics**
 
 **Conclusion: bootstrap is somewhere weight tuning cannot get out of.**
 The inside of the band is indifferent, the weights deciding who enters the band have no leverage, new count terms do not move
@@ -606,6 +667,16 @@ so **this retirement alone remains unmeasured**.
   and **`choose_x` is deterministic, so the spread of score between seeds is 100% draw-order luck**
   (n=24, mean 2012, SD 332). Picking the top means learning "how it played when lucky".
   If done at all the order is reversed: first make `src/training/encode.py` candidate-conditioned
+- **Widening bury's vertical window to the partner's diameter** (`0.6r` → `2r`): **6.1%** escape the band,
+  in the null zone. Per position, agreement is 89.9%, and in the 24 changed cases the intended misses halve but
+  **ordinary burying increases** (the band escape of `bury` itself drops from 20.6% → 14.7% = it just took over
+  the work). **And after calibration the premise disappeared**: the fraction of fossils under a touching roof went
+  from 21% → 46.6%, so the current window already sees them. *Measured before calibration*
+- **Measuring big-fruit proximity by center distance instead of x gap**: the cluster term reads vertically stacked pairs as
+  "gap 0" (17% of same-type big-fruit pairs are this shape). Fixing it gives 5x the value late in the game, but **it changes 16.0% of moves
+  and escapes the band 1.4%**, and 0.0% when the weight is tuned. The same shape as `big_layout` itself:
+  **as long as it is continuous it only swaps inside the band**. To make it work, it has to be not a distance but
+  a binary condition "does this move split a big-fruit pair". *Measured before calibration*
 
 ## Investigated: sudden death from scattered low-tier fruits late in the game
 
