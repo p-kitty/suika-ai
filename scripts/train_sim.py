@@ -2,11 +2,14 @@
 
 Usage:
   python scripts/train_sim.py bc
-  python scripts/train_sim.py bc --max-steps 300 --episodes 100
+  python scripts/train_sim.py bc --max-steps 400 --episodes 100
   python scripts/train_sim.py rl
   python scripts/train_sim.py rl --load artifacts/policy_sim.npz
 
-max-steps is a truncation cap (not the losing line).
+max-steps is a truncation cap (not the losing line). Natural ends are median 234 / max 320 moves, so
+the default 400 does not truncate. In training, truncation does not merely bias the report: the REINFORCE
+return itself comes out missing, so before lowering this read
+'How to measure' in NOTES.
 """
 
 from __future__ import annotations
@@ -247,7 +250,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="mode", required=True)
 
     bc = sub.add_parser("bc", help="teacher collection + BC")
-    bc.add_argument("--max-steps", type=int, default=300, help="move cap (default 300)")
+    bc.add_argument("--max-steps", type=int, default=400, help="move cap (default 400)")
     bc.add_argument("--seed", type=int, default=0)
     bc.add_argument(
         "--episodes",
@@ -277,7 +280,7 @@ def _build_parser() -> argparse.ArgumentParser:
     tune_bc.add_argument("--batch-size", type=int, default=64)
 
     rl = sub.add_parser("rl", help="REINFORCE from a BC npz")
-    rl.add_argument("--max-steps", type=int, default=300, help="move cap (default 300)")
+    rl.add_argument("--max-steps", type=int, default=400, help="move cap (default 400)")
     rl.add_argument("--seed", type=int, default=0)
     rl.add_argument(
         "--load",
