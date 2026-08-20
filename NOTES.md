@@ -34,41 +34,7 @@ Only the symptoms found and their diagnoses are kept here.
 diverge before that move, so the same move number points to the same position only before the change. To check whether it was fixed,
 do not play through; replay the pre-change moves up to that position and compare there.
 
-### Resolved: moves 52 and 45 (2026-08-19)
-
-**Move 52 — knocking the pineapple out of the corner.** The cause was `packed_small_side_penalty`, resolved by
-deleting it (→[Retired: packed_small_side_penalty](#retired-packed_small_side_penalty-2026-08-19)).
-
-**Move 45 — burying a grape by putting an orange on it.** With packed removed, this one appeared instead.
-The board is `peach@69 pear@192 dekopon@273 grape@329 cherry@384`, held=orange.
-
-- The chosen x=312 makes the orange **sit on both the dekopon and the grape at once**
-  (vertical gaps −14.2 / −7.4 = sinking into contact)
-- **Yet `bury` is 0.00 for every candidate.** Against sideways offsets of 41.7 / 30.0, the window is
-  only `under.radius * 0.9` = 26.8 / 23.8
-- **The smaller the lower fruit, the narrower the window.** The shape we most want to crush, "burying a small fruit with a big one",
-  escaped detection the more it was that shape: a definition working against its intent
-- Fixing the window to `(under.radius + over.radius) * 0.9` gives 61.5 / 58.5 and detects both.
-  x=312 drops out of the top 10 and it picks x=96, which buries nothing
-
-**Comparison on 125 positions / 5 seeds:**
-
-| Configuration | agreement with master | total buried fruits |
-|---|---|---|
-| master (with packed, old bury) | (baseline) | 15 |
-| no packed, old bury | 95.2% | 18 |
-| with packed, new bury | 78.4% | 12 |
-| **no packed, new bury (adopted)** | **76.8%** | **13** |
-
-- Fixing the bury window cuts burying by 20%, from 15 → 12. But **21.6% of moves change**
-  (over 4x the 4.8% of deleting packed). A larger footprint than any existing intervention
-- packed still slightly reduces burying even with the new bury (12 vs 13). Not a complete replacement
-- **What looked like "0 buried" over one game of 80 moves was a chance board after divergence; 13 remain over 125 positions.**
-  The lesson not to read structural metrics from a single playthrough was stepped on here too
-- **Score was not measured.** "Total buried fruits" is a home-made structural metric not validated against score, and
-  weights must not be chosen on its basis (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
-
-### Resolved: putting small fruits on a big fruit's shoulder (2026-08-20)
+### Measured when adding a new term: perch (2026-08-20)
 
 **Symptom**: on a board that has grown a pineapple + pear, cherries and strawberries are placed on top of that pile.
 A small fruit once placed there stays 20+ moves without meeting a partner (the same fruit sits on the pineapple at moves 97-101
@@ -127,10 +93,6 @@ and tuning the weight (x0.5-x2.0) moves only the usual 3-4%.
 As [The existing weights have no leverage](#the-existing-weights-have-no-leverage) concluded, what worked
 was not the weight but **the definition of what counts as a penalty**.
 
-The full playthrough of seed 642746 (at w=8.0) went 1783 → 2186 / 191 → 234 moves, but
-changing a move makes the board diverge completely, so **this is not evidence**
-(→[How to measure](#how-to-measure-traps-we-keep-stepping-in)).
-
 **A/B n=10 (seed 956314-, max_steps=400, A=no perch / B=with perch)**:
 
 | Metric | A | B | Δ | t |
@@ -153,16 +115,6 @@ paired SD=582.0, n=130 needed to speak to ±100 points), and the seed head-to-he
 
 **How to read it**: n=10 only detects a large collapse, and none appeared. It is not evidence of improvement either.
 The basis for keeping the rule is still the per-position quantities above and the fraction escaping the band.
-
-### Reference: move 224 is a different kind despite the same "orange toward the pineapple"
-
-The board is `apple@51 pineapple@78 melon@97 … pineapple@265 peach@331`. It chose x=72, but
-**the top 12 candidates form a perfect tie band 0.0056 wide** (wherever it drops, it rolls and
-merges with `orange@287`, so the real-game score ties at 15, and `packed`/`foreign_aim`/`bury` are
-zero for every candidate, saturated. The only difference left is the ideal_x part of `_size_order_penalty`,
-with 0.0013 between 1st and 2nd). **This was not chosen but merely picked from the band by order**, so
-tuning weights does not fix it (→[Settled](#settled-the-tie-band-really-is-indifferent-2026-08-19)).
-The same-looking blunder needs a different remedy from move 52, which a single term decides.
 
 ## Open tasks
 
@@ -320,7 +272,7 @@ bumpiness x4 17.5% → 7.0% in the table above verify its predictive power.
 
 **Whether a new term is worthwhile can be read from the same table.** With the term added, looking at `x0.0` (cutting that term)
 puts it on the same footing as the existing weights. The measurement when adding `_perch_penalty`
-The [measurement](#resolved-putting-small-fruits-on-a-big-fruits-shoulder-2026-08-20) is an example.
+is an example ([measured](#measured-when-adding-a-new-term-perch-2026-08-20)).
 
 ### The existing weights have no leverage
 

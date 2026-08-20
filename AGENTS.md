@@ -24,6 +24,19 @@ Where things go when unsure:
 
 If you feel like writing details in AGENTS.md, do not; link to a NOTES.md section instead.
 
+### Do not only append to NOTES.md
+
+The bar for keeping something is "**does it stop the next person who starts down the same road**".
+
+- **Keep** … what investigation showed, measured numbers, **failures likely to recur**. Ideas that had no effect,
+  traps stepped in, reasons for deciding against something. Without these the same experiment gets run twice
+- **Delete** … **problems that are settled and will not come back**. Investigation history of fixed bugs, reverted ideas
+  no one will bring back, old text that contradicts the current implementation. The history stays in commit messages and `git log`,
+  so it may be removed from NOTES.md
+
+If closed problems keep piling up, NOTES.md grows without bound and the crucial "do not step here"
+gets buried. **When adding a section, check at the same time for sections that have served their purpose.**
+
 [CLAUDE.md](CLAUDE.md) is the file Claude Code reads automatically; its content is a single line that
 loads AGENTS.md. **It is an entry point, not a place to put things.**
 
