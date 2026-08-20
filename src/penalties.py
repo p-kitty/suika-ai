@@ -47,6 +47,9 @@ EDGE_ANCHOR_FRAC = 0.35
 
 # 「大きい実の塊」とみなす最大実からの段数。
 BIG_CLUSTER_SPAN = 2
+# 大実どうしが離れていることへの減点。角ポケット (`under_l_weight`) とは
+# 別の規則で、こちらは連続量。
+BIG_CLUSTER_WEIGHT = 0.025
 
 # --- 盤面減点の重み ---
 # compare_policy の A/B がモジュール属性として差し替えるので、
@@ -238,7 +241,6 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
         return 0.0
     max_t = max(fruit.type for fruit in fruits)
 
-    cluster_weight = 0.025
     under_l_weight = 50.0
     big_min = max(0, max_t - BIG_CLUSTER_SPAN)
     large_left = sign > 0
@@ -283,7 +285,7 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
             continue
         gap = min(gap, left.radius + right.radius)
         size = 0.5 + 0.05 * (left.type + right.type)
-        penalty += cluster_weight * gap * size
+        penalty += BIG_CLUSTER_WEIGHT * gap * size
     return penalty
 
 
