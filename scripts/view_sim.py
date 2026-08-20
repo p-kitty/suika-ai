@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -40,9 +41,9 @@ from src.observe import clamp_drop_x
 from src.policy import choose_x, drop_scores
 from src.reward import GAME_OVER_Y
 from src.sim.sim_env import SimEnv
-from src.sim.sim_physics import DT, iter_simulate_drop, land_y
+from src.sim.sim_physics import DROP_START_Y, DT, iter_simulate_drop, land_y
 from src.vision.classify import fruit_radius
-from src.vision.colors import FRUIT_NAMES
+from src.vision.colors import FRUIT_NAMES, SPAWN_MAX_TYPE
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
 
@@ -51,12 +52,48 @@ GAP = 20
 HEADER = 72
 FOOTER = 56
 NEXT_PREVIEW_R = 18
-# 物理 1 ステップあたりの表示。1 なら実時間、2 なら 2x。
-ANIM_STRIDE = 1
-ANIM_WAIT_MS = max(1, int(round(1000.0 * DT / ANIM_STRIDE)))
+# 落下アニメの再生速度。1.0 で実機と同じ速さ、2.0 で 2 倍速。
+ANIM_SPEED = 1.0
+# 盤の上に足す余白。実は DROP_START_Y から落ちるので、盤 (y 0..500) だけ映すと
+# 落下の頭 35〜39% が画面の外で終わる。静止から加速する部分が見えず、すでに
+# 500px/s 前後になった状態で上端に現れるので、物理が合っていても速く見える。
+# 実機は放す位置に実が浮いて見えているので、そこを揃える。
+HEADROOM = abs(DROP_START_Y) + fruit_radius(SPAWN_MAX_TYPE) + 2.0
 WINDOW = "suika-ai sim"
 # main で画面サイズに合わせて入れる。
 SCALE = 1.5
+
+
+class _Pacer:
+    """物理の時刻どおりに再生する。描画が間に合わないぶんはフレームを捨てる。
+
+    固定待ち (`cv2.waitKey(1000*DT)`) だと、その手前の `_render` にかかる時間が
+    まるごと上乗せになる。実測で `_render` が 11.2ms、待ちが 17ms で、1 フレーム
+    28.2ms かけて物理 16.7ms ぶんしか進まない = 実時間の 1.69 倍おそい。
+
+    これは見た目の問題では済まない。GRAVITY を実測値 (1400) に直したとき、
+    物理は実機と 5% 差まで合っているのに画面では 1.6 倍おそく見えた。逆に
+    2 倍速すぎた 2800 は、この 1.69 倍と打ち消し合って「合っている」ように
+    見えていた。**再生が実時間でないと、物理の速さを目で判定できない。**
+    """
+
+    __slots__ = ("speed", "start")
+
+    def __init__(self, speed: float) -> None:
+        self.speed = speed
+        self.start = time.perf_counter()
+
+    def _deadline(self, frame: int) -> float:
+        return self.start + frame * DT / self.speed
+
+    def behind(self, frame: int) -> bool:
+        """1 フレーム以上遅れているか。描画を飛ばして物理だけ進める。"""
+        return time.perf_counter() > self._deadline(frame) + DT / self.speed
+
+    def wait_ms(self, frame: int) -> int:
+        """次のフレームの時刻まで待つ ms。cv2.waitKey は 1 以上を要る。"""
+        remaining = self._deadline(frame) - time.perf_counter()
+        return max(1, int(round(remaining * 1000.0)))
 
 
 def _fit_scale(max_scale: float = 2.0) -> float:
@@ -72,7 +109,7 @@ def _fit_scale(max_scale: float = 2.0) -> float:
     # タイトルバー・タスクバーぶんを空ける。
     max_w = max(640, screen_w - 48)
     max_h = max(480, screen_h - 96)
-    scale_h = (max_h - PAD * 2 - HEADER - FOOTER) / NORMALIZED_HEIGHT
+    scale_h = (max_h - PAD * 2 - HEADER - FOOTER) / (NORMALIZED_HEIGHT + HEADROOM)
     scale_w = (max_w - PAD * 2 - GAP) / (NORMALIZED_WIDTH * 2)
     return float(max(0.8, min(max_scale, scale_h, scale_w)))
 
@@ -269,12 +306,15 @@ def _play_drop_anim(
         return
     skip = False
     frame_i = 0
+    shown = 0
     auto_on = auto_play
+    pacer = _Pacer(ANIM_SPEED)
+    started = time.perf_counter()
     for after, merges, _merge_types in iter_simulate_drop(before, held_type, drop_x):
-        show = (not skip) and (frame_i % ANIM_STRIDE == 0)
         frame_i += 1
-        if not show:
+        if skip or pacer.behind(frame_i):
             continue
+        shown += 1
         canvas = _render(
             seed=seed,
             before=after,
@@ -295,12 +335,31 @@ def _play_drop_anim(
             auto_play=auto_on,
         )
         cv2.imshow(WINDOW, canvas)
-        key = cv2.waitKey(ANIM_WAIT_MS) & 0xFF
+        key = cv2.waitKey(pacer.wait_ms(frame_i)) & 0xFF
         if key == 27:
             skip = True
         elif key == ord("g") and on_toggle_auto is not None:
             on_toggle_auto()
             auto_on = not auto_on
+
+    if not skip:
+        _report_pacing(started, frame_i, shown)
+
+
+def _report_pacing(started: float, frames: int, shown: int) -> None:
+    """再生が実時間だったかを毎回出す。
+
+    物理の速さを目で判定するには、まず再生が正直である必要がある。以前は
+    固定待ちで 1.69 倍おそく流れていて、2 倍速すぎた GRAVITY を打ち消して
+    「合っている」ように見せていた。ずれていたら数字で気づけるようにする。
+    """
+    physics = frames * DT
+    real = time.perf_counter() - started
+    ratio = real / physics if physics > 0 else 0.0
+    print(
+        f"anim: 物理 {physics:.3f}s / 実時間 {real:.3f}s ({ratio:.2f} 倍)"
+        f"  表示 {shown}/{frames} フレーム"
+    )
 
 
 def _render(
@@ -325,7 +384,7 @@ def _render(
     fast_forward: bool = False,
 ) -> np.ndarray:
     panel_w = int(round(NORMALIZED_WIDTH * SCALE))
-    panel_h = int(round(NORMALIZED_HEIGHT * SCALE))
+    panel_h = int(round((NORMALIZED_HEIGHT + HEADROOM) * SCALE))
     width = PAD * 2 + panel_w * 2 + GAP
     height = PAD * 2 + panel_h + HEADER + FOOTER
     canvas = np.full((height, width, 3), 36, dtype=np.uint8)
@@ -375,11 +434,17 @@ def _board_panel(
     title: str,
 ) -> np.ndarray:
     panel_w = int(round(NORMALIZED_WIDTH * SCALE))
-    panel_h = int(round(NORMALIZED_HEIGHT * SCALE))
-    img = np.full((panel_h, panel_w, 3), (45, 55, 70), dtype=np.uint8)
-    # 床・枠
-    cv2.rectangle(img, (0, 0), (panel_w - 1, panel_h - 1), (90, 100, 120), 2)
-    danger_y = int(round(GAME_OVER_Y * SCALE))
+    panel_h = int(round((NORMALIZED_HEIGHT + HEADROOM) * SCALE))
+    img = np.full((panel_h, panel_w, 3), (32, 38, 50), dtype=np.uint8)
+    # 盤の中だけ明るくして、上の余白 (放す位置〜盤上端) と見分ける。
+    top = _panel_y(0.0)
+    img[top:, :] = (45, 55, 70)
+    # 床・枠は盤の範囲だけ
+    cv2.rectangle(img, (0, top), (panel_w - 1, panel_h - 1), (90, 100, 120), 2)
+    # 放す高さ。実機で実が浮いて見えている位置。
+    release = _panel_y(DROP_START_Y)
+    cv2.line(img, (0, release), (panel_w - 1, release), (70, 80, 100), 1)
+    danger_y = _panel_y(GAME_OVER_Y)
     cv2.line(img, (0, danger_y), (panel_w - 1, danger_y), (40, 40, 160), 1)
 
     ax = int(round(aim_x * SCALE))
@@ -431,9 +496,14 @@ def _draw_next_preview(
     )
 
 
+def _panel_y(y: float) -> int:
+    """正規化 y をパネルの行に直す。上の余白 (HEADROOM) のぶんだけ下がる。"""
+    return int(round((y + HEADROOM) * SCALE))
+
+
 def _draw_fruit(img: np.ndarray, fruit: Fruit) -> None:
     cx = int(round(fruit.x * SCALE))
-    cy = int(round(fruit.y * SCALE))
+    cy = _panel_y(fruit.y)
     r = max(2, int(round(fruit.radius * SCALE)))
     bgr = FRUIT_BGR[fruit.type]
     overlay = img.copy()
