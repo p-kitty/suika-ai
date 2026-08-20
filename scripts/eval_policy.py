@@ -172,6 +172,15 @@ def main() -> None:
         f"median={statistics.median(steps):.1f}  max={max(steps):.0f}  "
         f"truncated={truncated}/{len(rows)}"
     )
+    # Setting the cap needs the tail, not the mean. Truncated runs are the long games, so
+    # 'what fraction is cut at this cap' can be read straight from the quantiles (from a run with 0
+    # truncations, the truncation rate for any cap comes out of this one run).
+    tail = sorted(steps)
+    marks = " ".join(
+        f"p{int(q * 100)}={tail[min(len(tail) - 1, int(q * len(tail)))]:.0f}"
+        for q in (0.5, 0.9, 0.95, 0.99)
+    )
+    print(f"steps  {marks}")
     print(f"score  mean={statistics.mean(scores):.2f}")
     print(f"merges mean={statistics.mean(merges):.1f}")
     print(f"max_type mean={statistics.mean(max_types):.2f}  best={max(max_types):.0f}")
