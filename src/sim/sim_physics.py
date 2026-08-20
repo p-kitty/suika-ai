@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import pymunk
 
 from ..vision.classify import fruit_radius
+from ..vision.held import DROP_HEIGHT
 from ..vision.colors import MAX_FRUIT_TYPE
 from ..vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from ..vision.state import Fruit
@@ -22,7 +23,19 @@ DT = 1.0 / 60.0
 SUBSTEPS = 4
 MAX_STEPS = int(4.0 / DT)
 # 下向き正 (正規化盤面と同じ)。走査の間引き (_safe_skip) が速度の伸びしろに使う。
-GRAVITY = 2800.0
+# 実機実測。放す高さを screenshots の実測 (DROP_START_Y) に固定すると、静止から
+# 放されることから v^2 = 2g(y+h) になり、sqrt(y+h) が t の直線になる。9 本で 1418、
+# ただし散らばりが撮った回で割れていて (後の 4 本 1442 / 先の 5 本 1399)、未把握の
+# 系統差が 3% ある。丸めた 1400 はその中なので、精度を装わずこちらを取る。
+# 高さは落下からではなく screenshots から取る (落下データは h=97 と h=115 を
+# 残差 1.3% でしか区別できない)。
+GRAVITY = 1400.0
+# 落下開始の中心 y。実機は実の大きさによらず一定の高さから放す。screenshots 10 枚で
+# 中心が -97.3 ± 3.9 に揃うのに対し、下端は -74.0 ± 9.6 とばらけるので中心基準。
+# 半径に比例させると盤に入る速さが大きさでずれ、見えている区間の長さが cherry
+# 1.28 倍・orange 1.09 倍と別方向に外れる。値は検出側が実測で持っているものを使う
+# (二重に持つと片方だけずれる)。
+DROP_START_Y = -DROP_HEIGHT
 # 速度だけだと遅い creep を見逃す。settle.py と同様、静穏中の変位も見る。
 SLEEP_FRAMES = 45
 SLEEP_VEL = 2.0
@@ -160,8 +173,7 @@ def iter_simulate_drop(
     space, bodies = _build_space(fruits)
     r = fruit_radius(fruit_type)
     x = max(r, min(NORMALIZED_WIDTH - r, x))
-    # 盤上端より少し上から落とす。
-    dropped = _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+    dropped = _add_fruit(space, bodies, fruit_type, x, DROP_START_Y)
     dropped.is_held_drop = True
 
     merges = 0
@@ -209,8 +221,7 @@ def simulate_drop_held(
     space, bodies = _build_space(fruits)
     r = fruit_radius(fruit_type)
     x = max(r, min(NORMALIZED_WIDTH - r, x))
-    # 盤上端より少し上から落とす。
-    dropped = _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+    dropped = _add_fruit(space, bodies, fruit_type, x, DROP_START_Y)
     dropped.is_held_drop = True
     dropped.is_held_lineage = True
 

@@ -56,6 +56,10 @@ python scripts/check_detection.py
 
 # Screen a weight change before spending hours on an A/B
 python scripts/band_escape.py
+
+# Measure the real game's fall: constant speed or accelerating?
+# (needs the game on screen; drop one fruit on an empty board)
+python scripts/measure_fall_speed.py
 ```
 
 ## Tests
@@ -91,6 +95,7 @@ scripts/
   train_sim.py
   check_detection.py
   band_escape.py        # pre-A/B screen: does a weight change escape the tied band?
+  measure_fall_speed.py # calibrate the sim's GRAVITY against the real game
 tests/                  # mirrors src/ (game/, sim/, training/, util/, vision/)
 ```
 
