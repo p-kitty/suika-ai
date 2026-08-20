@@ -7,14 +7,15 @@ The fall physics itself is in tests/test_sim_physics.py.
 
 import math
 
-from src.observe import Observation
+from src.observe import Observation, clamp_drop_x
 from src.penalties import (
     FOREIGN_AIM_CENTER_FRAC,
     FOREIGN_AIM_PENALTY,
     foreign_aim_penalty,
     ideal_x,
 )
-from src.policy import _score, choose_x
+from src.policy import _candidates, _score, choose_x
+from src.reward import is_lost
 from src.sim.sim_physics import landed_xy, preview_land, simulate_drop, simulate_drop_held
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
@@ -627,3 +628,51 @@ def test_does_not_perch_small_fruit_on_biggest() -> None:
     land_x, land_y = landed_xy(fruits, after, 0, x, cherry_r, held_merged)
     on_pine = abs(land_x - pine.x) <= pine.radius + cherry_r
     assert not (on_pine and land_y + cherry_r <= pine.y)
+
+
+def test_does_not_kill_itself_when_a_surviving_drop_exists() -> None:
+    """While a living move exists, do not choose a dying one.
+
+    The board is move 172 of seed=982108 (NOTES 'Replaced the dangerous height slope with a filter').
+    A position with 2 lethal and 31 surviving candidates, where a lethal move wins on eval by 23.7.
+    Back when death was expressed as a penalty, it stacked an orange on the left-edge pile here and destroyed itself.
+    The aimed column does not matter; it only checks that the board after the drop does not cross the losing line.
+    """
+    raw = (
+        (3, 368.3, 126.3), (5, 51.2, 130.5), (7, 330.6, 215.9), (8, 78.4, 253.2),
+        (1, 205.4, 295.7), (1, 298.5, 297.9), (3, 251.5, 316.2), (0, 383.9, 328.0),
+        (7, 323.0, 382.4), (2, 28.3, 395.9), (9, 161.8, 403.0), (4, 40.8, 459.6),
+        (3, 368.3, 468.3),
+    )
+    fruits = tuple(
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90) for t, x, y in raw
+    )
+    x = choose_x(_obs(held_type=4, fruits=fruits, next_type=0))
+    after, _merges, _types = simulate_drop(fruits, 4, x)
+    assert not is_lost(after)
+
+
+def test_still_drops_when_every_candidate_is_lethal() -> None:
+    """Return a move even on a stuck board (every drop crosses the losing line).
+
+    The board is move 214 of seed=221700, the position where the side with the lethal-move filter actually died.
+    If the candidates were emptied when there are 0 surviving candidates, the policy could not return a move.
+    """
+    raw = (
+        (1, 22.6, 38.4), (1, 172.2, 42.3), (4, 261.7, 65.7), (5, 109.3, 73.0),
+        (5, 348.8, 75.7), (2, 198.7, 81.2), (3, 31.8, 88.0), (3, 252.4, 133.4),
+        (2, 28.3, 144.0), (6, 170.6, 158.3), (7, 330.7, 190.8), (7, 69.3, 228.3),
+        (5, 228.0, 246.1), (1, 158.4, 252.8), (8, 321.6, 346.4), (9, 151.5, 368.4),
+        (0, 16.1, 427.1), (4, 300.7, 459.4), (3, 31.7, 468.2), (3, 368.3, 468.3),
+        (2, 237.0, 471.6), (2, 87.7, 471.7), (1, 190.3, 477.4), (0, 128.0, 483.9),
+    )
+    fruits = tuple(
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90) for t, x, y in raw
+    )
+    grape_r = fruit_radius(2)
+    xs = [clamp_drop_x(x, 2) for x in _candidates(list(fruits), 2, grape_r, extra_type=1)]
+    # Premise: not a single surviving candidate. If this breaks, the test is not looking at a stuck board.
+    assert all(is_lost(simulate_drop(fruits, 2, x)[0]) for x in xs)
+
+    x = choose_x(_obs(held_type=2, fruits=fruits, next_type=1))
+    assert grape_r <= x <= NORMALIZED_WIDTH - grape_r
