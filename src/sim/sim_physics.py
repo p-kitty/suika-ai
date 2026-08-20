@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import pymunk
 
 from ..vision.classify import fruit_radius
+from ..vision.held import DROP_HEIGHT
 from ..vision.colors import MAX_FRUIT_TYPE
 from ..vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from ..vision.state import Fruit
@@ -22,7 +23,19 @@ DT = 1.0 / 60.0
 SUBSTEPS = 4
 MAX_STEPS = int(4.0 / DT)
 # Positive downward (same as the normalized board). The scan skipping (_safe_skip) uses it for the headroom in speed.
-GRAVITY = 2800.0
+# Measured on the real machine. With the release height fixed to the value measured from screenshots (DROP_START_Y), release from rest
+# gives v^2 = 2g(y+h), so sqrt(y+h) is linear in t. 1418 from 9 runs,
+# but the scatter splits by recording session (1442 for the last 4 / 1399 for the first 5), an unexplained
+# systematic difference of 3%. The rounded 1400 lies within it, so it is taken instead of pretending to precision.
+# The height is taken from screenshots, not from the fall (the fall data can only tell h=97 and h=115 apart
+# with 1.3% residual).
+GRAVITY = 1400.0
+# Center y at the start of the fall. The real machine releases from a fixed height regardless of fruit size. Across 10 screenshots
+# the center lines up at -97.3 ± 3.9 while the bottom scatters at -74.0 ± 9.6, so the center is the reference.
+# Scaling with radius shifts how fast fruits enter the board by size, and the visible stretch is off in opposite directions,
+# 1.28x for cherry and 1.09x for orange. The value is the one the detection side holds from measurement
+# (holding it twice lets only one drift).
+DROP_START_Y = -DROP_HEIGHT
 # Speed alone misses slow creep. Like settle.py, displacement during quiet is checked too.
 SLEEP_FRAMES = 45
 SLEEP_VEL = 2.0
@@ -160,8 +173,7 @@ def iter_simulate_drop(
     space, bodies = _build_space(fruits)
     r = fruit_radius(fruit_type)
     x = max(r, min(NORMALIZED_WIDTH - r, x))
-    # Drop from slightly above the top of the board.
-    dropped = _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+    dropped = _add_fruit(space, bodies, fruit_type, x, DROP_START_Y)
     dropped.is_held_drop = True
 
     merges = 0
@@ -209,8 +221,7 @@ def simulate_drop_held(
     space, bodies = _build_space(fruits)
     r = fruit_radius(fruit_type)
     x = max(r, min(NORMALIZED_WIDTH - r, x))
-    # Drop from slightly above the top of the board.
-    dropped = _add_fruit(space, bodies, fruit_type, x, -r * 1.5)
+    dropped = _add_fruit(space, bodies, fruit_type, x, DROP_START_Y)
     dropped.is_held_drop = True
     dropped.is_held_lineage = True
 
