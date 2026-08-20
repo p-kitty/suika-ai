@@ -267,7 +267,7 @@ Measured on 428 positions (move 60 onward, 6 seeds). Median 43 candidates.
   simply finer than the physics resolution). The remaining **68.2% really contain 2 or more different boards, and
   22.0% contain 5 or more**
 - **Inside the band every large term is saturated.** Inside the band (eps=0.1) the only term that differs between candidates is
-  only bumpiness and the ideal part of `size_order`; bury / perch / foreign_aim / excess_same /
+  the ideal part of `size_order`; bury / perch / foreign_aim / excess_same /
   the pair part of size_order is completely flat in 99.7-100% of positions
   (→[Split composite terms into sub-terms](#split-composite-terms-into-sub-terms-2026-08-21). The original numbers in this section
   date from when `packed` existed and `perch` did not; they were retaken with the current terms)
@@ -385,7 +385,6 @@ the sum of sub-terms was checked to match the real eval on every position).
 | perch | 48.00 | 9.6% | 80.8% | 94.01 |
 | size_order pair | 48.00 | 1.1% | 73.8% | 34.93 |
 | bury | 20.00 | 28.8% | 88.9% | 53.86 |
-| bumpiness | 1.58 | 0.0% | 100.0% | 4.48 |
 | size_order ideal | 0.36 | 0.9% | 75.4% | 0.30 |
 | excess_same | **0.00** | **60.6%** | 69.2% | 41.10 |
 | big_layout corner pocket | 0.00 | 77.8% | 19.8% | 24.09 |
@@ -401,19 +400,19 @@ the sum of sub-terms was checked to match the real eval on every position).
 - **Every term that works is, without exception, a binary applies-or-not.** Continuous quantities only swap
   candidates inside the band and cannot push them out
 
-**Restricted to inside the band (eps=0.1), only 2 terms can make a difference.**
+**Restricted to inside the band (eps=0.1), no board penalty can make a difference.**
 
 | Term | range inside the band (median) | all candidates equal inside the band |
 |---|---|---|
-| bumpiness | 0.01 | **0.0%** |
 | size_order ideal | 0.00 | 55.6% |
 | big_layout corner pocket / not close enough | 0.00 | 83.5% / 85.0% |
 | everything else | 0.00 | 99.7-100% |
 
-**A term that can make a difference inside the band works as a de facto tie-breaker.** At the time of this measurement,
-bumpiness (`_height_variance`), which played that role, was
-[retired](#retired-bumpiness-height-variance-2026-08-21). The bumpiness rows remain in the two tables above because
-the retirement decision came from this measurement. Now `center_tiebreak` carries that role explicitly.
+**A term that can make a difference inside the band becomes a de facto tie-breaker, whatever you meant to write there.**
+At the time of measurement that role was played by bumpiness (range inside the band 0.01, nonzero in every position), and on that
+basis it was [retired](#retired-bumpiness-height-variance-2026-08-21). Now `center_tiebreak`
+by definition always takes a different value per candidate, so it carries the role explicitly.
+**When adding a new continuous term, check that it has not fallen into this position.**
 
 ## In progress: big draws and ladders after the floor fills
 
@@ -501,40 +500,13 @@ the orange side was already correct and only dekopon (diameter 59.6) was off.
 
 ### Retired: bumpiness (height variance)(2026-08-21)
 
-**Trigger**: "I think this term was for stabilizing on the real machine. Now it just needs to be strong in the sim".
-
-**Measured**: an A/B with `VARIANCE_WEIGHT = 0.0` (term cut), n=100, `--max-steps 400`,
-0 truncated (`dead` is 100/100 for both A and B, so no discount needed).
-
-| Metric | A (with bumpiness) | B (cut) | Δ | t | 95% CI |
-|---|---|---|---|---|---|
-| score | 2312.42 | 2346.60 | +1.5% | 0.53 | [−94.5, +162.8] |
-| steps | 236.8 | 239.1 | +1.0% | 0.45 | |
-| merges | 214.0 | 216.5 | +1.2% | 0.46 | |
-| cascades | 22.00 | 22.22 | +1.0% | 0.30 | |
-| max_type | 9.23 | 9.28 | +0.5% | 0.71 | |
-
-win/loss 52/48, paired difference +34.2 (SD of the difference=648.1). **Every metric's CI crosses 0.**
-If anything the sign favors cutting it. → deleted.
-
-**Why it did not work**: it was a continuous quantity that could only move inside the band
-(→[Split composite terms into sub-terms](#split-composite-terms-into-sub-terms-2026-08-21)). This term
-came in meant to look at "the bumpiness of the whole board", with an original weight of **1.2**. In the commit that switched eval's basis
-from the home-made `MERGE_SCORE = 140.0` to the real game's merge points, all weights were rescaled at once,
-and it went **1.2 → 0.08** (1/15. In the same commit bury went 90.0 → 20.0 = 1/4.5,
-so bumpiness alone was crushed more than 3x harder). **0.08 is not a measured value.**
-Having lost the strength to do its flattening job, it remained only as a term deciding the ranking inside the band.
-
-**Taken along**: `DANGER_Y` and `_top_crown` were only used to relax bumpiness, so they were deleted together
-(`DANGER_Y` "kept as the threshold relaxing bumpiness" was written in
-[Replaced the dangerous height slope with a filter](#replaced-the-dangerous-height-slope-with-a-filter-2026-08-20)).
-
-**Added as a replacement**: `center_tiebreak`. With bumpiness removed, exact ties become the norm,
-and left alone the winning move would be decided by an implementation detail: the candidate set enumeration order = float hash order.
-**Since the inside of the band is settled as indifferent it does not affect score**, but
-an explicit order is placed for trace reproducibility. The weight is 0.001 (max 0.19) so it does not exceed the smallest merge score of 1.0.
-**Do not make this term express how good a move is** — making it stronger adds
-yet another term that only moves inside the band.
+An A/B cutting `_height_variance` (spread of crowns per column bin) at n=100, 0 truncated, is
+null. score 2312.42 → 2346.60, t=0.53, CI [−94.5, +162.8], win/loss 52/48, and
+the sign if anything favors cutting it. **The idea of "penalizing bumpiness" was measured and dropped.**
+The reason is that it is continuous — it only swaps candidates inside the band and cannot push them out
+(→[Split composite terms into sub-terms](#split-composite-terms-into-sub-terms-2026-08-21)).
+`DANGER_Y` and `_top_crown` were only used for relaxing it, so they went too. Tie ranking is
+carried explicitly by `center_tiebreak`. Details in `git log -- src/penalties.py`.
 
 ### Replaced the dangerous height slope with a filter (2026-08-20)
 
