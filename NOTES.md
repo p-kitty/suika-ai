@@ -667,6 +667,16 @@ so **this retirement alone remains unmeasured**.
   and **`choose_x` is deterministic, so the spread of score between seeds is 100% draw-order luck**
   (n=24, mean 2012, SD 332). Picking the top means learning "how it played when lucky".
   If done at all the order is reversed: first make `src/training/encode.py` candidate-conditioned
+- **Widening bury's vertical window to the partner's diameter** (`0.6r` → `2r`): **6.1%** escape the band,
+  in the null zone. Per position, agreement is 89.9%, and in the 24 changed cases the intended misses halve but
+  **ordinary burying increases** (the band escape of `bury` itself drops from 20.6% → 14.7% = it just took over
+  the work). **And after calibration the premise disappeared**: the fraction of fossils under a touching roof went
+  from 21% → 46.6%, so the current window already sees them. *Measured before calibration*
+- **Measuring big-fruit proximity by center distance instead of x gap**: the cluster term reads vertically stacked pairs as
+  "gap 0" (17% of same-type big-fruit pairs are this shape). Fixing it gives 5x the value late in the game, but **it changes 16.0% of moves
+  and escapes the band 1.4%**, and 0.0% when the weight is tuned. The same shape as `big_layout` itself:
+  **as long as it is continuous it only swaps inside the band**. To make it work, it has to be not a distance but
+  a binary condition "does this move split a big-fruit pair". *Measured before calibration*
 
 ## Investigated: sudden death from scattered low-tier fruits late in the game
 
