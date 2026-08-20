@@ -264,9 +264,11 @@ Measured on 428 positions (move 60 onward, 6 seeds). Median 43 candidates.
   have a median of 2. In 31.8% of positions the band collapses to a single board (`CANDIDATE_STEP = 12.0` is
   simply finer than the physics resolution). The remaining **68.2% really contain 2 or more different boards, and
   22.0% contain 5 or more**
-- **Inside the band every large term is saturated.** The width inside the band (eps=0.1) is
-  bumpiness median 0.009 (moves in 44.8% of positions), big_layout 17.6%, danger 8.3%,
-  size_order 2.1%, **bury / foreign_aim / packed 0.0%**
+- **Inside the band every large term is saturated.** Inside the band (eps=0.1) the only term that differs between candidates is
+  only bumpiness and the ideal part of `size_order`; bury / perch / foreign_aim / excess_same /
+  the pair part of size_order is completely flat in 99.7-100% of positions
+  (→[Split composite terms into sub-terms](#split-composite-terms-into-sub-terms-2026-08-21). The original numbers in this section
+  date from when `packed` existed and `perch` did not; they were retaken with the current terms)
 - **Zero width does not mean "dead".** Measuring absolute values over all candidates (60 positions / 2660 candidates),
   bury is nonzero for 41.9% of candidates with minimum −80.0, foreign_aim 18.6% with minimum −100.0,
   size_order 70.3% with minimum −200.1, excess_same 69.8% with minimum −280.0.
@@ -364,6 +366,62 @@ To go further it is either **the definition on the side that decides who enters 
 an evaluator that sees differences the current features cannot (a learned value function).
 This matches how [Policy (bootstrap) design](#policy-bootstrap-design) has positioned it from the start:
 "a thin policy before RL".
+
+### Split composite terms into sub-terms (2026-08-21)
+
+Of the 7 terms in the table above, `size_order` and `big_layout` are **sums of two rules of different nature**,
+and measured coarsely one part's work is buried in the other's noise. They were split and remeasured
+(459 positions, 6 seeds, median 43 candidates. The position set is built the same way as in `band_escape.py`, and
+the sum of sub-terms was checked to match the real eval on every position).
+
+**A term that does not spread between candidates cannot choose a move however its weight is tuned** (it vanishes in argmax).
+
+| Term | candidate range (median) | all candidates equal | nonzero candidates | \|value\| mean |
+|---|---|---|---|---|
+| foreign_aim | 100.00 | 0.4% | 18.3% | 18.30 |
+| perch | 48.00 | 9.6% | 80.8% | 94.01 |
+| size_order pair | 48.00 | 1.1% | 73.8% | 34.93 |
+| bury | 20.00 | 28.8% | 88.9% | 53.86 |
+| bumpiness | 1.58 | 0.0% | 100.0% | 4.48 |
+| size_order ideal | 0.36 | 0.9% | 75.4% | 0.30 |
+| excess_same | **0.00** | **60.6%** | 69.2% | 41.10 |
+| big_layout corner pocket | 0.00 | 77.8% | 19.8% | 24.09 |
+| big_layout not close enough | **0.00** | **81.0%** | 16.0% | **0.14** |
+
+- **`excess_same` is a large constant offset and does not choose moves.** At a mean of 41 points it is one of
+  the large terms in eval, yet its median candidate range is 0.00, and in 60% of positions all 43 candidates are equal.
+  A constant vanishes entirely in argmax. That is why only 3.3% escape the band in the table above
+- **The not-close-enough part of `big_layout` has a |value| mean of 0.14 points.** Only 16% of candidates are nonzero, and
+  "exempt for the diameter of the missing type" eats up almost all of this term's output. Its other half,
+  the corner pocket, is rare with 19.8% nonzero but is a binary filter averaging 24 points. The coarse table's
+  "moves 18.5% for 5.7%" was **these two seen separated**
+- **Every term that works is, without exception, a binary applies-or-not.** Continuous quantities only swap
+  candidates inside the band and cannot push them out
+
+**Restricted to inside the band (eps=0.1), only 2 terms can make a difference.**
+
+| Term | range inside the band (median) | all candidates equal inside the band |
+|---|---|---|
+| bumpiness | 0.01 | **0.0%** |
+| size_order ideal | 0.00 | 55.6% |
+| big_layout corner pocket / not close enough | 0.00 | 83.5% / 85.0% |
+| everything else | 0.00 | 99.7-100% |
+
+**`_height_variance` is a de facto tie-breaker.** It differs between candidates in every position (flat 0.0%),
+while everything else is nearly 100% flat inside the band. The only backup is the ideal part of `size_order`, which works in only 44%
+of bands. **Read it not as "a weak flattening term that cannot escape the band" but as "the term that decides
+the move after everything else ties"**. When [Settled](#settled-the-tie-band-really-is-indifferent-2026-08-19) above
+wrote "the current tie-break does no work", it meant this term.
+
+**`VARIANCE_WEIGHT = 0.08` is not a measured value.** `_height_variance`
+came in meant to replace the per-move landing height penalty (`(DANGER_Y − crown) × 3.0`) with "the bumpiness of the whole board",
+with an original weight of **1.2**. In the commit that switched eval's basis from the home-made `MERGE_SCORE = 140.0`
+to the real game's merge points, all weights were rescaled at once, and it went
+**1.2 → 0.08** (1/15). In the same commit bury went 90.0 → 20.0 (1/4.5), so
+**bumpiness alone was crushed more than 3x harder**. Moreover the explicit tie-break term of the time
+(`|x − center| × 0.05`, commented "center on ties") disappeared in a later refactor,
+and **the crushed bumpiness took over that role without anyone assigning it**, which is the current state.
+"x4 is null so there is no reason to move 0.08" does not mean 0.08 is right.
 
 ## In progress: big draws and ladders after the floor fills
 
