@@ -62,6 +62,9 @@ def run_episode(
         "max_type": float(max_type),
         "max_wm": float(max_wm),
         "win": 1.0 if info == "win" else 0.0,
+        # Whether it was cut at max_steps without a natural end. Truncation is biased toward long games,
+        # so a mean with them mixed in underestimates better policies (NOTES 'How to measure').
+        "truncated": 0.0 if info in ("dead", "win") else 1.0,
     }
 
 
@@ -163,7 +166,12 @@ def main() -> None:
         f"policy={args.policy}  episodes={args.episodes}  "
         f"max_steps={args.max_steps}  workers={workers}"
     )
-    print(f"steps  mean={statistics.mean(steps):.1f}  median={statistics.median(steps):.1f}")
+    truncated = sum(1 for r in rows if r["truncated"])
+    print(
+        f"steps  mean={statistics.mean(steps):.1f}  "
+        f"median={statistics.median(steps):.1f}  max={max(steps):.0f}  "
+        f"truncated={truncated}/{len(rows)}"
+    )
     print(f"score  mean={statistics.mean(scores):.2f}")
     print(f"merges mean={statistics.mean(merges):.1f}")
     print(f"max_type mean={statistics.mean(max_types):.2f}  best={max(max_types):.0f}")
