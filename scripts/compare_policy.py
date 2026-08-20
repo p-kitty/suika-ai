@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 import sys
 import time
@@ -57,7 +58,22 @@ def _apply_variant(enabled: bool) -> None:
     Example:
         from src import penalties
         penalties.BURY_WEIGHT = 30.0 if enabled else 20.0
+
+    For now, an ablation experiment of 'is that term needed'. Rewriting the file during a long run
+    can affect the running side, so which term to cut is chosen with the environment variable AB_ABLATE.
     """
+    if not enabled:
+        return
+    from src import penalties
+
+    term = os.environ.get("AB_ABLATE", "")
+    if term == "variance":
+        penalties.VARIANCE_WEIGHT = 0.0
+    elif term == "excess_same":
+        # The weight 20.0 is local to the function, so cut it by swapping the whole function.
+        penalties._excess_same_penalty = lambda fruits: 0.0
+    else:
+        raise SystemExit(f"AB_ABLATE unset or invalid: {term!r}")
 
 
 def _episode(
