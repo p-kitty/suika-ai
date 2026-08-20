@@ -11,11 +11,12 @@ from src.observe import Observation, clamp_drop_x
 from src.penalties import (
     FOREIGN_AIM_CENTER_FRAC,
     FOREIGN_AIM_PENALTY,
+    center_tiebreak,
     foreign_aim_penalty,
     ideal_x,
 )
 from src.policy import _candidates, _score, choose_x
-from src.reward import is_lost
+from src.reward import is_lost, merge_points
 from src.sim.sim_physics import landed_xy, preview_land, simulate_drop, simulate_drop_held
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
@@ -676,3 +677,21 @@ def test_still_drops_when_every_candidate_is_lethal() -> None:
 
     x = choose_x(_obs(held_type=2, fruits=fruits, next_type=1))
     assert grape_r <= x <= NORMALIZED_WIDTH - grape_r
+
+
+def test_center_tiebreak_never_outranks_a_merge() -> None:
+    """A term only for ordering. It cannot overturn even the cheapest merge (two cherries = 1 point).
+
+    If this breaks, a term meant only to order the band starts deciding
+    how good moves are. That is why bumpiness was retired (NOTES 'Retired: bumpiness (height variance)').
+    """
+    worst = max(center_tiebreak(0.0), center_tiebreak(NORMALIZED_WIDTH))
+    assert worst < merge_points(0)
+
+
+def test_center_tiebreak_prefers_the_middle() -> None:
+    """Heavier toward the edges. Left-right symmetric, so independent of the board's size direction."""
+    mid = NORMALIZED_WIDTH / 2
+    assert center_tiebreak(mid) == 0.0
+    assert center_tiebreak(mid + 40) < center_tiebreak(mid + 120)
+    assert center_tiebreak(mid - 80) == center_tiebreak(mid + 80)

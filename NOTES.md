@@ -248,7 +248,9 @@ The noise is derived deterministically from the board, so it stays reproducible)
 | max_type | 9.02 | 9.03 | +0.2% | +0.20 |
 
 win/loss 68/65, paired difference −6.6 (SD of the difference 582). **Choosing at random inside the band loses
-nothing is lost.** The current tie-break (the third decimal of bumpiness) does no work.
+nothing.** The tie-break of the time (the third decimal of bumpiness) was doing no work and was later
+[retired](#retired-bumpiness-height-variance-2026-08-21). What decides the order inside the band now is
+`center_tiebreak`, but **given this result, do not look for meaning in that ordering.**
 
 **The framing "the plateau is a defect" was wrong.** The candidates in the band really do lead to
 equally good futures. The policy correctly recognized "these moves are equivalent";
@@ -264,9 +266,11 @@ Measured on 428 positions (move 60 onward, 6 seeds). Median 43 candidates.
   have a median of 2. In 31.8% of positions the band collapses to a single board (`CANDIDATE_STEP = 12.0` is
   simply finer than the physics resolution). The remaining **68.2% really contain 2 or more different boards, and
   22.0% contain 5 or more**
-- **Inside the band every large term is saturated.** The width inside the band (eps=0.1) is
-  bumpiness median 0.009 (moves in 44.8% of positions), big_layout 17.6%, danger 8.3%,
-  size_order 2.1%, **bury / foreign_aim / packed 0.0%**
+- **Inside the band every large term is saturated.** Inside the band (eps=0.1) the only term that differs between candidates is
+  the ideal part of `size_order`; bury / perch / foreign_aim / excess_same /
+  the pair part of size_order is completely flat in 99.7-100% of positions
+  (→[Split composite terms into sub-terms](#split-composite-terms-into-sub-terms-2026-08-21). The original numbers in this section
+  date from when `packed` existed and `perch` did not; they were retaken with the current terms)
 - **Zero width does not mean "dead".** Measuring absolute values over all candidates (60 positions / 2660 candidates),
   bury is nonzero for 41.9% of candidates with minimum −80.0, foreign_aim 18.6% with minimum −100.0,
   size_order 70.3% with minimum −200.1, excess_same 69.8% with minimum −280.0.
@@ -348,7 +352,8 @@ x0.0 is with that term cut.
   `foreign_aim` stays at 0.2% or less at both 0.5x and 2x; the weight 100.0 is so large that
   candidates it applies to are out of contention from the start
 - **`variance` moves 58.2% for 12.9%, `big_layout` moves 18.5% for 5.7%.**
-  continuous quantities only swap candidates inside the band
+  Continuous quantities only swap candidates inside the band (`variance` was
+  [retired](#retired-bumpiness-height-variance-2026-08-21) with this table as one reason. The table is kept as measured at the time)
 - **`excess_same` gives only 3.3% even when cut.** Despite being a heavy penalty of 20.0 for 3+ of the same type,
   it barely decides the chosen move. It likely saturates by taking the same value for most candidates
   (the same shape as "discrete quantities saturate" in [What the band actually looks like](#what-the-band-actually-looks-like))
@@ -364,6 +369,50 @@ To go further it is either **the definition on the side that decides who enters 
 an evaluator that sees differences the current features cannot (a learned value function).
 This matches how [Policy (bootstrap) design](#policy-bootstrap-design) has positioned it from the start:
 "a thin policy before RL".
+
+### Split composite terms into sub-terms (2026-08-21)
+
+Of the 7 terms in the table above, `size_order` and `big_layout` are **sums of two rules of different nature**,
+and measured coarsely one part's work is buried in the other's noise. They were split and remeasured
+(459 positions, 6 seeds, median 43 candidates. The position set is built the same way as in `band_escape.py`, and
+the sum of sub-terms was checked to match the real eval on every position).
+
+**A term that does not spread between candidates cannot choose a move however its weight is tuned** (it vanishes in argmax).
+
+| Term | candidate range (median) | all candidates equal | nonzero candidates | \|value\| mean |
+|---|---|---|---|---|
+| foreign_aim | 100.00 | 0.4% | 18.3% | 18.30 |
+| perch | 48.00 | 9.6% | 80.8% | 94.01 |
+| size_order pair | 48.00 | 1.1% | 73.8% | 34.93 |
+| bury | 20.00 | 28.8% | 88.9% | 53.86 |
+| size_order ideal | 0.36 | 0.9% | 75.4% | 0.30 |
+| excess_same | **0.00** | **60.6%** | 69.2% | 41.10 |
+| big_layout corner pocket | 0.00 | 77.8% | 19.8% | 24.09 |
+| big_layout not close enough | **0.00** | **81.0%** | 16.0% | **0.14** |
+
+- **`excess_same` is a large constant offset and does not choose moves.** At a mean of 41 points it is one of
+  the large terms in eval, yet its median candidate range is 0.00, and in 60% of positions all 43 candidates are equal.
+  A constant vanishes entirely in argmax. That is why only 3.3% escape the band in the table above
+- **The not-close-enough part of `big_layout` has a |value| mean of 0.14 points.** Only 16% of candidates are nonzero, and
+  "exempt for the diameter of the missing type" eats up almost all of this term's output. Its other half,
+  the corner pocket, is rare with 19.8% nonzero but is a binary filter averaging 24 points. The coarse table's
+  "moves 18.5% for 5.7%" was **these two seen separated**
+- **Every term that works is, without exception, a binary applies-or-not.** Continuous quantities only swap
+  candidates inside the band and cannot push them out
+
+**Restricted to inside the band (eps=0.1), no board penalty can make a difference.**
+
+| Term | range inside the band (median) | all candidates equal inside the band |
+|---|---|---|
+| size_order ideal | 0.00 | 55.6% |
+| big_layout corner pocket / not close enough | 0.00 | 83.5% / 85.0% |
+| everything else | 0.00 | 99.7-100% |
+
+**A term that can make a difference inside the band becomes a de facto tie-breaker, whatever you meant to write there.**
+At the time of measurement that role was played by bumpiness (range inside the band 0.01, nonzero in every position), and on that
+basis it was [retired](#retired-bumpiness-height-variance-2026-08-21). Now `center_tiebreak`
+by definition always takes a different value per candidate, so it carries the role explicitly.
+**When adding a new continuous term, check that it has not fallen into this position.**
 
 ## In progress: big draws and ladders after the floor fills
 
@@ -448,6 +497,16 @@ the orange side was already correct and only dekopon (diameter 59.6) was off.
   A change that fixes a wrong premise; it makes no claim of moving the score
 
 ## Rules tried and reverted or retired
+
+### Retired: bumpiness (height variance)(2026-08-21)
+
+An A/B cutting `_height_variance` (spread of crowns per column bin) at n=100, 0 truncated, is
+null. score 2312.42 → 2346.60, t=0.53, CI [−94.5, +162.8], win/loss 52/48, and
+the sign if anything favors cutting it. **The idea of "penalizing bumpiness" was measured and dropped.**
+The reason is that it is continuous — it only swaps candidates inside the band and cannot push them out
+(→[Split composite terms into sub-terms](#split-composite-terms-into-sub-terms-2026-08-21)).
+`DANGER_Y` and `_top_crown` were only used for relaxing it, so they went too. Tie ranking is
+carried explicitly by `center_tiebreak`. Details in `git log -- src/penalties.py`.
 
 ### Replaced the dangerous height slope with a filter (2026-08-20)
 
@@ -782,6 +841,7 @@ is not overriding size order and trapping. The basis is
 |---|---|---|---|
 | directly above a different type | `foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
 | valley-growing bonus | `valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type | **−3.0** (the only bonus in this table) |
+| center tie-break | `center_tiebreak` | distance between the drop column and the center. **A term only for ordering**, it does not express how good a move is | `CENTER_TIEBREAK_WEIGHT` 0.001 (max 0.19 < minimum merge score 1.0) |
 
 The valley-growing bonus applies **only when held itself did not merge** (`held_merged`, not the merge count
 `merges`, so that an unrelated merge elsewhere on the board does not grant the exemption).
@@ -795,7 +855,6 @@ The valley-growing bonus applies **only when held itself did not merge** (`held_
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
 | size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left on the board** are exempt = `_size_order_exempt`). **Exempt on moves where held merged** | pair difference×1.5 + ideal_x deviation×0.004 |
 | big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough (exempt for the diameter of the missing type in between) | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) (gap−diameter of the missing type)×0.025×size factor |
-| bumpiness (height variance) | `_height_variance` | spread of crown heights per column bin (scaled by `VARIANCE_DANGER_SCALE` 0.15 when the crown is above `DANGER_Y`(70.9)) | variance× `VARIANCE_WEIGHT` 0.08 |
 
 **Not a penalty: the lethal-move filter (`choose_x`)**
 

@@ -16,7 +16,6 @@ the rewrite ineffective).
 from __future__ import annotations
 
 import math
-import statistics
 
 from .vision.classify import fruit_radius
 from .vision.colors import MAX_FRUIT_TYPE
@@ -30,6 +29,13 @@ MERGE_SLACK = 18.0
 FOREIGN_AIM_CENTER_FRAC = 0.20
 # Penalty for landing in the center band of a different type directly below.
 FOREIGN_AIM_PENALTY = 100.0
+# A weight only for ordering tied candidates. Positions where every other term ties are the norm, and without it
+# the winning move would be decided by an implementation detail: the enumeration order of the candidate set = float hash order.
+# The smallest merge score is 1.0 (cherry -> straw), so to avoid overturning real differences it is kept at most
+# a fifth of that (`|x - center|` is at most 190, so 0.001 gives 0.19).
+# Do not try to express how good a move is with this.
+CENTER_TIEBREAK_WEIGHT = 0.001
+
 # Valley-growing bonus (applied by subtracting from penalties). Only for landings where `valley_grow_ok` holds.
 # Not stronger than a real merge. At 8.0 it rejected a grape merge (6 points) for a non-merging valley.
 # At 2.0 it tips toward growing, and at 3.0 it still keeps taking merges (measured).
@@ -45,12 +51,7 @@ BIG_CLUSTER_SPAN = 2
 # --- Board penalty weights ---
 # The A/B in compare_policy swaps them as module attributes, so
 # they live here rather than as locals of board_penalties.
-# The height from which bumpiness is relaxed. Converted from the old basis of 90.0 by the amount
-# the board moved to the inside-of-the-wall basis.
-DANGER_Y = 70.9
 BURY_WEIGHT = 20.0
-VARIANCE_WEIGHT = 0.08
-VARIANCE_DANGER_SCALE = 0.15
 # Upper limit of the type gap allowed on a big fruit's shoulder. Up to an orange (4) on a pineapple's (8) shoulder is allowed.
 PERCH_MIN_GAP = 5
 # Range of fruits whose shoulders are checked (how many tiers below the biggest). 0 means only the biggest.
@@ -70,6 +71,11 @@ def ideal_x(fruit_type: int, sign: int = 1) -> float:
     return base
 
 
+def center_tiebreak(x: float) -> float:
+    """A center-leaning penalty only for breaking ties. Edge moves drop out first."""
+    return CENTER_TIEBREAK_WEIGHT * abs(x - NORMALIZED_WIDTH / 2)
+
+
 def wall_gap(fruit: Fruit, sign: int) -> float:
     """Gap to the wall on the big side (sign)."""
     if sign > 0:
@@ -81,26 +87,6 @@ def is_wall_anchored(fruit: Fruit, sign: int) -> bool:
     """Whether it is on the big-side wall."""
     limit = max(EDGE_ANCHOR_MIN, fruit.radius * EDGE_ANCHOR_FRAC)
     return wall_gap(fruit, sign) <= limit
-
-
-def _top_crown(fruits: list[Fruit]) -> float:
-    """The topmost crown y. The floor if empty."""
-    if not fruits:
-        return float(NORMALIZED_HEIGHT)
-    return min(f.y - f.radius for f in fruits)
-
-
-def _height_variance(fruits: list[Fruit]) -> float:
-    """Spread of crowns per column bin. 0 if empty."""
-    flat_bin = 40.0
-    bins: dict[int, float] = {}
-    for fruit in fruits:
-        key = int(fruit.x // flat_bin)
-        top = fruit.y - fruit.radius
-        bins[key] = min(bins.get(key, float(NORMALIZED_HEIGHT)), top)
-    if len(bins) < 2:
-        return 0.0
-    return float(statistics.pstdev(list(bins.values())))
 
 
 def _straight_fall_contact(
@@ -227,7 +213,7 @@ def valley_grow_ok(
 def board_penalties(
     fruits: list[Fruit], *, sign: int = 1, exempt_size_order: bool = False
 ) -> float:
-    """Board penalties after the drop (burying, perch, excess same type, size order, pushing big, bumpiness).
+    """Board penalties after the drop (burying, perch, excess same type, size order, pushing big).
 
     exempt_size_order: True when held merged this move. Unrelated fruits knocked by the merge recoil
     are not penalized as size-order violations (see `policy._evaluate_drop`).
@@ -239,10 +225,6 @@ def board_penalties(
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
     penalty += _big_layout_penalty(fruits, sign)
-    variance = _height_variance(fruits)
-    if _top_crown(fruits) < DANGER_Y:
-        variance *= VARIANCE_DANGER_SCALE
-    penalty += VARIANCE_WEIGHT * variance
     return penalty
 
 
