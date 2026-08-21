@@ -247,9 +247,6 @@ def _evaluate_drop(
     # FOREIGN_AIM は merges ではなく「真下の実が異種か」で見る。
     # 同種が真下なら合体待ちで OK。異種真上から転がって床で合体しても減点。
     penalties += pen.foreign_aim_penalty(before, x, drop_type, held_r)
-    # 落とした実自身が大実の谷に取り残される手。合体した手でも掛ける
-    # (連鎖の点数と引き換えに小実を置き去りにする手がここで止まる)。
-    penalties += pen.stranded_drop_penalty(after, held_fruit)
     # 同点をほどくためだけの項。ここより上の項が全部並んだときに順位を決める。
     penalties += pen.center_tiebreak(x)
     if not held_merged:

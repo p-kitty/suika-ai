@@ -15,7 +15,6 @@ from src.penalties import (
     center_tiebreak,
     foreign_aim_penalty,
     ideal_x,
-    stranded_drop_penalty,
 )
 from src.policy import _candidates, _score, choose_x
 from src.reward import is_lost, merge_points
@@ -743,36 +742,57 @@ def test_merge_big_side_bonus_never_outranks_a_merge() -> None:
     assert MERGE_BIG_SIDE_BONUS < merge_points(0)
 
 
-def test_declines_a_merge_that_strands_the_dropped_fruit() -> None:
-    """合体の点数より並びを取る。落とした実を大実の谷へ置き去りにしない。
+def test_prefers_a_big_shoulder_over_roofing_a_lone_fruit() -> None:
+    """床が埋まった盤で、相方のいない実に屋根を掛けるより大実の肩を選ぶ。
 
-    ナシとパインの間にいちごが 1 個だけ残った谷。そこへ落とせば合体できるが、
-    できたグレープは左右の大実に阻まれて相方に会えないまま居座る
-    (seed=834761 の 35 手目が同じ形。あちらは 3 連鎖 46 点と引き換えだった)。
+    seed=214631 の 111 手目。右の山に載せるとさくらんぼ (相方なし) が
+    オレンジで塞がれる。空いているのは左端のパインの肩だけで、そこは
+    型差 4 なので `_perch_penalty` の対象外 (パインの肩はオレンジまで許す)。
     """
-    straw_r = fruit_radius(1)
-    grape_r = fruit_radius(2)
-    pear_x = 100.0
-    pine_x = pear_x + fruit_radius(6) + fruit_radius(8) + grape_r * 2 + 2.0
-    valley_x = (pear_x + fruit_radius(6) + pine_x - fruit_radius(8)) / 2
     fruits = tuple(
-        Fruit(
-            type=t,
-            x=x,
-            y=NORMALIZED_HEIGHT - fruit_radius(t),
-            radius=fruit_radius(t),
-            confidence=90,
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90)
+        for t, x, y in (
+            (8, 78.0, 421.0),
+            (6, 165.0, 321.0),
+            (7, 222.0, 431.0),
+            (2, 308.0, 472.0),
+            (6, 323.0, 361.0),
+            (0, 384.0, 326.0),
         )
-        for t, x in ((6, pear_x), (1, valley_x), (8, pine_x))
     )
-    obs = _obs(held_type=1, fruits=fruits, next_type=0)
-
-    # 合体そのものは候補に入っている (見えていないのではなく、蹴っている)。
-    merged, merges, _types, _held, lineage = simulate_drop_held(fruits, 1, valley_x)
-    assert merges == 1
-    assert stranded_drop_penalty(merged, lineage) > 0.0
-    assert _score(obs, valley_x, straw_r) < _score(obs, 30.0, straw_r)
+    cherry = fruits[5]
+    obs = _obs(held_type=4, fruits=fruits, next_type=0)
 
     x = choose_x(obs)
-    after, _m, _t, _h, held_fruit = simulate_drop_held(fruits, 1, x)
-    assert stranded_drop_penalty(after, held_fruit) == 0.0
+    _after, _m, _t, _h, orange = simulate_drop_held(fruits, 4, x)
+    assert orange is not None
+    assert orange.x < cherry.x - cherry.radius
+
+
+def test_uses_the_next_rung_instead_of_roofing_a_small_fruit() -> None:
+    """逃げ場が段の窪みにあるなら、小実に屋根を掛けずそこへ置く。
+
+    seed=890270 の 72 手目。盤が大実で埋まっていて、グレープから見ると
+    パインの肩は型差 6、桃の肩は 5。逃げ場が無いと屋根 (いちご 15) が
+    いちばん安くなる。桃とデコポンの窪みは 1 段上の壁なので次の段。
+    """
+    fruits = tuple(
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90)
+        for t, x, y in (
+            (8, 78.0, 422.0),
+            (7, 222.0, 431.0),
+            (3, 291.0, 362.0),
+            (2, 314.0, 413.0),
+            (1, 356.0, 392.0),
+            (4, 359.0, 460.0),
+            (0, 384.0, 413.0),
+        )
+    )
+    straw = fruits[4]
+    obs = _obs(held_type=2, fruits=fruits, next_type=2)
+
+    x = choose_x(obs)
+    _after, _m, _t, _h, grape = simulate_drop_held(fruits, 2, x)
+    assert grape is not None
+    # いちごの真上に屋根を掛けていない。
+    assert abs(grape.x - straw.x) > straw.radius + grape.radius

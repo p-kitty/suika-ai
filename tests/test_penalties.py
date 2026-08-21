@@ -8,12 +8,11 @@
 from src.observe import Observation
 from src.penalties import (
     MERGE_BIG_SIDE_SLACK_FRAC,
-    STRANDED_DROP_WEIGHT,
+    _perch_penalty,
     _is_nestled,
     _size_order_exempt,
     _size_order_penalty,
     merge_lands_big_side,
-    stranded_drop_penalty,
 )
 from src.policy import choose_x
 from src.sim.sim_physics import simulate_drop_held
@@ -22,6 +21,7 @@ from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
 
 PEAR, DEKOPON, GRAPE, STRAW, CHERRY = 6, 3, 2, 1, 0
+PEACH = 7
 # 盤面の大小の向き。+1 = 左が大きい。
 LARGE_LEFT = 1
 
@@ -150,50 +150,34 @@ def test_merge_lands_big_side_needs_a_surviving_fruit() -> None:
     assert not merge_lands_big_side(200.0, None, fruit_radius(DEKOPON), -1)
 
 
-def test_stranded_drop_costs_more_the_bigger_the_walls() -> None:
-    """谷の壁との型差が開くほど重い。戻せなくなる度合いがそのまま効く。
+def test_perch_is_free_in_a_one_step_notch() -> None:
+    """1 段上の壁の窪みは次の段。裸の上面に載せたときだけ肩乗りとして数える。
 
-    重さを決めるのは**左右のうち小さいほう**の壁 (ここではデコポン)。
-    大きいほうで測ると、片側さえ低ければ戻せる形まで重くなる。
+    小実は盤が大実で埋まるとどの肩でも型差が開くので、免除が無いと逃げ場が
+    無くなり、方策は肩を避けて別の小実に屋根を掛ける側へ倒れる
+    (seed=890270 の 72 手目)。
     """
-    # 谷の幅は落ちる実の半径で見るので (`_valley_flanks`)、さくらんぼでも
-    # 谷と認める間隔に寄せておく。
-    pear = _on_floor(PEAR, 70.0)
-    dekopon = _on_floor(DEKOPON, 200.0)
-    straw = _on_floor(STRAW, 150.0)
-    cherry = _on_floor(CHERRY, 150.0)
+    peach = _on_floor(PEACH, 78.0)
+    top_y = peach.y - peach.radius - fruit_radius(GRAPE)
+    grape = Fruit(type=GRAPE, x=120.0, y=top_y, radius=fruit_radius(GRAPE), confidence=90)
+    wall = Fruit(type=DEKOPON, x=180.0, y=top_y, radius=fruit_radius(DEKOPON), confidence=90)
 
-    shallow = stranded_drop_penalty([pear, straw, dekopon], straw)
-    deep = stranded_drop_penalty([pear, cherry, dekopon], cherry)
-
-    assert shallow == STRANDED_DROP_WEIGHT
-    assert deep == STRANDED_DROP_WEIGHT * 2
+    assert _perch_penalty([peach, grape]) > 0.0
+    assert _perch_penalty([peach, grape, wall]) == 0.0
 
 
-def test_stranded_drop_is_free_with_a_partner_in_the_same_valley() -> None:
-    """同じ谷に相方がいれば合体できるので取り残しではない。谷育成を潰さない。"""
-    pear = _on_floor(PEAR, 70.0)
-    straw = _on_floor(STRAW, 170.0)
-    partner = _on_floor(STRAW, 200.0)
-    dekopon = _on_floor(DEKOPON, 230.0)
+def test_perch_still_counts_a_deep_valley() -> None:
+    """型差の開いた谷は段ではなく罠。肩乗りとして数え続ける。
 
-    assert stranded_drop_penalty([pear, straw, partner, dekopon], straw) == 0.0
+    `_perch_penalty` を入れる動機になった局面のさくらんぼも、りんごとオレンジの
+    谷に載っていた。谷なら免除にするとその症例ごと消える。
+    """
+    pine = _on_floor(8, 150.0)
+    top_y = pine.y - pine.radius - fruit_radius(CHERRY)
+    cherry = Fruit(type=CHERRY, x=150.0, y=top_y, radius=fruit_radius(CHERRY), confidence=90)
+    walls = [
+        Fruit(type=t, x=150.0 + dx, y=top_y, radius=fruit_radius(t), confidence=90)
+        for t, dx in ((5, -60.0), (4, 60.0))
+    ]
 
-
-def test_stranded_drop_ignores_a_partner_outside_the_valley() -> None:
-    """谷の外の相方は壁の大実に阻まれて会えないので、取り残しのまま。"""
-    pear = _on_floor(PEAR, 70.0)
-    straw = _on_floor(STRAW, 170.0)
-    dekopon = _on_floor(DEKOPON, 230.0)
-    outside = _on_floor(STRAW, 330.0)
-
-    assert stranded_drop_penalty([pear, straw, dekopon, outside], straw) > 0.0
-
-
-def test_stranded_drop_needs_walls_bigger_than_the_threshold() -> None:
-    """1 段上に挟まれただけでは取り残しにしない。次の合体で並びが直る。"""
-    dekopon_left = _on_floor(DEKOPON, 90.0)
-    grape = _on_floor(GRAPE, 160.0)
-    dekopon_right = _on_floor(DEKOPON, 220.0)
-
-    assert stranded_drop_penalty([dekopon_left, grape, dekopon_right], grape) == 0.0
+    assert _perch_penalty([pine, cherry, *walls]) > 0.0

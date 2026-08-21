@@ -45,13 +45,6 @@ MERGE_BIG_SIDE_BONUS = 0.5
 # 中点なので、寄せる意図の無い手でも半径未満はふつうにずれる。
 MERGE_BIG_SIDE_SLACK_FRAC = 1.0
 
-# 落とした実が大実の谷に取り残されたときの減点。型差 1 つぶん。連鎖の点数を
-# 蹴ってでも並びを保たせる水準で入れてある (型差 5 なら 80.0 で、46 点の 3 連鎖に
-# 勝つ)。型差 2 で発火し、選んだ手の 17〜20% に掛かる (150 手 × 3 seed の実測)。
-STRANDED_DROP_WEIGHT = 20.0
-# 取り残しとみなす最小の型差 (谷の左右のうち小さいほうとの差)。
-STRANDED_DROP_MIN_GAP = 2
-
 # 谷育成ボーナス (減点から引く形で入れる)。`valley_grow_ok` が成立する着地だけ。
 # 実合体より強くしない。8.0 だと grape 合体 (6 点) を蹴って非合体の谷を選んだ。
 # 2.0 で育成側に倒れ、3.0 でも合体は取り続ける (実測)。
@@ -64,12 +57,23 @@ EDGE_ANCHOR_FRAC = 0.35
 # --- 盤面減点の重み ---
 # compare_policy の A/B がモジュール属性として差し替えるので、
 # board_penalties のローカルではなくここに置く。
+# 埋めた 1 個ぶん。相方が盤にいる実は次の手で合体できたので重い。
 BURY_WEIGHT = 20.0
+# 相方が盤にいない実を埋めた 1 個ぶん。相方はこれから引くので、屋根を掛けると
+# その実は誰にも会えなくなる (居座る実の 46.6% が頭上を塞がれている。
+# NOTES「居座る実 (fossil) の測定」)。相方待ちを潰すより軽いが、無視はしない。
+BURY_LONE_WEIGHT = 15.0
 # 大実の肩に載せてよい型差の上限。パイン (8) の肩にオレンジ (4) までは許す。
 PERCH_MIN_GAP = 5
 # 肩を見る実の範囲 (最大実から何段下まで)。0 なら最大実だけ。
 PERCH_BIG_SPAN = 1
 PERCH_WEIGHT = 16.0
+# 肩乗りを免除する窪みの深さ。壁 (窪みの左右のうち小さいほう) との型差が
+# これ以下なら、そこは次の段。相方が来ればその場で合体し、続けて壁とも合体できる。
+# 3 seed の全候補で測ると、免除されるのは perch の 6.8% だけ。窪みなら免除、
+# にすると 77.5% が消えるうえ、この規則を入れる動機になった局面のさくらんぼ自身が
+# りんごとオレンジの窪みに載っているので、症例ごと免除してしまう。
+PERCH_RUNG_MAX_GAP = 1
 # 同種 3 個目以降 1 個ぶん。
 EXCESS_SAME_WEIGHT = 20.0
 # 左右の大小逆転 1 段ぶん。
@@ -256,41 +260,6 @@ def merge_lands_big_side(
     return toward_big >= MERGE_BIG_SIDE_SLACK_FRAC * held_r
 
 
-def stranded_drop_penalty(fruits: list[Fruit], held_fruit: Fruit | None) -> float:
-    """落とした実が、ずっと大きい実の谷に相方なしで止まった手の減点。
-
-    `_valley_flanks` で見る谷そのものは悪い場所ではない (谷育成はここへ落とす)。
-    悪いのは**そこに相方がいないとき**で、その実は左右の大実に阻まれて相方に
-    会えないまま居座り、並びだけが崩れる。相方が盤の反対端にいても届かないので、
-    見るのは**同じ谷の中**に同種が残っているかだけ。
-
-    `_size_order_penalty` では拾えない。あちらは合体した手では丸ごと免除される
-    うえ、`_size_order_exempt` が「谷にいて盤のどこかに相方がいる」実を対象から
-    外すので、この形はちょうどその抜け穴に落ちる。
-
-    型差 (谷の左右のうち小さいほう − 自分) が `STRANDED_DROP_MIN_GAP` を
-    超えたぶんだけ重くする。届かない相手に挟まれるほど戻せなくなる。
-
-    `held_fruit` は after と同じ値を持つ別インスタンスなので、自分自身を相方に
-    数えないよう `is` ではなく位置で見分ける (`_lineage_fruit`)。
-    """
-    if held_fruit is None:
-        return 0.0
-    flanks = _valley_flanks(fruits, held_fruit.x, held_fruit.type)
-    if flanks is None:
-        return 0.0
-    left, right = flanks
-    gap = min(left.type, right.type) - held_fruit.type
-    if gap < STRANDED_DROP_MIN_GAP:
-        return 0.0
-    for fruit in fruits:
-        if fruit.type != held_fruit.type or abs(fruit.x - held_fruit.x) <= 0.5:
-            continue
-        if left.x < fruit.x < right.x:
-            return 0.0
-    return STRANDED_DROP_WEIGHT * (gap - STRANDED_DROP_MIN_GAP + 1)
-
-
 # --- 減点項 ---------------------------------------------------------------
 
 
@@ -303,7 +272,7 @@ def board_penalties(
     弾かれた無関係の実まで大小順違反として減点しない (`policy._evaluate_drop` 参照)。
     """
     penalty = 0.0
-    penalty += BURY_WEIGHT * _bury_penalty(fruits)
+    penalty += _bury_penalty(fruits)
     penalty += PERCH_WEIGHT * _perch_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
@@ -399,9 +368,13 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
     return penalty
 
 
-def _bury_penalty(fruits: list[Fruit]) -> float:
-    """合成候補を異種で埋める度合い。"""
-    penalty = 0.0
+def _bury_counts(fruits: list[Fruit] | tuple[Fruit, ...]) -> tuple[float, float]:
+    """異種で埋めた実の数を (相方あり, 相方なし) に分けて返す。
+
+    重みが 2 つある規則なので、`band_escape.py` が別々に掃引できるよう
+    数える側と重みを分けてある (AGENTS「1 つの項に 1 つの規則」)。
+    """
+    paired = lone = 0.0
     for under in fruits:
         for over in fruits:
             if over is under or over.type <= under.type:
@@ -417,10 +390,16 @@ def _bury_penalty(fruits: list[Fruit]) -> float:
             if -MERGE_SLACK <= gap <= under.radius * 0.6:
                 siblings = sum(1 for f in fruits if f.type == under.type and f is not under)
                 if siblings >= 1:
-                    penalty += 1.0
+                    paired += 1.0
                 else:
-                    penalty += 0.35
-    return penalty
+                    lone += 1.0
+    return paired, lone
+
+
+def _bury_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """合成候補を異種で埋める減点。相方の有無で重みが違う。"""
+    paired, lone = _bury_counts(fruits)
+    return BURY_WEIGHT * paired + BURY_LONE_WEIGHT * lone
 
 
 def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
@@ -443,6 +422,8 @@ def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
         return 0.0
     max_t = max(fruit.type for fruit in fruits)
     big_min = max_t - PERCH_BIG_SPAN
+    # 段かどうかは載っている実だけで決まるので、下の実ごとに引き直さない。
+    rung: dict[int, bool] = {}
     penalty = 0.0
     for under in fruits:
         if under.type < big_min:
@@ -455,8 +436,33 @@ def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
                 continue
             if abs(over.x - under.x) > under.radius + over.radius:
                 continue
+            if id(over) not in rung:
+                rung[id(over)] = _is_rung(over, fruits)
+            if rung[id(over)]:
+                continue
             penalty += float(gap_type - PERCH_MIN_GAP + 1)
     return penalty
+
+
+def _is_rung(fruit: Fruit, fruits: list[Fruit] | tuple[Fruit, ...]) -> bool:
+    """次の段の窪みに収まっているか。大実の裸の上面と区別する。
+
+    小さい実は、盤が大実で埋まると**どの肩に置いても型差が開く**。逃げ場が
+    無くなると、方策は肩を避けて別の小実に屋根を掛ける側へ倒れる (seed=890270
+    の 72 手目: グレープを桃の肩に置くと 16、パインなら 32、いちごに屋根を
+    掛けると 15 で、屋根がいちばん安かった)。屋根を掛けられた実は上から相方が
+    届かないので、肩より重いはずのものが軽くなっていた。
+
+    ただし窪みならどこでもよいわけではない。`_perch_penalty` を入れる動機に
+    なった局面のさくらんぼも、りんごとオレンジの窪みに載っていた。分けるのは
+    **壁との型差**で、1 段上の壁 (`PERCH_RUNG_MAX_GAP`) なら相方が来た時点で
+    合体して壁に追いつける。
+    """
+    flanks = _valley_flanks(fruits, fruit.x, fruit.type)
+    if flanks is None:
+        return False
+    left, right = flanks
+    return min(left.type, right.type) - fruit.type <= PERCH_RUNG_MAX_GAP
 
 
 def foreign_aim_penalty(
