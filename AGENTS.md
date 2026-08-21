@@ -28,6 +28,13 @@ If you feel like writing details in AGENTS.md, do not; link to a NOTES.md sectio
 
 The bar for keeping something is "**does it stop the next person who starts down the same road**".
 
+**First, fixes that go straight into `master` get no section.** Bug fixes,
+changes that close a hole in a rule, and new rules can be found if the commit message records the symptom, the cause and how it was checked,
+because `git log` keeps them. NOTES.md keeps only **what stays unresolved** (symptoms not yet fixed,
+ideas decided against, traps the next person is likely to hit).
+**Indexes of the current state are different**, such as [Current penalty rules](NOTES.md#current-penalty-rules):
+when you add a rule, update them in the same diff.
+
 - **Keep** … what investigation showed, measured numbers, **failures likely to recur**. Ideas that had no effect,
   traps stepped in, reasons for deciding against something. Without these the same experiment gets run twice
 - **Delete** … **problems that are settled and will not come back**. Investigation history of fixed bugs, reverted ideas

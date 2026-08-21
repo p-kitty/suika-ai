@@ -36,6 +36,22 @@ FOREIGN_AIM_PENALTY = 100.0
 # Do not try to express how good a move is with this.
 CENTER_TIEBREAK_WEIGHT = 0.001
 
+# Bonus for merges pushed to the big side (applied by subtracting from penalties). Only for moves where `merge_lands_big_side`
+# holds. Does not break the property that merges are ranked by the real-game score. The smallest
+# merge score difference is 1.0 (cherry -> straw), so it is kept to a value that does not overturn it.
+# 5x the tie band width of 0.1.
+MERGE_BIG_SIDE_BONUS = 0.5
+# The minimum movement counted as pushed (ratio to the dropped fruit's radius). The merge position is the midpoint
+# of the two centers, so even moves with no intent to push normally shift by less than a radius.
+MERGE_BIG_SIDE_SLACK_FRAC = 1.0
+
+# Penalty when the dropped fruit is stranded in a valley of big fruits. Per type gap. Set at a level that keeps the order
+# even at the cost of rejecting cascade points (at type gap 5 it is 80.0, beating a 46-point 3-step cascade).
+# It fires at type gap 2 and applies to 17-20% of chosen moves (measured over 150 moves × 3 seeds).
+STRANDED_DROP_WEIGHT = 20.0
+# The minimum type gap considered stranded (difference from the smaller of the valley's left and right).
+STRANDED_DROP_MIN_GAP = 2
+
 # Valley-growing bonus (applied by subtracting from penalties). Only for landings where `valley_grow_ok` holds.
 # Not stronger than a real merge. At 8.0 it rejected a grape merge (6 points) for a non-merging valley.
 # At 2.0 it tips toward growing, and at 3.0 it still keeps taking merges (measured).
@@ -164,12 +180,23 @@ def _size_order_exempt(
     form a valley, dropping the grape's inversion from 1.5 to 0.14, and it beats the reordering move by 0.20
     ).
 
+    **The partner must be in the same valley.** If one anywhere on the board were enough,
+    a partner outside the valley would grant the exemption without being able to reach. The valley is made of fruits
+    bigger than itself, so it cannot merge with a partner on the other side, and the fruit just stays
+    breaking the order (move 35 of seed=834761: a strawberry left in the valley of a pear and a pineapple
+    was exempted on the basis of a strawberry at the opposite edge x=23, and the inversion of 7.5 became 0).
+
     Valleys of held's type cannot be seen from here, but those are picked up by the per-move `valley_grow_ok`
     with `VALLEY_GROW_BONUS`, so it does not crush growing.
     """
-    if not _is_nestled(fruit, fruits):
+    flanks = _valley_flanks(fruits, fruit.x, fruit.type)
+    if flanks is None:
         return False
-    return any(f.type == fruit.type and f is not fruit for f in fruits)
+    left, right = flanks
+    return any(
+        f.type == fruit.type and f is not fruit and left.x < f.x < right.x
+        for f in fruits
+    )
 
 
 def valley_grow_ok(
@@ -208,6 +235,60 @@ def valley_grow_ok(
         if left.x < land_x < right.x:
             return True
     return False
+
+
+def merge_lands_big_side(
+    drop_x: float, held_fruit: Fruit | None, held_r: float, sign: int
+) -> bool:
+    """Whether the fruit made by the merge ended up at least one radius toward the big side of the drop column.
+
+    `held_fruit` is where the dropped fruit's lineage ends up (`simulate_drop_held`). A merge
+    throws the new fruit sideways by recoil, so hitting the same partner from the left or right
+    changes the resulting layout. Including cases that hit after rolling, it makes the policy choose
+    the way of hitting that ends up toward the big side (`sign`).
+
+    Applied only to merging moves. Landings of non-merging moves are seen directly by `_size_order_penalty`,
+    so they are not looked at twice here.
+    """
+    if held_fruit is None:
+        return False
+    toward_big = -sign * (held_fruit.x - drop_x)
+    return toward_big >= MERGE_BIG_SIDE_SLACK_FRAC * held_r
+
+
+def stranded_drop_penalty(fruits: list[Fruit], held_fruit: Fruit | None) -> float:
+    """Penalty for moves where the dropped fruit stops in a valley of much bigger fruits with no partner.
+
+    The valley seen by `_valley_flanks` is not a bad place in itself (valley growing drops here).
+    What is bad is **when there is no partner there**: that fruit is blocked by the big fruits on both sides,
+    stays without meeting a partner, and only the order breaks. A partner at the opposite edge of the board cannot reach either, so
+    it only looks at whether a same type remains **inside the same valley**.
+
+    `_size_order_penalty` cannot pick it up. That one is exempt wholesale on merging moves,
+    and `_size_order_exempt` removes fruits 'in a valley with a partner somewhere on the board'
+    from its scope, so this shape falls exactly into that loophole.
+
+    It gets heavier by the amount the type gap (the smaller of the valley's left and right − itself) exceeds `STRANDED_DROP_MIN_GAP`.
+    The bigger the unreachable neighbors, the less it can be undone.
+
+    `held_fruit` is a separate instance with the same values as after, so to avoid counting itself
+    as a partner it is told apart by position, not `is` (`_lineage_fruit`).
+    """
+    if held_fruit is None:
+        return 0.0
+    flanks = _valley_flanks(fruits, held_fruit.x, held_fruit.type)
+    if flanks is None:
+        return 0.0
+    left, right = flanks
+    gap = min(left.type, right.type) - held_fruit.type
+    if gap < STRANDED_DROP_MIN_GAP:
+        return 0.0
+    for fruit in fruits:
+        if fruit.type != held_fruit.type or abs(fruit.x - held_fruit.x) <= 0.5:
+            continue
+        if left.x < fruit.x < right.x:
+            return 0.0
+    return STRANDED_DROP_WEIGHT * (gap - STRANDED_DROP_MIN_GAP + 1)
 
 
 # --- Penalty terms ---------------------------------------------------------------
