@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 from .observe import Observation
 from .vision.colors import MAX_FRUIT_TYPE
+from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from .vision.state import Fruit
 
 WATERMELON = MAX_FRUIT_TYPE
@@ -47,6 +48,31 @@ def is_lost(fruits: Sequence[Fruit]) -> bool:
 
 def is_game_over(obs: Observation) -> bool:
     return is_lost(obs.fruits)
+
+
+# 角の判定の許容。スイカ (半径 112) が壁と床に付いたときの角の隙間には
+# さくらんぼ (半径 14.2) がそのまま収まり、スイカは動かない。いちごなら
+# スイカを壁から 4.9、ぶどうなら 23.2 押し出す (どちらも壁・床・スイカに
+# 接する円の位置から出る)。その間を取り、いちごまでは角として数える。
+CORNER_SLACK = 12.0
+
+
+def is_corner_watermelon(fruits: Sequence[Fruit]) -> bool:
+    """壁と床に密着したスイカがあるか。
+
+    角スイカは目標形 (→NOTES「いまの進め方」)。到達したかを外から見られるよう、
+    盤の実だけから判定する。角に小実が挟まっていても、押し出された量が
+    `CORNER_SLACK` に収まっていれば角として数える。
+    """
+    for fruit in fruits:
+        if fruit.type != WATERMELON:
+            continue
+        if fruit.y + fruit.radius < NORMALIZED_HEIGHT - CORNER_SLACK:
+            continue
+        wall_gap = min(fruit.x - fruit.radius, NORMALIZED_WIDTH - fruit.x - fruit.radius)
+        if wall_gap <= CORNER_SLACK:
+            return True
+    return False
 
 
 def watermelon_count(obs: Observation) -> int:

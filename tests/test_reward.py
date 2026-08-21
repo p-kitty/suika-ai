@@ -1,5 +1,7 @@
 """報酬の単体テスト。"""
 
+import math
+
 from src.observe import Observation
 from src.vision.classify import fruit_radius
 from src.reward import (
@@ -7,6 +9,7 @@ from src.reward import (
     CREATE_SCORE,
     WATERMELON,
     cleared_double_watermelon,
+    is_corner_watermelon,
     is_game_over,
     is_lost,
     merge_points,
@@ -120,3 +123,67 @@ def test_watermelon_count() -> None:
         )
     )
     assert watermelon_count(two) == 2
+
+
+def _corner_board(corner_type: int | None) -> tuple[Fruit, ...]:
+    """左下にスイカ、その右上にメロン。角に corner_type の実を挟む。
+
+    角の実は壁・床・スイカのすべてに接する位置に置く。そのときスイカは
+    x = r + 2*sqrt(R*r) まで押し出される (接点の幾何から出る)。さくらんぼは
+    この値が R を下回る＝角の隙間に収まるので、スイカは壁に付いたまま。
+    """
+    big_r = fruit_radius(WATERMELON)
+    melon_r = fruit_radius(WATERMELON - 1)
+    fruits: list[Fruit] = []
+    wm_x = big_r
+    if corner_type is not None:
+        small_r = fruit_radius(corner_type)
+        wm_x = max(big_r, small_r + 2.0 * math.sqrt(big_r * small_r))
+        fruits.append(
+            Fruit(
+                type=corner_type,
+                x=small_r,
+                y=NORMALIZED_HEIGHT - small_r,
+                radius=small_r,
+                confidence=90,
+            )
+        )
+    watermelon = Fruit(
+        type=WATERMELON,
+        x=wm_x,
+        y=NORMALIZED_HEIGHT - big_r,
+        radius=big_r,
+        confidence=90,
+    )
+    # 右上に乗るメロン。スイカに接する 45 度の位置。
+    offset = (big_r + melon_r) / math.sqrt(2.0)
+    melon = Fruit(
+        type=WATERMELON - 1,
+        x=watermelon.x + offset,
+        y=watermelon.y - offset,
+        radius=melon_r,
+        confidence=90,
+    )
+    fruits.extend((watermelon, melon))
+    return tuple(fruits)
+
+
+def test_corner_watermelon_needs_the_wall_and_the_floor() -> None:
+    assert is_corner_watermelon(_corner_board(None))
+
+    middle = tuple(
+        Fruit(type=f.type, x=f.x + 60.0, y=f.y, radius=f.radius, confidence=f.confidence)
+        for f in _corner_board(None)
+    )
+    assert not is_corner_watermelon(middle)
+
+
+def test_corner_watermelon_survives_a_cherry_or_strawberry_in_the_corner() -> None:
+    """角に収まる小実なら、押し出されてもまだ角スイカ。"""
+    assert is_corner_watermelon(_corner_board(0))
+    assert is_corner_watermelon(_corner_board(1))
+
+
+def test_corner_watermelon_is_lost_to_a_grape_in_the_corner() -> None:
+    """ぶどうはスイカを壁から 23 押し出す。ここまで浮くと角ではない。"""
+    assert not is_corner_watermelon(_corner_board(2))

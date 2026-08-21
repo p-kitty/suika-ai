@@ -23,7 +23,7 @@ from scripts._bootstrap import ROOT
 from src.training.agent import LinearPolicy
 from src.util.parallel import default_workers
 from src.policy import choose_x
-from src.reward import watermelon_count
+from src.reward import is_corner_watermelon, watermelon_count
 from src.sim.sim_env import SimEnv
 
 DEFAULT_CKPT = ROOT / "artifacts" / "policy_sim.npz"
@@ -42,6 +42,7 @@ def run_episode(
     steps = 0
     max_type = -1
     max_wm = 0
+    corner_wm = 0.0
     info = "ok"
     for _ in range(max_steps):
         result = env.step(choose(obs))
@@ -53,6 +54,8 @@ def run_episode(
         if obs.fruits:
             max_type = max(max_type, max(f.type for f in obs.fruits))
         max_wm = max(max_wm, watermelon_count(obs))
+        if is_corner_watermelon(obs.fruits):
+            corner_wm = 1.0
         if result.done:
             break
     return {
@@ -61,6 +64,8 @@ def run_episode(
         "merges": float(merges),
         "max_type": float(max_type),
         "max_wm": float(max_wm),
+        # 角スイカ (目標形) に一度でも到達したか。
+        "corner_wm": corner_wm,
         "win": 1.0 if info == "win" else 0.0,
         # 自然終了せず max_steps で切られたか。打ち切りは伸びた対局に偏るので、
         # 混ざったままの平均は良い方策ほど過小評価になる (NOTES「測定のしかた」)。
@@ -184,6 +189,7 @@ def main() -> None:
     print(f"score  mean={statistics.mean(scores):.2f}")
     print(f"merges mean={statistics.mean(merges):.1f}")
     print(f"max_type mean={statistics.mean(max_types):.2f}  best={max(max_types):.0f}")
+    print(f"corner_wm episodes={sum(1 for r in rows if r['corner_wm'] >= 1)}")
     print(f"double_wm episodes={sum(1 for r in rows if r['max_wm'] >= 2)}")
     print(f"win episodes={sum(1 for r in rows if r['win'] >= 1)}")
 
