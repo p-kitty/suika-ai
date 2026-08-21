@@ -127,6 +127,14 @@ sim の評価・A/B・学習の実行例は README の Scripts と
 - A/B は `scripts/compare_policy.py` の `_apply_variant` に変更を差して走らせる。
   恒久化するときは変種を戻し、**ON/OFF トグルはコードに残さない**。
   別 commit と比べたくなったら [git](#git) の worktree の項
+- **計測の既定は `--episodes 50 --max-steps 400`。ここで有意差が出ない変更は
+  入れる価値が無いとみなす。** 有意になるまで n を積み増して粘らない。
+  この足切りが何を捨てているかは
+  [測定のしかた](NOTES.md#測定のしかた何度も踏んでいる罠)
+- **A 側は変種をまたいで同じ方策なので引き直さない。** 一度
+  `--out` に保存したら、以後は `scripts/compare_b_only.py --baseline <その json>`
+  で B だけ回す。計算量が半分になる。方策そのものを変えたらベースラインは
+  捨てる（JSON の `baseline_commit` と HEAD がずれると警告が出る）
 - ペナルティ規則を足す・消す・重みを変えたら、NOTES.md の
   [現行ペナルティルール一覧](NOTES.md#現行ペナルティルール一覧) を同じ差分で直す
 - **効果がなかった試行も NOTES.md に残す。** 内容・n・結論・revert したことまで書く。
