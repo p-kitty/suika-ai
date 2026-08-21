@@ -54,6 +54,10 @@ PERCH_MIN_GAP = 5
 # 肩を見る実の範囲 (最大実から何段下まで)。0 なら最大実だけ。
 PERCH_BIG_SPAN = 1
 PERCH_WEIGHT = 16.0
+# 左右の大小逆転 1 段ぶん。
+SIZE_ORDER_PAIR_WEIGHT = 1.5
+# ideal_x からの平均乖離に掛ける。
+SIZE_ORDER_IDEAL_WEIGHT = 0.004
 
 
 
@@ -285,8 +289,6 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
     """
     if not fruits:
         return 0.0
-    size_order_pair_weight = 1.5
-    size_order_ideal_weight = 0.004
     penalty = 0.0
     # _size_order_exempt は 1 個あたり O(n)。ペアごとに引き直すと O(n^3) に
     # なるので先に 1 回だけ引く。候補ごとに毎回走る場所。
@@ -303,14 +305,14 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
                 continue
             left, right = (a, b) if a.x <= b.x else (b, a)
             if sign > 0 and left.type < right.type:
-                penalty += (right.type - left.type) * size_order_pair_weight
+                penalty += (right.type - left.type) * SIZE_ORDER_PAIR_WEIGHT
             elif sign < 0 and left.type > right.type:
-                penalty += (left.type - right.type) * size_order_pair_weight
+                penalty += (left.type - right.type) * SIZE_ORDER_PAIR_WEIGHT
     if open_fruits:
         penalty += (
             sum(abs(f.x - ideal_x(f.type, sign)) for f in open_fruits)
             / len(open_fruits)
-            * size_order_ideal_weight
+            * SIZE_ORDER_IDEAL_WEIGHT
         )
     return penalty
 
