@@ -201,7 +201,7 @@ def simulate_drop(
 
     The policy hot path. Only exports the final board (does not use the animation iter).
     """
-    after, merges, merge_types, _held_merged, _held_x = simulate_drop_held(
+    after, merges, merge_types, _held_merged, _held_fruit = simulate_drop_held(
         fruits, fruit_type, x
     )
     return after, merges, merge_types
@@ -211,10 +211,10 @@ def simulate_drop_held(
     fruits: list[Fruit] | tuple[Fruit, ...],
     fruit_type: int,
     x: float,
-) -> tuple[list[Fruit], int, list[int], bool, float | None]:
+) -> tuple[list[Fruit], int, list[int], bool, Fruit | None]:
     """simulate_drop plus the whereabouts of held (the fruit dropped this time).
 
-    What is added is (whether held took part in a merge, the x where held's lineage ends up).
+    What is added is (whether held took part in a merge, the fruit where held's lineage ends up).
 
     Used to tell merges involving held's lineage (`is_held_lineage`) from merges that happened by chance
     elsewhere on the board unrelated to held (looking only at `merges >= 1`
@@ -222,7 +222,7 @@ def simulate_drop_held(
     (`is_held_drop` is cleared on contact with a different type), the lineage can be tracked because it is handed over to the new fruit
     each time it disappears in a merge. It does not propagate to unrelated merges.
 
-    x follows the lineage after merges too, so how far the fruit born from a merge was carried by recoil
+    The lineage is followed after merges too, so how far the fruit born from a merge was carried and what type it became
     comes out directly (`landed_xy` switches to a geometric estimate once held disappears, so
     where a merge went cannot be read from there). None when it grew into a watermelon and disappeared.
     """
@@ -248,7 +248,7 @@ def simulate_drop_held(
         if quiet.update(bodies):
             break
 
-    return _export_fruits(bodies), merges, merge_types, held_merged, _lineage_x(bodies)
+    return _export_fruits(bodies), merges, merge_types, held_merged, _lineage_fruit(bodies)
 
 
 def _advance(
@@ -316,7 +316,7 @@ def preview_land(
 ) -> tuple[float, float]:
     """Landing (x, y) for drop column x. Runs simulate_drop once internally."""
     x0 = max(held_r, min(NORMALIZED_WIDTH - held_r, x))
-    after, _merges, _types, held_merged, _held_x = simulate_drop_held(
+    after, _merges, _types, held_merged, _held_fruit = simulate_drop_held(
         fruits, fruit_type, x0
     )
     return landed_xy(fruits, after, fruit_type, x0, held_r, held_merged)
@@ -617,37 +617,32 @@ def _all_quiet(bodies: list[_BodyFruit]) -> bool:
     return True
 
 
-def _lineage_x(bodies: list[_BodyFruit]) -> float | None:
-    """The x where held's lineage ends up. None if the lineage is no longer on the board.
+def _lineage_fruit(bodies: list[_BodyFruit]) -> Fruit | None:
+    """The fruit where held's lineage ends up. None if the lineage is no longer on the board.
 
     Clamping matches `_export_fruits` (returning the part sunk into the wall with coordinates outside the board
-    returning it would drift when the caller matches it against the same fruit in after).
+    would drift when the caller matches it against the same fruit in after). What is returned is
+    a separate instance with the same values as after, so **it cannot be matched with `is`**.
+    Tell them apart by position.
     """
     for item in bodies:
         if item.is_held_lineage:
-            r = item.radius
-            return max(r, min(NORMALIZED_WIDTH - r, float(item.body.position.x)))
+            return _export_one(item)
     return None
 
 
+def _export_one(item: _BodyFruit, *, clamp: bool = True) -> Fruit:
+    x = float(item.body.position.x)
+    y = float(item.body.position.y)
+    r = float(item.shape.radius)
+    if clamp:
+        # It sinks slightly into the floor and walls, so clamp lightly.
+        x = max(r, min(NORMALIZED_WIDTH - r, x))
+        y = max(r * 0.1, min(NORMALIZED_HEIGHT - r, y))
+    return Fruit(type=item.fruit_type, x=x, y=y, radius=r, confidence=100.0)
+
+
 def _export_fruits(bodies: list[_BodyFruit], *, clamp: bool = True) -> list[Fruit]:
-    out: list[Fruit] = []
-    for item in bodies:
-        x = float(item.body.position.x)
-        y = float(item.body.position.y)
-        r = float(item.shape.radius)
-        if clamp:
-            # It sinks slightly into the floor and walls, so clamp lightly.
-            x = max(r, min(NORMALIZED_WIDTH - r, x))
-            y = max(r * 0.1, min(NORMALIZED_HEIGHT - r, y))
-        out.append(
-            Fruit(
-                type=item.fruit_type,
-                x=x,
-                y=y,
-                radius=r,
-                confidence=100.0,
-            )
-        )
+    out = [_export_one(item, clamp=clamp) for item in bodies]
     out.sort(key=lambda f: (f.y, f.x))
     return out

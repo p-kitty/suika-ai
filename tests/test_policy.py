@@ -15,6 +15,7 @@ from src.penalties import (
     center_tiebreak,
     foreign_aim_penalty,
     ideal_x,
+    stranded_drop_penalty,
 )
 from src.policy import _candidates, _score, choose_x
 from src.reward import is_lost, merge_points
@@ -101,7 +102,7 @@ def test_sets_up_next_when_no_immediate_merge() -> None:
     fruits = (target, wall)
     x = choose_x(_obs(held_type=2, fruits=fruits, next_type=0))
     # It gets knocked by collisions, so judge by the actual landing position, not the aimed column x.
-    after, _merges, _merge_types, held_merged, _held_x = simulate_drop_held(fruits, 2, x)
+    after, _merges, _merge_types, held_merged, _held_fruit = simulate_drop_held(fruits, 2, x)
     land_x, _land_y = landed_xy(fruits, after, 2, x, grape_r, held_merged)
     assert abs(land_x - target.x) < cherry_r + grape_r * 2 + 40
 
@@ -626,7 +627,7 @@ def test_does_not_perch_small_fruit_on_biggest() -> None:
     pine = fruits[1]
     cherry_r = fruit_radius(0)
     x = choose_x(_obs(held_type=0, fruits=fruits, next_type=2))
-    after, _merges, _types, held_merged, _held_x = simulate_drop_held(fruits, 0, x)
+    after, _merges, _types, held_merged, _held_fruit = simulate_drop_held(fruits, 0, x)
     land_x, land_y = landed_xy(fruits, after, 0, x, cherry_r, held_merged)
     on_pine = abs(land_x - pine.x) <= pine.radius + cherry_r
     assert not (on_pine and land_y + cherry_r <= pine.y)
@@ -720,7 +721,7 @@ def test_merge_leaves_the_new_fruit_on_the_big_side() -> None:
     obs = _obs(held_type=4, fruits=fruits, next_type=2)
 
     x = choose_x(obs)
-    after, merges, _types, held_merged, _held_x = simulate_drop_held(fruits, 4, x)
+    after, merges, _types, held_merged, _held_fruit = simulate_drop_held(fruits, 4, x)
     assert merges == 1 and held_merged
     apple = next(f for f in after if f.type == 5)
     # Not thrown to the small side (left). It does not come back more than its own radius from where the partner was.
@@ -740,3 +741,38 @@ def test_merge_big_side_bonus_never_outranks_a_merge() -> None:
     (same reason as the test of the same name for `center_tiebreak`).
     """
     assert MERGE_BIG_SIDE_BONUS < merge_points(0)
+
+
+def test_declines_a_merge_that_strands_the_dropped_fruit() -> None:
+    """Take the order over merge points. Do not leave the dropped fruit behind in a valley of big fruits.
+
+    A valley between a pear and a pineapple with only one strawberry left. Dropping there merges,
+    but the grape made stays blocked by the big fruits on both sides, unable to meet a partner
+    (move 35 of seed=834761 has the same shape; there it was in exchange for a 46-point 3-step cascade).
+    """
+    straw_r = fruit_radius(1)
+    grape_r = fruit_radius(2)
+    pear_x = 100.0
+    pine_x = pear_x + fruit_radius(6) + fruit_radius(8) + grape_r * 2 + 2.0
+    valley_x = (pear_x + fruit_radius(6) + pine_x - fruit_radius(8)) / 2
+    fruits = tuple(
+        Fruit(
+            type=t,
+            x=x,
+            y=NORMALIZED_HEIGHT - fruit_radius(t),
+            radius=fruit_radius(t),
+            confidence=90,
+        )
+        for t, x in ((6, pear_x), (1, valley_x), (8, pine_x))
+    )
+    obs = _obs(held_type=1, fruits=fruits, next_type=0)
+
+    # The merge itself is among the candidates (it is not unseen but rejected).
+    merged, merges, _types, _held, lineage = simulate_drop_held(fruits, 1, valley_x)
+    assert merges == 1
+    assert stranded_drop_penalty(merged, lineage) > 0.0
+    assert _score(obs, valley_x, straw_r) < _score(obs, 30.0, straw_r)
+
+    x = choose_x(obs)
+    after, _m, _t, _h, held_fruit = simulate_drop_held(fruits, 1, x)
+    assert stranded_drop_penalty(after, held_fruit) == 0.0

@@ -89,8 +89,9 @@ and on the peach at moves 103-122).
   shape of "a small fruit sitting on a big one" slips through
 - `_size_order_penalty` excludes vertically stacked pairs with `abs(a.x - b.x) < min(r) * 0.5`
   as the same column
-- The remaining sideways pairs are removed by `_size_order_exempt` too. **One partner anywhere on the board is enough**,
-  so the cherry at move 97 is exempted on the basis of its partner at the far edge (x=384)
+- The remaining sideways pairs are removed by `_size_order_exempt` too (back then **one partner anywhere
+  on the board** granted the exemption, so the cherry at move 97 was exempted by its partner at the far edge, x=384.
+  Now only a partner in the same valley counts)
 
 Splitting move 97 (board `appl@51 pine@78 oran@145 grap@209 peac@222 pear@290 oran@324 grap@372 cher@384`,
 held=cherry) by candidate, only the 4 that put it on the pineapple pile have eval 0.275 with every term near 0,
@@ -990,6 +991,7 @@ is not overriding size order and trapping. The basis is
 | directly above a different type | `foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
 | valley-growing bonus | `valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type | **−3.0** (bonus) |
 | merge pushed to the big side | `merge_lands_big_side` | moves where the fruit made by the merge (held's lineage) stops **at least one radius of the dropped fruit** toward the big side of the drop column | **−0.5** (bonus) |
+| stranded | `stranded_drop_penalty` | the dropped fruit (held's lineage) stops in **a valley of fruits 2 or more types bigger**, **with no partner in the same valley**. Applies to merging moves too | `STRANDED_DROP_WEIGHT` 20.0 × (type gap − 2 + 1) |
 | center tie-break | `center_tiebreak` | distance between the drop column and the center. **A term only for ordering**, it does not express how good a move is | `CENTER_TIEBREAK_WEIGHT` 0.001 (max 0.19 < minimum merge score 1.0) |
 
 **These two bonuses are mutually exclusive**. Valley growing applies only **when held itself did not merge**, and the big-side merge
@@ -1005,7 +1007,7 @@ the real game's score is not broken.
 | burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35). The contact window is based on **both radii** `(under.radius + over.radius) × 0.9` (based on the lower fruit alone, the window narrows the more a big fruit sits on a small one and it escapes detection) | `BURY_WEIGHT` 20.0x |
 | perch | `_perch_penalty` | small fruits inside the footprint of a big fruit (from the biggest down to `PERCH_BIG_SPAN` 1 tier below) with their bottom above that big fruit's center. Counts the amount by which the type gap exceeds `PERCH_MIN_GAP` 5 (up to orange on a pineapple's shoulder is 0, dekopon 1 / grape 2 / strawberry 3 / cherry 4). Contact is not required, so shapes sitting on the pile with one tier in between are caught too | `PERCH_WEIGHT` 16.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
-| size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left on the board** are exempt = `_size_order_exempt`). **Exempt on moves where held merged** (that hole is closed by `merge_lands_big_side` above) | pair difference×1.5 + ideal_x deviation×0.004 |
+| size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left in the same valley** are exempt = `_size_order_exempt`. A partner outside the valley is blocked by the big wall fruits, so it does not exempt). **Exempt on moves where held merged** (that hole is closed by `merge_lands_big_side` and `stranded_drop_penalty` above) | pair difference×1.5 + ideal_x deviation×0.004 |
 | corner pocket | `_corner_pocket_penalty` | the biggest fruit is on the big-side wall, yet there is a small fruit outside and below it (a fruit that gets behind L cannot meet its partner) | 50.0×(1+0.05×type gap)+depth×0.15 |
 
 **Not a penalty: the lethal-move filter (`choose_x`)**
