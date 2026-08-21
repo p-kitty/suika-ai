@@ -64,7 +64,7 @@ def _components(
     呼び元が局面ごとに突き合わせる (ずれたまま集計すると帯の定義が狂う)。
     """
     sign = pol._order_sign(before)
-    after, _merges, merge_types, held_merged, held_x = simulate_drop_held(
+    after, _merges, merge_types, held_merged, held_fruit = simulate_drop_held(
         before, drop_type, x
     )
     land_x, _land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
@@ -85,7 +85,7 @@ def _components(
     if not held_merged:
         if pen.valley_grow_ok(before, land_x, drop_type, next_type):
             parts["valley_grow"] = pen.VALLEY_GROW_BONUS
-    elif pen.merge_lands_big_side(x, held_x, held_r, sign):
+    elif pen.merge_lands_big_side(x, held_fruit, held_r, sign):
         parts["merge_big_side"] = pen.MERGE_BIG_SIDE_BONUS
     return parts, sum(parts.values())
 

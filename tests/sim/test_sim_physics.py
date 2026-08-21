@@ -369,7 +369,7 @@ def test_strawberry_at_left_wall_keeps_size_order_with_cherry_and_grape() -> Non
 def test_simulate_drop_held_true_when_dropped_fruit_merges() -> None:
     r = fruit_radius(0)
     a = Fruit(type=0, x=200, y=NORMALIZED_HEIGHT - r, radius=r, confidence=90)
-    _after, merges, _types, held_merged, _held_x = simulate_drop_held((a,), 0, a.x)
+    _after, merges, _types, held_merged, _held_fruit = simulate_drop_held((a,), 0, a.x)
     assert merges >= 1
     assert held_merged
 
@@ -385,7 +385,7 @@ def test_simulate_drop_held_true_after_glancing_off_foreign_fruit() -> None:
     gx = left_pear.x + math.sqrt((pear_r + grape_r) ** 2 - dy * dy)
     existing_grape = Fruit(type=2, x=gx, y=gy, radius=grape_r, confidence=90)
 
-    _after, merges, _types, held_merged, _held_x = simulate_drop_held(
+    _after, merges, _types, held_merged, _held_fruit = simulate_drop_held(
         (left_pear, existing_grape), 2, existing_grape.x
     )
     assert merges >= 1
@@ -400,7 +400,7 @@ def test_simulate_drop_held_false_for_unrelated_merge() -> None:
     b = Fruit(type=0, x=40 + r * 1.9, y=NORMALIZED_HEIGHT - r, radius=r, confidence=90)
     held_r = fruit_radius(4)
     far_x = NORMALIZED_WIDTH - held_r - 4
-    _after, merges, _types, held_merged, _held_x = simulate_drop_held((a, b), 4, far_x)
+    _after, merges, _types, held_merged, _held_fruit = simulate_drop_held((a, b), 4, far_x)
     assert merges >= 1
     assert not held_merged
 
@@ -426,7 +426,7 @@ def test_landed_xy_uses_real_position_when_only_unrelated_pair_merged() -> None:
     fruits = (a, b, melon)
     drop_x = melon.x - melon_r * 0.75
 
-    after, merges, _types, held_merged, _held_x = simulate_drop_held(fruits, 4, drop_x)
+    after, merges, _types, held_merged, _held_fruit = simulate_drop_held(fruits, 4, drop_x)
     assert merges >= 1
     assert not held_merged
 
