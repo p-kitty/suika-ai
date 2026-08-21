@@ -796,3 +796,31 @@ def test_uses_the_next_rung_instead_of_roofing_a_small_fruit() -> None:
     assert grape is not None
     # No roof placed directly above the strawberry.
     assert abs(grape.x - straw.x) > straw.radius + grape.radius
+
+
+def test_reaches_a_same_type_partner_under_a_roof() -> None:
+    """Do not drop from the candidates a move that rolls sideways into a same-type partner under a roof.
+
+    Move 37 of seed=871514. The cherry is buried right under a strawberry, and dropping from directly above
+    only lands on the strawberry's shoulder. The x that passes to the floor and reaches the partner is only 2px wide,
+    and when the grid straddles it the policy instead turns two apples into a pear (21 points),
+    wedging the cherry between the peach and the pear.
+    """
+    fruits = tuple(
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90)
+        for t, x, y in (
+            (7, 69.4, 430.6),
+            (5, 184.6, 448.7),
+            (4, 245.7, 385.8),
+            (5, 306.8, 448.8),
+            (1, 376.8, 449.8),
+            (0, 383.9, 483.9),
+        )
+    )
+    obs = _obs(held_type=0, fruits=fruits, next_type=4)
+
+    x = choose_x(obs)
+    after, _merges, _types, held_merged, _held = simulate_drop_held(fruits, 0, x)
+    assert held_merged
+    # The buried partner is cleared along with it (two cherries -> strawberry -> grape).
+    assert not [f for f in after if f.type == 0]

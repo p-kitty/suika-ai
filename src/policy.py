@@ -36,9 +36,12 @@ NEXT_DISCOUNT = 0.55
 HELD_TOP = 2
 # Candidate spacing of the next lookahead. Coarser than held (CANDIDATE_STEP).
 NEXT_CANDIDATE_STEP = 32.0
-# Uniform spacing of held candidates. Coarser puts the spot directly above a dangerous pile among the candidates, so do not raise it
-# (test_avoids_dangerous_tall_stack failed at 20). Speed is earned on the lookahead side.
-CANDIDATE_STEP = 12.0
+# Uniform spacing of held candidates. Coarser puts the spot directly above a dangerous pile among the candidates
+# (test_avoids_dangerous_tall_stack failed at 20). The fineness is set by the merge window:
+# the x width that rolls into a same type can be only 1-3px (redrawing 262 positions at 1px,
+# the window of the missed best move is median 3px, 68% at 3px or less). 12 or 6 straddle that window
+# and miss it. 248 → 540ms per move.
+CANDIDATE_STEP = 3.0
 
 
 def _held_eval_job(
