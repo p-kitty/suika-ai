@@ -159,56 +159,6 @@ paired SD=582.0, n=130 needed to speak to ±100 points), and the seed head-to-he
 **How to read it**: n=10 only detects a large collapse, and none appeared. It is not evidence of improvement either.
 The basis for keeping the rule is still the per-position quantities above and the fraction escaping the band.
 
-### Merge recoil was not reflected in eval (2026-08-21)
-
-**Symptom** (moves 17-18 of seed 834761, user report). On a small-left big-right (`sign=-1`) board,
-when merging same types it chooses **the way of hitting that throws the new fruit to the small side**. Move 18
-with `cher@17 stra@53 oran@229 peac@331` and held=orange picks **x=204**, and the resulting
-apple is thrown by recoil to **x=115**. At move 19 a grape falls into the opened left and
-the order breaks as `cher@16 grap@104 stra@151`.
-
-**The cause is a hole in the rules, not a weight.** Merging moves call `board_penalties` with
-`exempt_size_order=True` (so that **unrelated fruits** knocked by merge recoil are not counted as size-order violations;
-→[rule list](#current-penalty-rules)). That exemption also exempted
-**where the fruit made by the merge itself went**. All 18 candidates of move 18 had
-score 15 with bury / perch / excess_same / corner_pocket / foreign_aim all 0, and
-the only difference left between candidates was `center_tiebreak` at 0.004-0.10. **The column closest to the board's center**
-won, and that was the way of hitting that throws the apple left.
-
-- Move 17 is the same band (every candidate score 10, the difference only `center_tiebreak`). Choosing x=156, which pushes the orange
-  right, happened only because the next lookahead picked it up by 18.20 to 18.19;
-  **it was not chosen on purpose**
-- It is not that there was no good move among the candidates. At move 18, x=156 reaches apple 203 and x=96 reaches 215
-  (assigned seat 200). **It just was not reflected in eval**
-
-**What was added**: `merge_lands_big_side` (→[rule list](#current-penalty-rules)).
-`simulate_drop_held` now returns the final x of held's lineage (`is_held_lineage`), and
-**a merge that stops at least one radius of the dropped fruit toward the big side of the drop column** gets −0.5.
-
-- Not only recoil but **including hitting after rolling**, it looks at "which way it ended up".
-  x=96, chosen at move 18, rolls over the strawberry's right shoulder into the left of the orange
-- `landed_xy` switches to a geometric estimate once held disappears in a merge, so where the merge went
-  cannot be read from there. The lineage position had to come from the physics side
-- The weight 0.5 is **the cap that does not overturn the smallest merge score difference of 1.0 (cherry→straw)**. The ranking between merges
-  stays the real-game score, and it does not reject even the cheapest merge (`test_merge_big_side_bonus_never_outranks_a_merge`).
-  It is 5x the tie band width of 0.1, so ordering inside the band moves from `center_tiebreak`
-  to this term. Given the conclusion that **the inside of the band is indifferent** (→[Settled](#settled-the-tie-band-really-is-indifferent-2026-08-19)),
-  this is not "a term that raises score" but a change that **replaces the band's ordering by an arbitrary quantity
-  with a meaningful one**
-
-**What this one game fixed** (deterministic quantities, not score):
-
-| move | before | after |
-|---|---|---|
-| 17 dekopon merge | x=156 → orange 229 | x=160 → orange 225 |
-| 18 orange merge | x=204 → **apple 115** | x=96 → **apple 215** |
-| 19 grape | `cher16 grap104 stra151 appl215` (inverted) | `cher16 stra50 grap97 appl215` (ordered) |
-
-**Firing rate**: over 150 moves × 2 seeds, **53% / 71%** of merging moves ended up toward the big side
-(rule ON). It is not a term that applies only rarely.
-
-**No A/B has been run yet.**
-
 ## Open tasks
 
 **Vision**
@@ -1046,7 +996,7 @@ is not overriding size order and trapping. The basis is
 only **when it merged** (`held_merged`, not the merge count `merges`, so that an unrelated merge elsewhere on the board
 does not grant the exemption). The big-side weight of 0.5 is set as the cap that does not overturn the smallest
 merge score difference of 1.0 (cherry→straw). The property that the ranking between merges is decided by
-The property that ranking is decided by the real-game score is not broken (→[merge recoil](#merge-recoil-was-not-reflected-in-eval-2026-08-21)).
+the real game's score is not broken.
 
 **Board-wide penalties (`board_penalties`, on the post-drop board every time)**
 
