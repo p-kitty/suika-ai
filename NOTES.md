@@ -399,7 +399,8 @@ the sum of sub-terms was checked to match the real eval on every position).
 - **The not-close-enough part of `big_layout` has a |value| mean of 0.14 points.** Only 16% of candidates are nonzero, and
   "exempt for the diameter of the missing type" eats up almost all of this term's output. Its other half,
   the corner pocket, is rare with 19.8% nonzero but is a binary filter averaging 24 points. The coarse table's
-  "moves 18.5% for 5.7%" was **these two seen separated**
+  "moves 18.5% for 5.7%" was **these two seen separated**.
+  Not-close-enough was later [put through an A/B and retired](#retired-big-fruits-not-close-enough-2026-08-21)
 - **Every term that works is, without exception, a binary applies-or-not.** Continuous quantities only swap
   candidates inside the band and cannot push them out
 
@@ -521,6 +522,25 @@ It moves in 39.4% of positions, and when it moves the weight is 20.0. The same s
 **Look at the nonzero rate together with the size when it moves.**
 
 Settling it needs n≈549 (about 6.4 hours on 8 workers). It was judged not worth that much.
+
+### Retired: big fruits not close enough (2026-08-21)
+
+A/B cutting the second half of `_big_layout_penalty` (a continuous quantity penalizing gaps between big fruits),
+n=100, 0 truncated. score 2335.57 → 2404.60 (+3.0%, t=1.10, CI [−55.5, +193.5]),
+merges +2.9%, cascades +2.0%, win/loss 52/48. **Not significant, but the signs line up on
+the "better cut" side**, consistent with its mechanism of a |value| mean of 0.14 points → deleted.
+
+It was a term eaten by its own exemption clause. Big fruits usually line up in size order, so between adjacent pairs
+there is exactly a "missing type", and exempting that diameter makes the gap vanish.
+**Nonzero for only 16% of candidates, and 0.14 points when it moves** (→[sub-terms](#split-composite-terms-into-sub-terms-2026-08-21)).
+
+The remaining corner pocket part was renamed `_corner_pocket_penalty`. **Putting two rules of different nature under one name
+buries one part's work in the other's noise and gets misread** — both this section and
+[excess_same](#measured-excess_same-was-kept-2026-08-21) are examples.
+`BIG_CLUSTER_SPAN` was only used by not-close-enough, so it went too.
+
+**Note**: measurements of `big_layout` appearing earlier in NOTES (5.7% outside the band and so on) are
+**from when the 2 rules were combined**. They are kept as the record of that time.
 
 ### Retired: bumpiness (height variance)(2026-08-21)
 
@@ -878,7 +898,7 @@ The valley-growing bonus applies **only when held itself did not merge** (`held_
 | perch | `_perch_penalty` | small fruits inside the footprint of a big fruit (from the biggest down to `PERCH_BIG_SPAN` 1 tier below) with their bottom above that big fruit's center. Counts the amount by which the type gap exceeds `PERCH_MIN_GAP` 5 (up to orange on a pineapple's shoulder is 0, dekopon 1 / grape 2 / strawberry 3 / cherry 4). Contact is not required, so shapes sitting on the pile with one tier in between are caught too | `PERCH_WEIGHT` 16.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
 | size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left on the board** are exempt = `_size_order_exempt`). **Exempt on moves where held merged** | pair difference×1.5 + ideal_x deviation×0.004 |
-| big-fruit layout | `_big_layout_penalty` | (1) the biggest fruit is on the big-side wall yet a small fruit is outside and below it (corner pocket filled) (2) big fruits not close enough (exempt for the diameter of the missing type in between) | (1) 50.0×(1+0.05×type gap)+depth×0.15  (2) (gap−diameter of the missing type)×0.025×size factor |
+| corner pocket | `_corner_pocket_penalty` | the biggest fruit is on the big-side wall, yet there is a small fruit outside and below it (a fruit that gets behind L cannot meet its partner) | 50.0×(1+0.05×type gap)+depth×0.15 |
 
 **Not a penalty: the lethal-move filter (`choose_x`)**
 

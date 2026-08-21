@@ -58,11 +58,6 @@ def _apply_variant(enabled: bool) -> None:
         from src import penalties
         penalties.BURY_WEIGHT = 30.0 if enabled else 20.0
     """
-    if enabled:
-        from src import penalties
-
-        # Cut big fruits not close enough (the corner pocket stays).
-        penalties.BIG_CLUSTER_WEIGHT = 0.0
 
 
 def _episode(
