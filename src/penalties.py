@@ -64,7 +64,12 @@ EDGE_ANCHOR_FRAC = 0.35
 # --- 盤面減点の重み ---
 # compare_policy の A/B がモジュール属性として差し替えるので、
 # board_penalties のローカルではなくここに置く。
+# 埋めた 1 個ぶん。相方が盤にいる実は次の手で合体できたので重い。
 BURY_WEIGHT = 20.0
+# 相方が盤にいない実を埋めた 1 個ぶん。相方はこれから引くので、屋根を掛けると
+# その実は誰にも会えなくなる (居座る実の 46.6% が頭上を塞がれている。
+# NOTES「居座る実 (fossil) の測定」)。相方待ちを潰すより軽いが、無視はしない。
+BURY_LONE_WEIGHT = 15.0
 # 大実の肩に載せてよい型差の上限。パイン (8) の肩にオレンジ (4) までは許す。
 PERCH_MIN_GAP = 5
 # 肩を見る実の範囲 (最大実から何段下まで)。0 なら最大実だけ。
@@ -303,7 +308,7 @@ def board_penalties(
     弾かれた無関係の実まで大小順違反として減点しない (`policy._evaluate_drop` 参照)。
     """
     penalty = 0.0
-    penalty += BURY_WEIGHT * _bury_penalty(fruits)
+    penalty += _bury_penalty(fruits)
     penalty += PERCH_WEIGHT * _perch_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
@@ -399,9 +404,13 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
     return penalty
 
 
-def _bury_penalty(fruits: list[Fruit]) -> float:
-    """合成候補を異種で埋める度合い。"""
-    penalty = 0.0
+def _bury_counts(fruits: list[Fruit] | tuple[Fruit, ...]) -> tuple[float, float]:
+    """異種で埋めた実の数を (相方あり, 相方なし) に分けて返す。
+
+    重みが 2 つある規則なので、`band_escape.py` が別々に掃引できるよう
+    数える側と重みを分けてある (AGENTS「1 つの項に 1 つの規則」)。
+    """
+    paired = lone = 0.0
     for under in fruits:
         for over in fruits:
             if over is under or over.type <= under.type:
@@ -417,10 +426,16 @@ def _bury_penalty(fruits: list[Fruit]) -> float:
             if -MERGE_SLACK <= gap <= under.radius * 0.6:
                 siblings = sum(1 for f in fruits if f.type == under.type and f is not under)
                 if siblings >= 1:
-                    penalty += 1.0
+                    paired += 1.0
                 else:
-                    penalty += 0.35
-    return penalty
+                    lone += 1.0
+    return paired, lone
+
+
+def _bury_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """合成候補を異種で埋める減点。相方の有無で重みが違う。"""
+    paired, lone = _bury_counts(fruits)
+    return BURY_WEIGHT * paired + BURY_LONE_WEIGHT * lone
 
 
 def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:

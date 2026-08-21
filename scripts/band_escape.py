@@ -46,6 +46,7 @@ MULTIPLIERS = (0.0, 0.5, 1.5, 2.0)
 # 倍率で掃引できる項 (重み付きの寄与をそのまま定数倍する)。
 SWEEP_KEYS = (
     "bury",
+    "bury_lone",
     "perch",
     "excess_same",
     "size_order",
@@ -71,7 +72,8 @@ def _components(
 
     parts = {
         "score": merge_score(merge_types),
-        "bury": -pen.BURY_WEIGHT * pen._bury_penalty(after),
+        "bury": -pen.BURY_WEIGHT * pen._bury_counts(after)[0],
+        "bury_lone": -pen.BURY_LONE_WEIGHT * pen._bury_counts(after)[1],
         "perch": -pen.PERCH_WEIGHT * pen._perch_penalty(after),
         "excess_same": -pen._excess_same_penalty(after),
         "size_order": 0.0 if held_merged else -pen._size_order_penalty(after, sign),

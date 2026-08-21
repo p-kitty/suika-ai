@@ -776,3 +776,30 @@ def test_declines_a_merge_that_strands_the_dropped_fruit() -> None:
     x = choose_x(obs)
     after, _m, _t, _h, held_fruit = simulate_drop_held(fruits, 1, x)
     assert stranded_drop_penalty(after, held_fruit) == 0.0
+
+
+def test_prefers_a_big_shoulder_over_roofing_a_lone_fruit() -> None:
+    """床が埋まった盤で、相方のいない実に屋根を掛けるより大実の肩を選ぶ。
+
+    seed=214631 の 111 手目。右の山に載せるとさくらんぼ (相方なし) が
+    オレンジで塞がれる。空いているのは左端のパインの肩だけで、そこは
+    型差 4 なので `_perch_penalty` の対象外 (パインの肩はオレンジまで許す)。
+    """
+    fruits = tuple(
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90)
+        for t, x, y in (
+            (8, 78.0, 421.0),
+            (6, 165.0, 321.0),
+            (7, 222.0, 431.0),
+            (2, 308.0, 472.0),
+            (6, 323.0, 361.0),
+            (0, 384.0, 326.0),
+        )
+    )
+    cherry = fruits[5]
+    obs = _obs(held_type=4, fruits=fruits, next_type=0)
+
+    x = choose_x(obs)
+    _after, _m, _t, _h, orange = simulate_drop_held(fruits, 4, x)
+    assert orange is not None
+    assert orange.x < cherry.x - cherry.radius
