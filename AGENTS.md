@@ -127,6 +127,14 @@ Examples of sim evaluation, A/B and training runs are in the README Scripts sect
 - Run an A/B by plugging the change into `_apply_variant` in `scripts/compare_policy.py`.
   When making it permanent, revert the variant and **leave no ON/OFF toggle in the code**.
   To compare with another commit, see the worktree item under [git](#git)
+- **The measurement default is `--episodes 50 --max-steps 400`. A change without a significant difference here
+  is considered not worth adding.** Do not keep piling up n until it becomes significant.
+  What this screen throws away is in
+  [How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in)
+- **Side A is the same policy across variants, so do not rerun it.** Once
+  saved with `--out`, from then on use `scripts/compare_b_only.py --baseline <that json>`
+  to run only B. It halves the compute. Discard the baseline when the policy itself
+  changes (a warning appears when `baseline_commit` in the JSON differs from HEAD)
 - When adding or removing a penalty rule or changing a weight, update NOTES.md's
   [Current penalty rules](NOTES.md#current-penalty-rules) in the same diff
 - **Keep attempts that had no effect in NOTES.md too.** Write the content, n, conclusion and that it was reverted.

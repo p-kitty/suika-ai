@@ -183,6 +183,16 @@ got buried here. Read this section before reporting numbers.
 - The per-game standard deviation is ~1000-1200, and even in paired comparisons on the same seed the SD of the difference is 78-496.
   Seeing ±100 points as significant needs **n≈100**. Tens of episodes are not enough.
   It is faster to look for a proxy metric with lower variance than score
+- **At the default n=50 only changes of ±7% (±164 points) or more are visible** (the measured SD of the difference
+  is 560-600). This is a screen accepted knowingly, and changes that do not reach it are not added
+  ([AGENTS.md](AGENTS.md#when-touching-the-policy-or-training)). Many 1-3% terms have been
+  measured so far, and not one became significant. **Rather than raising n to catch them,
+  it is faster to look for terms that move moves out of the band** (→[screen](#screen-on-does-it-escape-the-band))
+- **Pairing barely helps (2026-08-21).** The score correlation between A and B on the same seed
+  is **r=+0.11 / +0.18** (two measurements at n=300), a gain in SE of only 6-10%.
+  Changing one move makes the board diverge, so even with matched seeds they are nearly uncorrelated.
+  The point of pairing is not variance reduction but **matching the draw luck on both sides**.
+  So **side A may be reused across variants** (`scripts/compare_b_only.py`)
 - **Do not judge by a rise or fall in the mean alone.** `compare_policy.py` prints, per metric, the paired t value and
   95% CI (`src/util/stats.py`). A row whose CI crosses 0 says nothing at that n.
   When not significant it also shows "the n needed to speak to ±100 points"
