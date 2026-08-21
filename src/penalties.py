@@ -36,6 +36,15 @@ FOREIGN_AIM_PENALTY = 100.0
 # Do not try to express how good a move is with this.
 CENTER_TIEBREAK_WEIGHT = 0.001
 
+# Bonus for merges pushed to the big side (applied by subtracting from penalties). Only for moves where `merge_lands_big_side`
+# holds. Does not break the property that merges are ranked by the real-game score. The smallest
+# merge score difference is 1.0 (cherry -> straw), so it is kept to a value that does not overturn it.
+# 5x the tie band width of 0.1.
+MERGE_BIG_SIDE_BONUS = 0.5
+# The minimum movement counted as pushed (ratio to the dropped fruit's radius). The merge position is the midpoint
+# of the two centers, so even moves with no intent to push normally shift by less than a radius.
+MERGE_BIG_SIDE_SLACK_FRAC = 1.0
+
 # Valley-growing bonus (applied by subtracting from penalties). Only for landings where `valley_grow_ok` holds.
 # Not stronger than a real merge. At 8.0 it rejected a grape merge (6 points) for a non-merging valley.
 # At 2.0 it tips toward growing, and at 3.0 it still keeps taking merges (measured).
@@ -208,6 +217,25 @@ def valley_grow_ok(
         if left.x < land_x < right.x:
             return True
     return False
+
+
+def merge_lands_big_side(
+    drop_x: float, held_x: float | None, held_r: float, sign: int
+) -> bool:
+    """Whether the fruit made by the merge ended up at least one radius toward the big side of the drop column.
+
+    `held_x` is the x where the dropped fruit's lineage ends up (`simulate_drop_held`). A merge
+    throws the new fruit sideways by recoil, so hitting the same partner from the left or right
+    changes the resulting layout. Including cases that hit after rolling, it makes the policy choose
+    the way of hitting that ends up toward the big side (`sign`).
+
+    Applied only to merging moves. Landings of non-merging moves are seen directly by `_size_order_penalty`,
+    so they are not looked at twice here.
+    """
+    if held_x is None:
+        return False
+    toward_big = -sign * (held_x - drop_x)
+    return toward_big >= MERGE_BIG_SIDE_SLACK_FRAC * held_r
 
 
 # --- Penalty terms ---------------------------------------------------------------

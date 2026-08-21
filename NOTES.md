@@ -159,6 +159,56 @@ paired SD=582.0, n=130 needed to speak to ±100 points), and the seed head-to-he
 **How to read it**: n=10 only detects a large collapse, and none appeared. It is not evidence of improvement either.
 The basis for keeping the rule is still the per-position quantities above and the fraction escaping the band.
 
+### Merge recoil was not reflected in eval (2026-08-21)
+
+**Symptom** (moves 17-18 of seed 834761, user report). On a small-left big-right (`sign=-1`) board,
+when merging same types it chooses **the way of hitting that throws the new fruit to the small side**. Move 18
+with `cher@17 stra@53 oran@229 peac@331` and held=orange picks **x=204**, and the resulting
+apple is thrown by recoil to **x=115**. At move 19 a grape falls into the opened left and
+the order breaks as `cher@16 grap@104 stra@151`.
+
+**The cause is a hole in the rules, not a weight.** Merging moves call `board_penalties` with
+`exempt_size_order=True` (so that **unrelated fruits** knocked by merge recoil are not counted as size-order violations;
+→[rule list](#current-penalty-rules)). That exemption also exempted
+**where the fruit made by the merge itself went**. All 18 candidates of move 18 had
+score 15 with bury / perch / excess_same / corner_pocket / foreign_aim all 0, and
+the only difference left between candidates was `center_tiebreak` at 0.004-0.10. **The column closest to the board's center**
+won, and that was the way of hitting that throws the apple left.
+
+- Move 17 is the same band (every candidate score 10, the difference only `center_tiebreak`). Choosing x=156, which pushes the orange
+  right, happened only because the next lookahead picked it up by 18.20 to 18.19;
+  **it was not chosen on purpose**
+- It is not that there was no good move among the candidates. At move 18, x=156 reaches apple 203 and x=96 reaches 215
+  (assigned seat 200). **It just was not reflected in eval**
+
+**What was added**: `merge_lands_big_side` (→[rule list](#current-penalty-rules)).
+`simulate_drop_held` now returns the final x of held's lineage (`is_held_lineage`), and
+**a merge that stops at least one radius of the dropped fruit toward the big side of the drop column** gets −0.5.
+
+- Not only recoil but **including hitting after rolling**, it looks at "which way it ended up".
+  x=96, chosen at move 18, rolls over the strawberry's right shoulder into the left of the orange
+- `landed_xy` switches to a geometric estimate once held disappears in a merge, so where the merge went
+  cannot be read from there. The lineage position had to come from the physics side
+- The weight 0.5 is **the cap that does not overturn the smallest merge score difference of 1.0 (cherry→straw)**. The ranking between merges
+  stays the real-game score, and it does not reject even the cheapest merge (`test_merge_big_side_bonus_never_outranks_a_merge`).
+  It is 5x the tie band width of 0.1, so ordering inside the band moves from `center_tiebreak`
+  to this term. Given the conclusion that **the inside of the band is indifferent** (→[Settled](#settled-the-tie-band-really-is-indifferent-2026-08-19)),
+  this is not "a term that raises score" but a change that **replaces the band's ordering by an arbitrary quantity
+  with a meaningful one**
+
+**What this one game fixed** (deterministic quantities, not score):
+
+| move | before | after |
+|---|---|---|
+| 17 dekopon merge | x=156 → orange 229 | x=160 → orange 225 |
+| 18 orange merge | x=204 → **apple 115** | x=96 → **apple 215** |
+| 19 grape | `cher16 grap104 stra151 appl215` (inverted) | `cher16 stra50 grap97 appl215` (ordered) |
+
+**Firing rate**: over 150 moves × 2 seeds, **53% / 71%** of merging moves ended up toward the big side
+(rule ON). It is not a term that applies only rarely.
+
+**No A/B has been run yet.**
+
 ## Open tasks
 
 **Vision**
@@ -988,11 +1038,15 @@ is not overriding size order and trapping. The basis is
 | Rule | Function | Content | Weight |
 |---|---|---|---|
 | directly above a different type | `foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
-| valley-growing bonus | `valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type | **−3.0** (the only bonus in this table) |
+| valley-growing bonus | `valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type | **−3.0** (bonus) |
+| merge pushed to the big side | `merge_lands_big_side` | moves where the fruit made by the merge (held's lineage) stops **at least one radius of the dropped fruit** toward the big side of the drop column | **−0.5** (bonus) |
 | center tie-break | `center_tiebreak` | distance between the drop column and the center. **A term only for ordering**, it does not express how good a move is | `CENTER_TIEBREAK_WEIGHT` 0.001 (max 0.19 < minimum merge score 1.0) |
 
-The valley-growing bonus applies **only when held itself did not merge** (`held_merged`, not the merge count
-`merges`, so that an unrelated merge elsewhere on the board does not grant the exemption).
+**These two bonuses are mutually exclusive**. Valley growing applies only **when held itself did not merge**, and the big-side merge
+only **when it merged** (`held_merged`, not the merge count `merges`, so that an unrelated merge elsewhere on the board
+does not grant the exemption). The big-side weight of 0.5 is set as the cap that does not overturn the smallest
+merge score difference of 1.0 (cherry→straw). The property that the ranking between merges is decided by
+The property that ranking is decided by the real-game score is not broken (→[merge recoil](#merge-recoil-was-not-reflected-in-eval-2026-08-21)).
 
 **Board-wide penalties (`board_penalties`, on the post-drop board every time)**
 
@@ -1001,7 +1055,7 @@ The valley-growing bonus applies **only when held itself did not merge** (`held_
 | burying | `_bury_penalty` | how much merge-candidate fruits are covered by other types (with sibling 1.0 / without 0.35). The contact window is based on **both radii** `(under.radius + over.radius) × 0.9` (based on the lower fruit alone, the window narrows the more a big fruit sits on a small one and it escapes detection) | `BURY_WEIGHT` 20.0x |
 | perch | `_perch_penalty` | small fruits inside the footprint of a big fruit (from the biggest down to `PERCH_BIG_SPAN` 1 tier below) with their bottom above that big fruit's center. Counts the amount by which the type gap exceeds `PERCH_MIN_GAP` 5 (up to orange on a pineapple's shoulder is 0, dekopon 1 / grape 2 / strawberry 3 / cherry 4). Contact is not required, so shapes sitting on the pile with one tier in between are caught too | `PERCH_WEIGHT` 16.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
-| size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left on the board** are exempt = `_size_order_exempt`). **Exempt on moves where held merged** | pair difference×1.5 + ideal_x deviation×0.004 |
+| size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left on the board** are exempt = `_size_order_exempt`). **Exempt on moves where held merged** (that hole is closed by `merge_lands_big_side` above) | pair difference×1.5 + ideal_x deviation×0.004 |
 | corner pocket | `_corner_pocket_penalty` | the biggest fruit is on the big-side wall, yet there is a small fruit outside and below it (a fruit that gets behind L cannot meet its partner) | 50.0×(1+0.05×type gap)+depth×0.15 |
 
 **Not a penalty: the lethal-move filter (`choose_x`)**

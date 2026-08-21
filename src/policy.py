@@ -233,7 +233,9 @@ def _evaluate_drop(
     """Board, real-game score, penalties, merge count and whether held merged after one drop."""
     before = list(fruits)
     sign = _order_sign(before)
-    after, merges, merge_types, held_merged = simulate_drop_held(before, drop_type, x)
+    after, merges, merge_types, held_merged, held_x = simulate_drop_held(
+        before, drop_type, x
+    )
     land_x, _land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
 
     score = merge_score(merge_types)
@@ -252,6 +254,11 @@ def _evaluate_drop(
         # Merging moves get the real-game score, so it is not added to them.
         if pen.valley_grow_ok(before, land_x, drop_type, next_type):
             penalties -= pen.VALLEY_GROW_BONUS
+    elif pen.merge_lands_big_side(x, held_x, held_r, sign):
+        # Which way the fruit made by the merge went. Merging moves are exempt from size order
+        # (exempt_size_order), so no other term looks at which side it was hit from and where the new fruit was thrown.
+        # At the same merge score, choose the way of hitting that pushes toward the big side.
+        penalties -= pen.MERGE_BIG_SIDE_BONUS
     return after, score, penalties, merges, held_merged
 
 

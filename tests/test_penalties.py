@@ -1,4 +1,4 @@
-"""Unit tests for the size-order penalty and its valley exemption.
+"""Unit tests for the size-order penalty, its valley exemption and how merges are pushed.
 
 Move selection is in tests/test_policy.py. This pins down the meaning of the penalty rules themselves.
 The valley check (`_is_nestled`) and the condition that actually exempts within it (`_size_order_exempt`)
@@ -6,7 +6,13 @@ are different things, so they are kept separate.
 """
 
 from src.observe import Observation
-from src.penalties import _is_nestled, _size_order_exempt, _size_order_penalty
+from src.penalties import (
+    MERGE_BIG_SIDE_SLACK_FRAC,
+    _is_nestled,
+    _size_order_exempt,
+    _size_order_penalty,
+    merge_lands_big_side,
+)
 from src.policy import choose_x
 from src.sim.sim_physics import simulate_drop_held
 from src.vision.classify import fruit_radius
@@ -95,10 +101,33 @@ def test_drop_does_not_exempt_the_inversion_it_creates() -> None:
         held_x=NORMALIZED_WIDTH / 2,
         next_type=0,
     )
-    after, _merges, _types, _held_merged = simulate_drop_held(
+    after, _merges, _types, _held_merged, _held_x = simulate_drop_held(
         list(fruits), DEKOPON, choose_x(obs)
     )
     dekopon = next(f for f in after if f.type == DEKOPON)
     grape = next(f for f in after if f.type == GRAPE)
 
     assert dekopon.x < grape.x
+
+
+def test_merge_lands_big_side_follows_the_board_direction() -> None:
+    """The same movement flips pass/fail depending on which side is big."""
+    held_r = fruit_radius(DEKOPON)
+    moved_right = 200.0 + held_r * (MERGE_BIG_SIDE_SLACK_FRAC + 0.1)
+
+    assert merge_lands_big_side(200.0, moved_right, held_r, -1)
+    assert not merge_lands_big_side(200.0, moved_right, held_r, LARGE_LEFT)
+
+
+def test_merge_lands_big_side_ignores_a_shift_under_the_slack() -> None:
+    """The merge position is the midpoint of the two centers, so a shift under a radius does not count as pushed."""
+    held_r = fruit_radius(DEKOPON)
+    slack = held_r * MERGE_BIG_SIDE_SLACK_FRAC
+
+    assert not merge_lands_big_side(200.0, 200.0 + slack - 1.0, held_r, -1)
+    assert merge_lands_big_side(200.0, 200.0 + slack + 1.0, held_r, -1)
+
+
+def test_merge_lands_big_side_needs_a_surviving_fruit() -> None:
+    """When it grows into a watermelon and disappears there is nowhere it was pushed to (held_x is None)."""
+    assert not merge_lands_big_side(200.0, None, fruit_radius(DEKOPON), -1)
