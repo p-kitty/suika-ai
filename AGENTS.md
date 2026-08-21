@@ -124,9 +124,35 @@ Examples of sim evaluation, A/B and training runs are in the README Scripts sect
   ([measured](NOTES.md#settled-the-tie-band-really-is-indifferent-2026-08-19)), so "what fraction of moves change"
   is not a screen. Look at **the fraction that escapes the band**. If that is a few %, running the A/B
   score does not move. It finishes in minutes
+- **Do not penalize board properties the current move cannot change.** A term with the same value for every candidate
+  adds equally to all of them and does not change the ranking. No matter how much you multiply the weight.
+  Look at the shape the dropped fruit itself creates
+  (→[Properties that cannot be changed](NOTES.md#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21))
+- **Some terms work in the early game even when their band escape is 0%.** The screening default is
+  `--skip 60`, which collects only the late game. Terms divided by the number of fruits are stronger on sparse boards,
+  so deleting based on that view alone breaks early-game behavior. **Before deleting, pass `pytest` and
+  rerun with `--skip 0` too** (→[Terms divided by an average](NOTES.md#terms-divided-by-an-average-thin-out-as-the-board-fills-2026-08-21))
+- **If an `early_*` metric is significant in an A/B, that is evidence that "something changed".** It is a separate matter from
+  "it does not correlate with score, so it is not a proxy". Do not ignore it and go delete things
+- **One rule per term. Split by the number of weights, not by the complexity of the condition.**
+  Something like the corner pocket that looks at "wall-anchored + outside + below + depth" is fine as one rule.
+  **If it needs two weights there are two rules**, so split the function, or at least make the weights
+  separate module constants. Left combined, `_apply_variant` cannot cut just one of them,
+  and the A/B can only measure them "together". **A dead rule hides in the shadow of
+  a live one** (→[Split composite terms into sub-terms](NOTES.md#split-composite-terms-into-sub-terms-2026-08-21))
+- **Put rule weights in module constants in `src/penalties.py`.** Written as function locals,
+  `_apply_variant` cannot reach them and that rule alone cannot be put through an A/B
 - Run an A/B by plugging the change into `_apply_variant` in `scripts/compare_policy.py`.
   When making it permanent, revert the variant and **leave no ON/OFF toggle in the code**.
   To compare with another commit, see the worktree item under [git](#git)
+- **The measurement default is `--episodes 50 --max-steps 400`. A change without a significant difference here
+  is considered not worth adding.** Do not keep piling up n until it becomes significant.
+  What this screen throws away is in
+  [How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in)
+- **Side A is the same policy across variants, so do not rerun it.** Once
+  saved with `--out`, from then on use `scripts/compare_b_only.py --baseline <that json>`
+  to run only B. It halves the compute. Discard the baseline when the policy itself
+  changes (a warning appears when `baseline_commit` in the JSON differs from HEAD)
 - When adding or removing a penalty rule or changing a weight, update NOTES.md's
   [Current penalty rules](NOTES.md#current-penalty-rules) in the same diff
 - **Keep attempts that had no effect in NOTES.md too.** Write the content, n, conclusion and that it was reverted.

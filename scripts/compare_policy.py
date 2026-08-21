@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import secrets
+import subprocess
 import sys
 import time
 from concurrent.futures import Executor, ProcessPoolExecutor, as_completed
@@ -42,6 +43,19 @@ from src.util.stats import correlation, paired_stats
 EARLY_STEPS = 30
 # Merges per move counted as a cascade firing.
 CASCADE_MERGES = 3
+
+
+def _head() -> str:
+    """The current HEAD. Records which policy a saved side A belongs to."""
+    try:
+        return subprocess.run(
+            ["git", "-C", str(Path(__file__).resolve().parents[1]), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except Exception:
+        return ""
 
 
 def _apply_variant(enabled: bool) -> None:
@@ -234,6 +248,9 @@ def main() -> None:
             json.dumps(
                 {
                     "seed": seed,
+                    # When side A is reused with `compare_b_only.py`, check that the policy has not
+                    # changed. A stale baseline takes effect silently.
+                    "baseline_commit": _head(),
                     "episodes": args.episodes,
                     "max_steps": args.max_steps,
                     "variant": variant_doc[0] if variant_doc else "",
