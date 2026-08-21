@@ -45,9 +45,6 @@ VALLEY_GROW_BONUS = 3.0
 EDGE_ANCHOR_MIN = 24.0
 EDGE_ANCHOR_FRAC = 0.35
 
-# Number of tiers below the biggest fruit counted as 'the big-fruit cluster'.
-BIG_CLUSTER_SPAN = 2
-
 # --- Board penalty weights ---
 # The A/B in compare_policy swaps them as module attributes, so
 # they live here rather than as locals of board_penalties.
@@ -213,7 +210,7 @@ def valley_grow_ok(
 def board_penalties(
     fruits: list[Fruit], *, sign: int = 1, exempt_size_order: bool = False
 ) -> float:
-    """Board penalties after the drop (burying, perch, excess same type, size order, pushing big).
+    """Board penalties after the drop (burying, perch, excess same type, size order, corner pocket).
 
     exempt_size_order: True when held merged this move. Unrelated fruits knocked by the merge recoil
     are not penalized as size-order violations (see `policy._evaluate_drop`).
@@ -224,23 +221,22 @@ def board_penalties(
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
-    penalty += _big_layout_penalty(fruits, sign)
+    penalty += _corner_pocket_penalty(fruits, sign)
     return penalty
 
 
-def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) -> float:
-    """Proximity between big fruits, and the corner pocket penalty at the big-side edge.
+def _corner_pocket_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) -> float:
+    """Corner pocket penalty at the big-side edge.
 
     sign=+1 means the left is the big side, -1 the right. The corner pocket looks only at that side.
     When the biggest fruit L is on the big-side wall, small fruits outside L and below L.y are heavily penalized.
+    A fruit that gets behind L stays without meeting its merge partner.
     """
     if not fruits:
         return 0.0
     max_t = max(fruit.type for fruit in fruits)
 
-    cluster_weight = 0.025
     under_l_weight = 50.0
-    big_min = max(0, max_t - BIG_CLUSTER_SPAN)
     large_left = sign > 0
 
     penalty = 0.0
@@ -261,29 +257,6 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
             penalty += under_l_weight * (1.0 + 0.05 * (max_t - fruit.type))
             penalty += 0.15 * depth
 
-    bigs = sorted(
-        (fruit for fruit in fruits if fruit.type >= big_min),
-        key=lambda fruit: fruit.x,
-    )
-    for i in range(len(bigs) - 1):
-        left, right = bigs[i], bigs[i + 1]
-        gap = (right.x - left.x) - left.radius - right.radius
-        if gap <= 0:
-            continue
-        # Keep open the place for growing the tier in between. Closing it leaves no place when the type
-        # that fits between is drawn later, and the only option is to send it outside and break the order
-        # (measured: pulling a grape right beside an opening orange makes the next dekopon
-        # fall outside the grape, giving the order 4-2-3). What is kept open is only 'one fruit needed
-        # next' = the diameter of the largest missing type, and
-        # any excess beyond that is penalized as before.
-        missing = range(min(left.type, right.type) + 1, max(left.type, right.type))
-        want = 2.0 * max((fruit_radius(t) for t in missing), default=0.0)
-        gap -= want
-        if gap <= 0:
-            continue
-        gap = min(gap, left.radius + right.radius)
-        size = 0.5 + 0.05 * (left.type + right.type)
-        penalty += cluster_weight * gap * size
     return penalty
 
 
