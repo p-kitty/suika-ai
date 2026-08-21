@@ -275,10 +275,10 @@ Measured on 428 positions (move 60 onward, 6 seeds). Median 43 candidates.
 - **The plateau is the norm.** Of 43 candidates, **9** are within eval 0.1 (11 at eps=0.5,
   14 at eps=2.0)
 - **30% of the band is an artifact of candidate spacing, 70% is real.** Distinct landing outcomes in the band
-  have a median of 2. In 31.8% of positions the band collapses to a single board (the `CANDIDATE_STEP = 12.0` of the time
-  was simply finer than the physics resolution. The spacing was lowered to 3.0, so this fraction is higher now
-  →[Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22)). The remaining **68.2%
-  really contain 2 or more different boards, and 22.0% contain 5 or more**
+  have a median of 2. In 31.8% of positions the band collapses to a single board (`CANDIDATE_STEP = 12.0` is
+  simply finer than the physics resolution). The remaining **68.2% really contain 2 or more different boards, and
+  22.0% contain 5 or more**. **But there are also positions where the spacing is too coarse**
+  →[Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22)
 - **Inside the band every large term is saturated.** Inside the band (eps=0.1) the only term that differs between candidates is
   the ideal part of `size_order`; bury / perch / foreign_aim / excess_same /
   the pair part of size_order are completely flat inside the band in 99.7-100% of positions
@@ -504,8 +504,8 @@ by definition always takes a different value per candidate, so it carries the ro
 
 At move 37 of seed=871514, the cascade (cherry→straw→grape) that recovers a cherry buried under a strawberry
 was rejected, turning two apples into a pear instead and wedging the cherry between the peach and the pear.
-was wedged in. The cause is **candidate generation**, not weights, fixed by lowering `CANDIDATE_STEP` from 12 → 3
-(history in `git log`). What is kept here: the wrong hypotheses and the misses that remain even after the fix.
+The cause is **candidate generation**, not weights, but **the fix of making the spacing finer was
+measured and reverted**. What is kept: the 2 wrong hypotheses, the cost-effectiveness of the spacing, and the remaining misses.
 
 ### A wrong hypothesis: it is not "prioritizing merges too much"
 
@@ -523,6 +523,19 @@ Both the adding side (`FRAGMENT_WEIGHT`) and the removing side (`score x0.0`) ar
 The size_order side has the same shape as "1.5 → 9.0 is dead" in [Ideas that did not work](#ideas-that-did-not-work-dropped-at-screening).
 The board-wide pair count does not move with where one fruit goes.
 
+### Measured and reverted: `CANDIDATE_STEP` 12 → 3
+
+**The coarsest uniform spacing that fixes the move is 3.0** (357 falls in the window [357.0, 359.0]; neither 6 nor 4 reaches it).
+It was added, measured and **reverted**.
+
+- Cost went from **248 → 540ms** per move (2.2x)
+- n=5 (A=12 / B=3, `--max-steps 400`): score 2460.60 → 2475.20 (+0.6%, t=0.11,
+  CI [−339.5, +368.7]), merges +1.3%, cascades ±0, max_type ±0, steps ±0,
+  win/loss 4/1. **n=5 is far below the default screen of n=50 and score cannot be judged**
+- Paying 2.2x while it cannot be judged slows both A/B and training by that much. **Not worth the slowness**
+- The position is kept in `tests/test_policy.py::test_reaches_a_same_type_partner_under_a_roof` as
+  a **strict xfail**. It fails once fixed, so a different fix will be noticed
+
 ### Remaining misses: the 1-3px window (unresolved)
 
 262 positions on 5 seeds (move 6 onward, 3+ fruits) were redrawn at 1px and compared with the best in the candidate set.
@@ -537,12 +550,13 @@ The board-wide pair count does not move with where one fruit goes.
 - Refining only around same-type fruits (scanning an approach band of ±1.3×contact distance at 4px) was measured too.
   Cost +21% for 10/27 recovered (separate 2px-based measurement). Worse than uniform 3.0, so not adopted
 
-**Do not go further in the direction of finer spacing.** Chasing the remaining 11/31 means 2px or finer
+**The direction of finer spacing stops here.** Even at 3.0, 11/31 remain, and chasing them means 2px or finer,
 but `SimEnv` uses the same physics as `choose_x`, so **aiming at 1-3px windows
 cannot be told apart from overfitting to the sim**. Aiming on the real machine has no such reproducibility, and
 **a sim A/B cannot detect this overfitting** (both A and B run on the same physics).
 To make it work, go the side of robust evaluation that "chooses moves surviving an x a few px off",
-which can be done without adding candidates.
+which can be done without adding candidates (it **penalizes narrower windows**, so it works
+in the opposite direction of aiming at narrow windows).
 
 ## In progress: big draws and ladders after the floor fills
 
@@ -1018,9 +1032,9 @@ is not overriding size order and trapping. The basis is
   no place for the missing type when it is drawn, and the only option is to send it outside and break the order
 - Not included: push-in merges, restoring pushes, cascade gap opening, forced moves one tier up, hard-coded ladder firing
 - Do not add UTs for concrete procedures. When something breaks, look at accident prevention or the observation side
-- `CANDIDATE_STEP` is 3.0. Coarser puts the spot directly above a dangerous pile on the grid (at 20
-  `test_avoids_dangerous_tall_stack` failed), and also straddles the merge window (1-3px wide).
-  The finer direction is closed too →[Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22)
+- `CANDIDATE_STEP` stays at 12.0. Coarser puts the spot directly above a dangerous pile on the grid
+  (`test_avoids_dangerous_tall_stack` failed at 20), and the finer side was measured down to 3.0 and
+  reverted →[Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22). Speed is earned on the lookahead side
 - Cutting `SLEEP_FRAMES` does not work. A single `choose_x` gets faster, but the board settles differently and
   later moves get heavier, so the whole episode is actually slower (measured at 25). The physics fidelity
   (shared with `SimEnv`) also drops
@@ -1070,8 +1084,8 @@ Notes:
 ### Run cost: faster physics and search width (2026-08-17)
 
 The search cost is essentially the number of `simulate_drop` calls. `HELD_TOP` / `NEXT_CANDIDATE_STEP` /
-`CANDIDATE_STEP` decide the run time. The current move is **540ms** (lowering `CANDIDATE_STEP`
-from 12 to 3 raised it from 248ms
+`CANDIDATE_STEP` decide the run time. The current move is **248ms** (lowering `CANDIDATE_STEP` to
+3 gives 540ms. Measured and reverted
 →[Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22)).
 
 **Faster physics: the unit cost went from 9.42ms → 3.86ms (2.44x).** Play is completely unchanged, so
