@@ -64,7 +64,12 @@ EDGE_ANCHOR_FRAC = 0.35
 # --- Board penalty weights ---
 # The A/B in compare_policy swaps them as module attributes, so
 # they live here rather than as locals of board_penalties.
+# Per buried fruit. A fruit with a partner on the board could have merged next move, so it is heavy.
 BURY_WEIGHT = 20.0
+# Per buried fruit with no partner on the board. The partner is yet to be drawn, and roofing it
+# leaves that fruit unable to meet anyone (46.6% of fossils have their top blocked.
+# NOTES 'Measuring fruits that never merge (fossils)'). Lighter than crushing a waiting pair, but not ignored.
+BURY_LONE_WEIGHT = 15.0
 # Upper limit of the type gap allowed on a big fruit's shoulder. Up to an orange (4) on a pineapple's (8) shoulder is allowed.
 PERCH_MIN_GAP = 5
 # Range of fruits whose shoulders are checked (how many tiers below the biggest). 0 means only the biggest.
@@ -303,7 +308,7 @@ def board_penalties(
     are not penalized as size-order violations (see `policy._evaluate_drop`).
     """
     penalty = 0.0
-    penalty += BURY_WEIGHT * _bury_penalty(fruits)
+    penalty += _bury_penalty(fruits)
     penalty += PERCH_WEIGHT * _perch_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
@@ -399,9 +404,13 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
     return penalty
 
 
-def _bury_penalty(fruits: list[Fruit]) -> float:
-    """How much merge candidates are buried by other types."""
-    penalty = 0.0
+def _bury_counts(fruits: list[Fruit] | tuple[Fruit, ...]) -> tuple[float, float]:
+    """Return the number of fruits buried by other types split into (with partner, without partner).
+
+    It is a rule with two weights, so counting and weights are separated so that `band_escape.py`
+    can sweep them separately (AGENTS 'One rule per term').
+    """
+    paired = lone = 0.0
     for under in fruits:
         for over in fruits:
             if over is under or over.type <= under.type:
@@ -417,10 +426,16 @@ def _bury_penalty(fruits: list[Fruit]) -> float:
             if -MERGE_SLACK <= gap <= under.radius * 0.6:
                 siblings = sum(1 for f in fruits if f.type == under.type and f is not under)
                 if siblings >= 1:
-                    penalty += 1.0
+                    paired += 1.0
                 else:
-                    penalty += 0.35
-    return penalty
+                    lone += 1.0
+    return paired, lone
+
+
+def _bury_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """Penalty for burying merge candidates with other types. The weight depends on whether a partner exists."""
+    paired, lone = _bury_counts(fruits)
+    return BURY_WEIGHT * paired + BURY_LONE_WEIGHT * lone
 
 
 def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:

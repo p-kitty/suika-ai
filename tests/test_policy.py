@@ -776,3 +776,30 @@ def test_declines_a_merge_that_strands_the_dropped_fruit() -> None:
     x = choose_x(obs)
     after, _m, _t, _h, held_fruit = simulate_drop_held(fruits, 1, x)
     assert stranded_drop_penalty(after, held_fruit) == 0.0
+
+
+def test_prefers_a_big_shoulder_over_roofing_a_lone_fruit() -> None:
+    """On a board with a filled floor, prefer a big fruit's shoulder over roofing a partnerless fruit.
+
+    Move 111 of seed=214631. Putting it on the right pile blocks a cherry (no partner)
+    with an orange. The only open spot is the shoulder of the pineapple at the left edge, and it is
+    type gap 4, outside `_perch_penalty` (an orange is allowed on a pineapple's shoulder).
+    """
+    fruits = tuple(
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90)
+        for t, x, y in (
+            (8, 78.0, 421.0),
+            (6, 165.0, 321.0),
+            (7, 222.0, 431.0),
+            (2, 308.0, 472.0),
+            (6, 323.0, 361.0),
+            (0, 384.0, 326.0),
+        )
+    )
+    cherry = fruits[5]
+    obs = _obs(held_type=4, fruits=fruits, next_type=0)
+
+    x = choose_x(obs)
+    _after, _m, _t, _h, orange = simulate_drop_held(fruits, 4, x)
+    assert orange is not None
+    assert orange.x < cherry.x - cherry.radius
