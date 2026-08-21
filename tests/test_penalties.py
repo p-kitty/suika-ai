@@ -9,6 +9,7 @@ from src.observe import Observation
 from src.penalties import (
     MERGE_BIG_SIDE_SLACK_FRAC,
     STRANDED_DROP_WEIGHT,
+    _perch_penalty,
     _is_nestled,
     _size_order_exempt,
     _size_order_penalty,
@@ -22,6 +23,7 @@ from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
 
 PEAR, DEKOPON, GRAPE, STRAW, CHERRY = 6, 3, 2, 1, 0
+PEACH = 7
 # 盤面の大小の向き。+1 = 左が大きい。
 LARGE_LEFT = 1
 
@@ -197,3 +199,36 @@ def test_stranded_drop_needs_walls_bigger_than_the_threshold() -> None:
     dekopon_right = _on_floor(DEKOPON, 220.0)
 
     assert stranded_drop_penalty([dekopon_left, grape, dekopon_right], grape) == 0.0
+
+
+def test_perch_is_free_in_a_one_step_notch() -> None:
+    """1 段上の壁の窪みは次の段。裸の上面に載せたときだけ肩乗りとして数える。
+
+    小実は盤が大実で埋まるとどの肩でも型差が開くので、免除が無いと逃げ場が
+    無くなり、方策は肩を避けて別の小実に屋根を掛ける側へ倒れる
+    (seed=890270 の 72 手目)。
+    """
+    peach = _on_floor(PEACH, 78.0)
+    top_y = peach.y - peach.radius - fruit_radius(GRAPE)
+    grape = Fruit(type=GRAPE, x=120.0, y=top_y, radius=fruit_radius(GRAPE), confidence=90)
+    wall = Fruit(type=DEKOPON, x=180.0, y=top_y, radius=fruit_radius(DEKOPON), confidence=90)
+
+    assert _perch_penalty([peach, grape]) > 0.0
+    assert _perch_penalty([peach, grape, wall]) == 0.0
+
+
+def test_perch_still_counts_a_deep_valley() -> None:
+    """型差の開いた谷は段ではなく罠。肩乗りとして数え続ける。
+
+    `_perch_penalty` を入れる動機になった局面のさくらんぼも、りんごとオレンジの
+    谷に載っていた。谷なら免除にするとその症例ごと消える。
+    """
+    pine = _on_floor(8, 150.0)
+    top_y = pine.y - pine.radius - fruit_radius(CHERRY)
+    cherry = Fruit(type=CHERRY, x=150.0, y=top_y, radius=fruit_radius(CHERRY), confidence=90)
+    walls = [
+        Fruit(type=t, x=150.0 + dx, y=top_y, radius=fruit_radius(t), confidence=90)
+        for t, dx in ((5, -60.0), (4, 60.0))
+    ]
+
+    assert _perch_penalty([pine, cherry, *walls]) > 0.0

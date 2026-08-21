@@ -75,6 +75,15 @@ PERCH_MIN_GAP = 5
 # 肩を見る実の範囲 (最大実から何段下まで)。0 なら最大実だけ。
 PERCH_BIG_SPAN = 1
 PERCH_WEIGHT = 16.0
+# 肩乗りを免除する窪みの深さ。壁 (窪みの左右のうち小さいほう) との型差が
+# これ以下なら、そこは次の段。相方が来ればその場で合体し、続けて壁とも合体できる。
+# 3 seed の全候補で測ると、免除されるのは perch の 6.8% だけ。窪みなら免除、
+# にすると 77.5% が消えるうえ、この規則を入れる動機になった局面のさくらんぼ自身が
+# りんごとオレンジの窪みに載っているので、症例ごと免除してしまう。
+# `STRANDED_DROP_MIN_GAP` と値が揃っているのは、どちらも同じ量 (壁との型差) を
+# 読んで同じ線を引いているため。**規則としては別物**で、あちらは「いま落とした実が
+# 谷で相方に会えない」、こちらは「大実の上面に載っている」を見る。
+PERCH_RUNG_MAX_GAP = 1
 # 同種 3 個目以降 1 個ぶん。
 EXCESS_SAME_WEIGHT = 20.0
 # 左右の大小逆転 1 段ぶん。
@@ -458,6 +467,8 @@ def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
         return 0.0
     max_t = max(fruit.type for fruit in fruits)
     big_min = max_t - PERCH_BIG_SPAN
+    # 段かどうかは載っている実だけで決まるので、下の実ごとに引き直さない。
+    rung: dict[int, bool] = {}
     penalty = 0.0
     for under in fruits:
         if under.type < big_min:
@@ -470,8 +481,33 @@ def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
                 continue
             if abs(over.x - under.x) > under.radius + over.radius:
                 continue
+            if id(over) not in rung:
+                rung[id(over)] = _is_rung(over, fruits)
+            if rung[id(over)]:
+                continue
             penalty += float(gap_type - PERCH_MIN_GAP + 1)
     return penalty
+
+
+def _is_rung(fruit: Fruit, fruits: list[Fruit] | tuple[Fruit, ...]) -> bool:
+    """次の段の窪みに収まっているか。大実の裸の上面と区別する。
+
+    小さい実は、盤が大実で埋まると**どの肩に置いても型差が開く**。逃げ場が
+    無くなると、方策は肩を避けて別の小実に屋根を掛ける側へ倒れる (seed=890270
+    の 72 手目: グレープを桃の肩に置くと 16、パインなら 32、いちごに屋根を
+    掛けると 15 で、屋根がいちばん安かった)。屋根を掛けられた実は上から相方が
+    届かないので、肩より重いはずのものが軽くなっていた。
+
+    ただし窪みならどこでもよいわけではない。`_perch_penalty` を入れる動機に
+    なった局面のさくらんぼも、りんごとオレンジの窪みに載っていた。分けるのは
+    **壁との型差**で、1 段上の壁 (`PERCH_RUNG_MAX_GAP`) なら相方が来た時点で
+    合体して壁に追いつける。
+    """
+    flanks = _valley_flanks(fruits, fruit.x, fruit.type)
+    if flanks is None:
+        return False
+    left, right = flanks
+    return min(left.type, right.type) - fruit.type <= PERCH_RUNG_MAX_GAP
 
 
 def foreign_aim_penalty(
