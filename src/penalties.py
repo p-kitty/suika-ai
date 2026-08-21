@@ -45,12 +45,6 @@ VALLEY_GROW_BONUS = 3.0
 EDGE_ANCHOR_MIN = 24.0
 EDGE_ANCHOR_FRAC = 0.35
 
-# 「大きい実の塊」とみなす最大実からの段数。
-BIG_CLUSTER_SPAN = 2
-# 大実どうしが離れていることへの減点。角ポケット (`under_l_weight`) とは
-# 別の規則で、こちらは連続量。
-BIG_CLUSTER_WEIGHT = 0.025
-
 # --- 盤面減点の重み ---
 # compare_policy の A/B がモジュール属性として差し替えるので、
 # board_penalties のローカルではなくここに置く。
@@ -216,7 +210,7 @@ def valley_grow_ok(
 def board_penalties(
     fruits: list[Fruit], *, sign: int = 1, exempt_size_order: bool = False
 ) -> float:
-    """落としたあとの盤面減点（埋め込み・肩乗り・同種過多・サイズ順・大寄せ）。
+    """落としたあとの盤面減点（埋め込み・肩乗り・同種過多・サイズ順・角ポケット）。
 
     exempt_size_order: held がこの手で合体したとき True。合体の反動で
     弾かれた無関係の実まで大小順違反として減点しない (`policy._evaluate_drop` 参照)。
@@ -227,22 +221,22 @@ def board_penalties(
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
-    penalty += _big_layout_penalty(fruits, sign)
+    penalty += _corner_pocket_penalty(fruits, sign)
     return penalty
 
 
-def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) -> float:
-    """大実どうしの近接と、大側端の角ポケット減点。
+def _corner_pocket_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) -> float:
+    """大側端の角ポケット減点。
 
     sign=+1 なら左が大側、-1 なら右が大側。角ポケットはその側だけ見る。
     最大実 L が大側壁に付いているとき、L より外側かつ L.y より下の小実を強く減点。
+    L の裏に入った実は合体の相方に会えないまま居座る。
     """
     if not fruits:
         return 0.0
     max_t = max(fruit.type for fruit in fruits)
 
     under_l_weight = 50.0
-    big_min = max(0, max_t - BIG_CLUSTER_SPAN)
     large_left = sign > 0
 
     penalty = 0.0
@@ -263,29 +257,6 @@ def _big_layout_penalty(fruits: list[Fruit] | tuple[Fruit, ...], sign: int = 1) 
             penalty += under_l_weight * (1.0 + 0.05 * (max_t - fruit.type))
             penalty += 0.15 * depth
 
-    bigs = sorted(
-        (fruit for fruit in fruits if fruit.type >= big_min),
-        key=lambda fruit: fruit.x,
-    )
-    for i in range(len(bigs) - 1):
-        left, right = bigs[i], bigs[i + 1]
-        gap = (right.x - left.x) - left.radius - right.radius
-        if gap <= 0:
-            continue
-        # 間の段を育てる場所は空けておく。ここを詰めると、あとで挟まる型が
-        # ツモれたとき置き場が無く、外側へ回して並び順を壊すしかなくなる
-        # (実測: 初手 orange の真横に grape を寄せると、次の dekopon が
-        # grape の外側に落ちて 4-2-3 の並びになる)。空けるのは「すぐ次に
-        # 要る 1 個ぶん」= 抜けている型のうち一番大きいものの直径だけで、
-        # それを超えた余分は従来どおり減点する。
-        missing = range(min(left.type, right.type) + 1, max(left.type, right.type))
-        want = 2.0 * max((fruit_radius(t) for t in missing), default=0.0)
-        gap -= want
-        if gap <= 0:
-            continue
-        gap = min(gap, left.radius + right.radius)
-        size = 0.5 + 0.05 * (left.type + right.type)
-        penalty += BIG_CLUSTER_WEIGHT * gap * size
     return penalty
 
 

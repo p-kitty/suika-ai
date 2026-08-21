@@ -58,11 +58,6 @@ def _apply_variant(enabled: bool) -> None:
         from src import penalties
         penalties.BURY_WEIGHT = 30.0 if enabled else 20.0
     """
-    if enabled:
-        from src import penalties
-
-        # 大実の近接不足を切る (角ポケットは残す)。
-        penalties.BIG_CLUSTER_WEIGHT = 0.0
 
 
 def _episode(
