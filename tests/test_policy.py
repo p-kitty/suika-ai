@@ -11,6 +11,7 @@ from src.observe import Observation, clamp_drop_x
 from src.penalties import (
     FOREIGN_AIM_CENTER_FRAC,
     FOREIGN_AIM_PENALTY,
+    MERGE_BIG_SIDE_BONUS,
     center_tiebreak,
     foreign_aim_penalty,
     ideal_x,
@@ -100,7 +101,7 @@ def test_sets_up_next_when_no_immediate_merge() -> None:
     fruits = (target, wall)
     x = choose_x(_obs(held_type=2, fruits=fruits, next_type=0))
     # 衝突で弾かれるので、狙った列 x ではなく実際の着地位置で判定する。
-    after, _merges, _merge_types, held_merged = simulate_drop_held(fruits, 2, x)
+    after, _merges, _merge_types, held_merged, _held_x = simulate_drop_held(fruits, 2, x)
     land_x, _land_y = landed_xy(fruits, after, 2, x, grape_r, held_merged)
     assert abs(land_x - target.x) < cherry_r + grape_r * 2 + 40
 
@@ -625,7 +626,7 @@ def test_does_not_perch_small_fruit_on_biggest() -> None:
     pine = fruits[1]
     cherry_r = fruit_radius(0)
     x = choose_x(_obs(held_type=0, fruits=fruits, next_type=2))
-    after, _merges, _types, held_merged = simulate_drop_held(fruits, 0, x)
+    after, _merges, _types, held_merged, _held_x = simulate_drop_held(fruits, 0, x)
     land_x, land_y = landed_xy(fruits, after, 0, x, cherry_r, held_merged)
     on_pine = abs(land_x - pine.x) <= pine.radius + cherry_r
     assert not (on_pine and land_y + cherry_r <= pine.y)
@@ -695,3 +696,47 @@ def test_center_tiebreak_prefers_the_middle() -> None:
     assert center_tiebreak(mid) == 0.0
     assert center_tiebreak(mid + 40) < center_tiebreak(mid + 120)
     assert center_tiebreak(mid - 80) == center_tiebreak(mid + 80)
+
+
+def test_merge_leaves_the_new_fruit_on_the_big_side() -> None:
+    """同じ相方に当てる手でも、できた実が大側に残る当て方を選ぶ。
+
+    合体した手は大小順を免除する (`_evaluate_drop`) ので、この項が無いと
+    左右どちらから当てるかは `center_tiebreak` が決め、反動で新実が小側へ
+    飛ぶ手がそのまま残る (seed=834761 の 18 手目)。
+    """
+    orange_r = fruit_radius(4)
+    fruits = tuple(
+        Fruit(
+            type=t,
+            x=x,
+            y=NORMALIZED_HEIGHT - fruit_radius(t),
+            radius=fruit_radius(t),
+            confidence=90,
+        )
+        for t, x in ((0, 17.0), (1, 53.0), (4, 229.0), (7, 331.0))
+    )
+    partner = fruits[2]
+    obs = _obs(held_type=4, fruits=fruits, next_type=2)
+
+    x = choose_x(obs)
+    after, merges, _types, held_merged, _held_x = simulate_drop_held(fruits, 4, x)
+    assert merges == 1 and held_merged
+    apple = next(f for f in after if f.type == 5)
+    # 小側 (左) へ飛ばされていない。相方の居た所から自分の半径以上は戻らない。
+    assert apple.x > partner.x - orange_r
+
+    # 反動で左へ飛ばす当て方 (相方の左肩) は、同じ 1 合成でも下に付く。
+    left_shoulder = partner.x - orange_r * 0.65
+    flung, _m, _t, _h, _hx = simulate_drop_held(fruits, 4, left_shoulder)
+    assert next(f for f in flung if f.type == 5).x < NORMALIZED_WIDTH * 0.4
+    assert _score(obs, left_shoulder, orange_r) < _score(obs, x, orange_r)
+
+
+def test_merge_big_side_bonus_never_outranks_a_merge() -> None:
+    """寄せ方のボーナスは、いちばん安い合成 (cherry 同士 = 1 点) すら覆せない。
+
+    合体どうしの順位は本家点で決まる、という性質をここで固定する
+    (`center_tiebreak` の同名テストと同じ理由)。
+    """
+    assert MERGE_BIG_SIDE_BONUS < merge_points(0)

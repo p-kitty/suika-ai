@@ -233,7 +233,9 @@ def _evaluate_drop(
     """1 手落としたあとの盤面・本家点・減点・合成回数・held が合体したか。"""
     before = list(fruits)
     sign = _order_sign(before)
-    after, merges, merge_types, held_merged = simulate_drop_held(before, drop_type, x)
+    after, merges, merge_types, held_merged, held_x = simulate_drop_held(
+        before, drop_type, x
+    )
     land_x, _land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
 
     score = merge_score(merge_types)
@@ -252,6 +254,11 @@ def _evaluate_drop(
         # 合体した手は本家点が付くので、そちらには足さない。
         if pen.valley_grow_ok(before, land_x, drop_type, next_type):
             penalties -= pen.VALLEY_GROW_BONUS
+    elif pen.merge_lands_big_side(x, held_x, held_r, sign):
+        # 合体でできた実がどちらへ寄ったか。合体した手は大小順を免除する
+        # (exempt_size_order) ので、どちら側から当てて新実をどこへ飛ばしたかを
+        # 見る項が他に無い。同じ合成点なら大側へ寄せる当て方を選ばせる。
+        penalties -= pen.MERGE_BIG_SIDE_BONUS
     return after, score, penalties, merges, held_merged
 
 

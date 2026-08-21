@@ -36,6 +36,15 @@ FOREIGN_AIM_PENALTY = 100.0
 # 手の良し悪しをこれで表そうとしないこと。
 CENTER_TIEBREAK_WEIGHT = 0.001
 
+# 大側へ寄せた合体のボーナス (減点から引く形で入れる)。`merge_lands_big_side`
+# が成立する手だけ。合体どうしの順位を本家点で決める性質は壊さない。最小の
+# 合成点差が 1.0 (cherry -> straw) なので、それを覆さない値に収める。
+# 同点帯の幅 0.1 の 5 倍。
+MERGE_BIG_SIDE_BONUS = 0.5
+# 寄せたと認める最小の移動量 (落とした実の半径に対する割合)。合体位置は 2 中心の
+# 中点なので、寄せる意図の無い手でも半径未満はふつうにずれる。
+MERGE_BIG_SIDE_SLACK_FRAC = 1.0
+
 # 谷育成ボーナス (減点から引く形で入れる)。`valley_grow_ok` が成立する着地だけ。
 # 実合体より強くしない。8.0 だと grape 合体 (6 点) を蹴って非合体の谷を選んだ。
 # 2.0 で育成側に倒れ、3.0 でも合体は取り続ける (実測)。
@@ -208,6 +217,25 @@ def valley_grow_ok(
         if left.x < land_x < right.x:
             return True
     return False
+
+
+def merge_lands_big_side(
+    drop_x: float, held_x: float | None, held_r: float, sign: int
+) -> bool:
+    """合体でできた実が、落とした列より大側へ半径 1 つぶん以上寄ったか。
+
+    `held_x` は落とした実の系譜が最後に居る x (`simulate_drop_held`)。合体は
+    反動で新実を横へ飛ばすので、同じ相方に当てても左右どちらから当てるかで
+    でき上がる並びが変わる。転がってから当てた場合も込みで、結果として
+    大側 (`sign`) へ寄った当て方を選ばせる。
+
+    合体した手にだけ掛ける。合体しなかった手の着地は `_size_order_penalty` が
+    そのまま見ているので、こちらで二重に見ない。
+    """
+    if held_x is None:
+        return False
+    toward_big = -sign * (held_x - drop_x)
+    return toward_big >= MERGE_BIG_SIDE_SLACK_FRAC * held_r
 
 
 # --- 減点項 ---------------------------------------------------------------

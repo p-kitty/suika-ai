@@ -201,7 +201,9 @@ def simulate_drop(
 
     方策ホットパス。最終盤面だけ export する (アニメ用 iter は使わない)。
     """
-    after, merges, merge_types, _held_merged = simulate_drop_held(fruits, fruit_type, x)
+    after, merges, merge_types, _held_merged, _held_x = simulate_drop_held(
+        fruits, fruit_type, x
+    )
     return after, merges, merge_types
 
 
@@ -209,14 +211,20 @@ def simulate_drop_held(
     fruits: list[Fruit] | tuple[Fruit, ...],
     fruit_type: int,
     x: float,
-) -> tuple[list[Fruit], int, list[int], bool]:
-    """simulate_drop に、held (今回落とした実自身) が合体に絡んだかを足したもの。
+) -> tuple[list[Fruit], int, list[int], bool, float | None]:
+    """simulate_drop に、held (今回落とした実自身) の行方を足したもの。
+
+    足すのは (held が合体に絡んだか, held の系譜が最後に居る x)。
 
     held の系譜 (`is_held_lineage`) が関わる合体と、held とは無関係に盤の
     別の場所でたまたま起きた合体を区別するのに使う (`merges >= 1` だけで
     見ると両者が混ざる)。held が異種をかすってから同種に合体しても
     (`is_held_drop` は異種接触で消える) 系譜は追跡できるよう、合体で消える
     たび新しい実へ引き継ぐ。無関係な合体には伝播しない。
+
+    x は合体後も系譜を追うので、合体で生まれた実が反動でどこまで運ばれたかが
+    そのまま出る (`landed_xy` は held が消えた時点で幾何の推定に切り替わるので、
+    合体の行き先はあちらからは読めない)。スイカまで育って消えたときは None。
     """
     space, bodies = _build_space(fruits)
     r = fruit_radius(fruit_type)
@@ -240,7 +248,7 @@ def simulate_drop_held(
         if quiet.update(bodies):
             break
 
-    return _export_fruits(bodies), merges, merge_types, held_merged
+    return _export_fruits(bodies), merges, merge_types, held_merged, _lineage_x(bodies)
 
 
 def _advance(
@@ -308,7 +316,9 @@ def preview_land(
 ) -> tuple[float, float]:
     """落下列 x の着地 (x, y)。内部で 1 回 simulate_drop する。"""
     x0 = max(held_r, min(NORMALIZED_WIDTH - held_r, x))
-    after, _merges, _types, held_merged = simulate_drop_held(fruits, fruit_type, x0)
+    after, _merges, _types, held_merged, _held_x = simulate_drop_held(
+        fruits, fruit_type, x0
+    )
     return landed_xy(fruits, after, fruit_type, x0, held_r, held_merged)
 
 
@@ -605,6 +615,19 @@ def _all_quiet(bodies: list[_BodyFruit]) -> bool:
         if abs(body.angular_velocity) > SLEEP_ANG:
             return False
     return True
+
+
+def _lineage_x(bodies: list[_BodyFruit]) -> float | None:
+    """held の系譜が最後に居る x。系譜が盤に残っていなければ None。
+
+    クランプは `_export_fruits` と揃える (壁でめり込んだぶんを盤の外の座標で
+    返すと、呼び元が after の同じ実と突き合わせたときにずれる)。
+    """
+    for item in bodies:
+        if item.is_held_lineage:
+            r = item.radius
+            return max(r, min(NORMALIZED_WIDTH - r, float(item.body.position.x)))
+    return None
 
 
 def _export_fruits(bodies: list[_BodyFruit], *, clamp: bool = True) -> list[Fruit]:
