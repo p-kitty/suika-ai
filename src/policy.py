@@ -38,6 +38,9 @@ HELD_TOP = 2
 NEXT_CANDIDATE_STEP = 32.0
 # held 候補の均等刻み。粗くすると危険な山の真上が候補に乗るので下げない
 # (20 で test_avoids_dangerous_tall_stack が落ちた)。速度は先読み側で稼ぐ。
+# 細かくする側も打ち止め。転がって同種に届く窓は 1〜3px しか無いことがあり、
+# 3.0 まで下げれば拾えるが 1 手 248 → 540ms に対し score は動かなかった
+# (NOTES「候補の刻みと合体の窓」)。
 CANDIDATE_STEP = 12.0
 
 
