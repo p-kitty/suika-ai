@@ -340,6 +340,33 @@ bumpiness x4 17.5% → 7.0% in the table above verify its predictive power.
 puts it on the same footing as the existing weights. The measurement when adding `_perch_penalty`
 is an example ([measured](#measured-when-adding-a-new-term-perch-2026-08-20)).
 
+#### Do not penalize board properties the current move cannot change (2026-08-21)
+
+**Terms that do not escape the band share a shape: they measure "a board property the move cannot change".**
+eval scores the post-drop board per candidate and compares them, so a term with the same value for every candidate
+**just adds equally to every candidate and does not change the ranking one bit**. No matter how much you multiply the weight.
+
+Shapes the dropped fruit itself creates (a new inversion in `so_pair`, the lid in `bury`, the shoulder in `perch`,
+the fruit directly below in `foreign_aim`) change per move, so they can decide the ranking. How scattered the whole board is
+does not change. **This one point explains all 4 dead terms**:
+
+| Term | What it measured | Does one cherry move it | Band escape |
+|---|---|---|---|
+| bumpiness (`_height_variance`) | variance of heights across the board | barely | capped at 7.0%, A/B null |
+| big fruits not close enough (`bl_cluster`) | spacing between big fruits | no | ─, A/B null |
+| same-type scatter (`same_type_pull`) | left-right scatter of same types | only when it is the same type | 0.7%, A/B −2.9% |
+| assigned-seat deviation (`so_ideal`) | mean deviation of each fruit from ideal_x | the denominator is the fruit count, so it thins out | **0.0%** |
+
+**The idea of penalizing "same-type big fruits scattered left and right" fails for the same reason** (considered on 2026-08-21).
+Two peaches split left and right stay split wherever the cherry is dropped, so
+every candidate gets the same value. As a description of the board it is right, but it is no material for choosing a move.
+
+On the same position set (275 positions, same types of tier ≥5 more than 150px apart across the center), splitting the difference between the best move
+on the left half and the best move on the right half per term, what decides it is `perch` (contribution \|mean\| 32.9) and
+`so_pair` (21.7), both looking at **the shape the fruit placed now creates itself**.
+`corner_pocket` has zero left-right difference in 98.5% of positions (it fires only when the biggest fruit is wall-anchored).
+**29.5% of positions are ties within 0.1 points between left and right**, and which side to grow is not in the current eval.
+
 ### The existing weights have no leverage
 
 What decides which candidates enter the band is the large terms, so their weights were swept.

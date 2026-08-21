@@ -124,6 +124,18 @@ Examples of sim evaluation, A/B and training runs are in the README Scripts sect
   ([measured](NOTES.md#settled-the-tie-band-really-is-indifferent-2026-08-19)), so "what fraction of moves change"
   is not a screen. Look at **the fraction that escapes the band**. If that is a few %, running the A/B
   score does not move. It finishes in minutes
+- **Do not penalize board properties the current move cannot change.** A term with the same value for every candidate
+  adds equally to all of them and does not change the ranking. No matter how much you multiply the weight.
+  Look at the shape the dropped fruit itself creates
+  (→[Properties that cannot be changed](NOTES.md#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21))
+- **One rule per term. Split by the number of weights, not by the complexity of the condition.**
+  Something like the corner pocket that looks at "wall-anchored + outside + below + depth" is fine as one rule.
+  **If it needs two weights there are two rules**, so split the function, or at least make the weights
+  separate module constants. Left combined, `_apply_variant` cannot cut just one of them,
+  and the A/B can only measure them "together". **A dead rule hides in the shadow of
+  a live one** (→[Split composite terms into sub-terms](NOTES.md#split-composite-terms-into-sub-terms-2026-08-21))
+- **Put rule weights in module constants in `src/penalties.py`.** Written as function locals,
+  `_apply_variant` cannot reach them and that rule alone cannot be put through an A/B
 - Run an A/B by plugging the change into `_apply_variant` in `scripts/compare_policy.py`.
   When making it permanent, revert the variant and **leave no ON/OFF toggle in the code**.
   To compare with another commit, see the worktree item under [git](#git)
