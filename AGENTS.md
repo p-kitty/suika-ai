@@ -128,6 +128,12 @@ Examples of sim evaluation, A/B and training runs are in the README Scripts sect
   adds equally to all of them and does not change the ranking. No matter how much you multiply the weight.
   Look at the shape the dropped fruit itself creates
   (→[Properties that cannot be changed](NOTES.md#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21))
+- **Some terms work in the early game even when their band escape is 0%.** The screening default is
+  `--skip 60`, which collects only the late game. Terms divided by the number of fruits are stronger on sparse boards,
+  so deleting based on that view alone breaks early-game behavior. **Before deleting, pass `pytest` and
+  rerun with `--skip 0` too** (→[Terms divided by an average](NOTES.md#terms-divided-by-an-average-thin-out-as-the-board-fills-2026-08-21))
+- **If an `early_*` metric is significant in an A/B, that is evidence that "something changed".** It is a separate matter from
+  "it does not correlate with score, so it is not a proxy". Do not ignore it and go delete things
 - **One rule per term. Split by the number of weights, not by the complexity of the condition.**
   Something like the corner pocket that looks at "wall-anchored + outside + below + depth" is fine as one rule.
   **If it needs two weights there are two rules**, so split the function, or at least make the weights

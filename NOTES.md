@@ -348,14 +348,17 @@ eval scores the post-drop board per candidate and compares them, so a term with 
 
 Shapes the dropped fruit itself creates (a new inversion in `so_pair`, the lid in `bury`, the shoulder in `perch`,
 the fruit directly below in `foreign_aim`) change per move, so they can decide the ranking. How scattered the whole board is
-does not change. **This one point explains all 4 dead terms**:
+does not change. **This one point explains the retired terms**:
 
 | Term | What it measured | Does one cherry move it | Band escape |
 |---|---|---|---|
 | bumpiness (`_height_variance`) | variance of heights across the board | barely | capped at 7.0%, A/B null |
 | big fruits not close enough (`bl_cluster`) | spacing between big fruits | no | ─, A/B null |
 | same-type scatter (`same_type_pull`) | left-right scatter of same types | only when it is the same type | 0.7%, A/B −2.9% |
-| assigned-seat deviation (`so_ideal`) | mean deviation of each fruit from ideal_x | the denominator is the fruit count, so it thins out | **0.0%** |
+
+**Do not put `so_ideal` (deviation from the assigned seat) in this group.** With 0.0% band escape it looks the same,
+but it drops for a different reason (→[Terms divided by an average](#terms-divided-by-an-average-thin-out-as-the-board-fills-2026-08-21)).
+**It was nearly retired and then restored.**
 
 **The idea of penalizing "same-type big fruits scattered left and right" fails for the same reason** (considered on 2026-08-21).
 Two peaches split left and right stay split wherever the cherry is dropped, so
@@ -366,6 +369,45 @@ on the left half and the best move on the right half per term, what decides it i
 `so_pair` (21.7), both looking at **the shape the fruit placed now creates itself**.
 `corner_pocket` has zero left-right difference in 98.5% of positions (it fires only when the biggest fruit is wall-anchored).
 **29.5% of positions are ties within 0.1 points between left and right**, and which side to grow is not in the current eval.
+
+#### Terms divided by an average thin out as the board fills (2026-08-21)
+
+**`so_ideal` was nearly retired and then restored. The screening was not looking at the early game.**
+
+The ideal deviation in `_size_order_penalty` is `sum(|x - ideal_x|) / fruit count * 0.004`.
+The denominator is the fruit count, so **the emptier the board, the stronger it is**:
+
+| Fruits on the board | ideal term | relative to the 0.1 tie band |
+|---|---|---|
+| 1 | 1.367 | **13.7x** |
+| 3 | 1.154 | 11.5x |
+| 10 | 0.631 | 6.3x |
+| 20 | 0.564 | 5.6x |
+
+Both `band_escape.py` and the screening in `scripts/` default to **`--skip 60` (move 60 onward)**, and
+**collect only the fully thinned-out late game**. There band escape came out 0.0%, but the early game was a different story.
+
+Removing it breaks 4 tests in `test_policy.py`, and **in all 4 the chosen move becomes x=204 (the center of the board)**.
+On a sparse board the only term left is `center_tiebreak`, and everything drops in the center.
+`test_leaves_room_for_missing_rung_between_neighbours` had its order go from `[2,3,4]` to
+**`[4,3,2]`, reversed**. `so_pair` needs at least two fruits to work, so the early-game size order
+is made by this term alone.
+
+**The early metrics of the A/B were saying so** (`so_ideal_off`, n=300):
+
+```
+score        2303.51 -> 2307.81  (+0.2%)  t= 0.13     ← final score does not move
+early_score   237.05 ->  230.99  (-2.6%)  t=-4.12 *
+early_crown    346.2 ->   340.9  (-1.6%)  t=-4.21 *
+```
+
+**Reading these two as "they do not correlate with score, so they are not proxies" and moving on was the mistake.**
+Being unusable as a proxy is separate from the fact that early-game behavior changed.
+**Read a significant early metric in itself as evidence that "something changed".**
+
+The weight can stay as it is. Sweeping 0/5/10/30x of 0.004 at n=50 gave
+`+0.2 / +1.2 / +8.1 / −1.5 %`. Only x10 jumping is noise, not an effect
+(a real effect would grow along with the weight). A version applied only to the biggest fruit and one tier below is also null at −2.8%.
 
 ### The existing weights have no leverage
 
@@ -558,7 +600,32 @@ It moves in 39.4% of positions, and when it moves the weight is 20.0. The same s
 (19.8% nonzero, mean 24 points), had been rated "working", so the judgments were inconsistent.
 **Look at the nonzero rate together with the size when it moves.**
 
-Settling it needs n≈549 (about 6.4 hours on 8 workers). It was judged not worth that much.
+Redrawn at n=300: **−2.2% (t=−1.60, win/loss 139/155)**. Not significant, but
+it matches n=100's −2.1% in sign and size, with merges −2.0 / cascades −2.2 / steps −1.7 /
+max_type −0.6%, every metric in the same direction. **The decision to keep it stands.**
+
+### Measured: one night of A/B runs (2026-08-21)
+
+Every existing term was cut and measured in turn. **Not one deserved retirement.**
+
+| Variant | What it did | n | score | t | Verdict |
+|---|---|---|---|---|---|
+| `so_pair_off` | cut left-right size inversions | 50 | **−7.0%** | −1.61 | **keep** (cascades −11.3%, early_crown −4.7%, both CIs do not cross 0) |
+| `excess_same_off` | cut 3+ of the same type | 300 | −2.2% | −1.60 | **keep** |
+| `valley_grow_off` | cut the valley-growing bonus | 300 | −1.7% | −1.12 | **keep** (cascades −2.8%) |
+| `center_off` | cut the center tie-break | 50 | −2.6% | −0.66 | **keep** |
+| `so_ideal_off` | cut the assigned-seat deviation | 300 | +0.2% | 0.13 | **keep** (→[Terms divided by an average](#terms-divided-by-an-average-thin-out-as-the-board-fills-2026-08-21)) |
+| `same_type_pull_x5` | **new**. penalize same-type scatter at 0.1/px | 50 | −2.9% | −0.75 | **not added** |
+
+**The band escape prediction held.** In screening on 450 positions only
+`so_pair` 7.3% and `center` 8.9% passed the threshold, and the only one that actually moved a lot was `so_pair` (−7.0%).
+The rest were 0.0-1.8% and every A/B was null. **Looking at band escape before the A/B tells you which will move.**
+
+**But band escape only looks at the late game** (`--skip 60`). Terms that work early do not show up here
+(`so_ideal` is one).
+
+The methodology measured the same night is in
+[Pairing barely helps](#how-to-measure-traps-we-keep-stepping-in) (reusing side A).
 
 ### Retired: big fruits not close enough (2026-08-21)
 
