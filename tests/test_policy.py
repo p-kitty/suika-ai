@@ -15,7 +15,6 @@ from src.penalties import (
     center_tiebreak,
     foreign_aim_penalty,
     ideal_x,
-    stranded_drop_penalty,
 )
 from src.policy import _candidates, _score, choose_x
 from src.reward import is_lost, merge_points
@@ -743,36 +742,57 @@ def test_merge_big_side_bonus_never_outranks_a_merge() -> None:
     assert MERGE_BIG_SIDE_BONUS < merge_points(0)
 
 
-def test_declines_a_merge_that_strands_the_dropped_fruit() -> None:
-    """Take the order over merge points. Do not leave the dropped fruit behind in a valley of big fruits.
+def test_prefers_a_big_shoulder_over_roofing_a_lone_fruit() -> None:
+    """On a board with a filled floor, prefer a big fruit's shoulder over roofing a partnerless fruit.
 
-    A valley between a pear and a pineapple with only one strawberry left. Dropping there merges,
-    but the grape made stays blocked by the big fruits on both sides, unable to meet a partner
-    (move 35 of seed=834761 has the same shape; there it was in exchange for a 46-point 3-step cascade).
+    Move 111 of seed=214631. Putting it on the right pile blocks a cherry (no partner)
+    with an orange. The only open spot is the shoulder of the pineapple at the left edge, and it is
+    type gap 4, outside `_perch_penalty` (an orange is allowed on a pineapple's shoulder).
     """
-    straw_r = fruit_radius(1)
-    grape_r = fruit_radius(2)
-    pear_x = 100.0
-    pine_x = pear_x + fruit_radius(6) + fruit_radius(8) + grape_r * 2 + 2.0
-    valley_x = (pear_x + fruit_radius(6) + pine_x - fruit_radius(8)) / 2
     fruits = tuple(
-        Fruit(
-            type=t,
-            x=x,
-            y=NORMALIZED_HEIGHT - fruit_radius(t),
-            radius=fruit_radius(t),
-            confidence=90,
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90)
+        for t, x, y in (
+            (8, 78.0, 421.0),
+            (6, 165.0, 321.0),
+            (7, 222.0, 431.0),
+            (2, 308.0, 472.0),
+            (6, 323.0, 361.0),
+            (0, 384.0, 326.0),
         )
-        for t, x in ((6, pear_x), (1, valley_x), (8, pine_x))
     )
-    obs = _obs(held_type=1, fruits=fruits, next_type=0)
-
-    # The merge itself is among the candidates (it is not unseen but rejected).
-    merged, merges, _types, _held, lineage = simulate_drop_held(fruits, 1, valley_x)
-    assert merges == 1
-    assert stranded_drop_penalty(merged, lineage) > 0.0
-    assert _score(obs, valley_x, straw_r) < _score(obs, 30.0, straw_r)
+    cherry = fruits[5]
+    obs = _obs(held_type=4, fruits=fruits, next_type=0)
 
     x = choose_x(obs)
-    after, _m, _t, _h, held_fruit = simulate_drop_held(fruits, 1, x)
-    assert stranded_drop_penalty(after, held_fruit) == 0.0
+    _after, _m, _t, _h, orange = simulate_drop_held(fruits, 4, x)
+    assert orange is not None
+    assert orange.x < cherry.x - cherry.radius
+
+
+def test_uses_the_next_rung_instead_of_roofing_a_small_fruit() -> None:
+    """If the escape route is a rung's hollow, place it there instead of roofing a small fruit.
+
+    Move 72 of seed=890270. The board is full of big fruits, and seen from the grape
+    the pineapple's shoulder is type gap 6 and the peach's 5. With no escape route, the roof (strawberry 15)
+    is cheapest. The hollow of the peach and dekopon is a wall one tier up, so it is the next rung.
+    """
+    fruits = tuple(
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90)
+        for t, x, y in (
+            (8, 78.0, 422.0),
+            (7, 222.0, 431.0),
+            (3, 291.0, 362.0),
+            (2, 314.0, 413.0),
+            (1, 356.0, 392.0),
+            (4, 359.0, 460.0),
+            (0, 384.0, 413.0),
+        )
+    )
+    straw = fruits[4]
+    obs = _obs(held_type=2, fruits=fruits, next_type=2)
+
+    x = choose_x(obs)
+    _after, _m, _t, _h, grape = simulate_drop_held(fruits, 2, x)
+    assert grape is not None
+    # No roof placed directly above the strawberry.
+    assert abs(grape.x - straw.x) > straw.radius + grape.radius

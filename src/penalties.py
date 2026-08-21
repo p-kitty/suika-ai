@@ -45,13 +45,6 @@ MERGE_BIG_SIDE_BONUS = 0.5
 # of the two centers, so even moves with no intent to push normally shift by less than a radius.
 MERGE_BIG_SIDE_SLACK_FRAC = 1.0
 
-# Penalty when the dropped fruit is stranded in a valley of big fruits. Per type gap. Set at a level that keeps the order
-# even at the cost of rejecting cascade points (at type gap 5 it is 80.0, beating a 46-point 3-step cascade).
-# It fires at type gap 2 and applies to 17-20% of chosen moves (measured over 150 moves × 3 seeds).
-STRANDED_DROP_WEIGHT = 20.0
-# The minimum type gap considered stranded (difference from the smaller of the valley's left and right).
-STRANDED_DROP_MIN_GAP = 2
-
 # Valley-growing bonus (applied by subtracting from penalties). Only for landings where `valley_grow_ok` holds.
 # Not stronger than a real merge. At 8.0 it rejected a grape merge (6 points) for a non-merging valley.
 # At 2.0 it tips toward growing, and at 3.0 it still keeps taking merges (measured).
@@ -64,12 +57,23 @@ EDGE_ANCHOR_FRAC = 0.35
 # --- Board penalty weights ---
 # The A/B in compare_policy swaps them as module attributes, so
 # they live here rather than as locals of board_penalties.
+# Per buried fruit. A fruit with a partner on the board could have merged next move, so it is heavy.
 BURY_WEIGHT = 20.0
+# Per buried fruit with no partner on the board. The partner is yet to be drawn, and roofing it
+# leaves that fruit unable to meet anyone (46.6% of fossils have their top blocked.
+# NOTES 'Measuring fruits that never merge (fossils)'). Lighter than crushing a waiting pair, but not ignored.
+BURY_LONE_WEIGHT = 15.0
 # Upper limit of the type gap allowed on a big fruit's shoulder. Up to an orange (4) on a pineapple's (8) shoulder is allowed.
 PERCH_MIN_GAP = 5
 # Range of fruits whose shoulders are checked (how many tiers below the biggest). 0 means only the biggest.
 PERCH_BIG_SPAN = 1
 PERCH_WEIGHT = 16.0
+# Depth of a hollow that exempts a perch. If the type gap to the wall (the smaller of the hollow's left and right)
+# is at most this, it is the next rung. When a partner comes it merges on the spot and can then merge with the wall.
+# Measured over every candidate on 3 seeds, only 6.8% of perches are exempt. Exempting any hollow
+# would remove 77.5%, and the cherry in the very position that motivated this rule
+# sits in the hollow between apple and orange, so it would exempt the case itself.
+PERCH_RUNG_MAX_GAP = 1
 # Per fruit from the third of a type onward.
 EXCESS_SAME_WEIGHT = 20.0
 # Per tier of left-right size inversion.
@@ -256,41 +260,6 @@ def merge_lands_big_side(
     return toward_big >= MERGE_BIG_SIDE_SLACK_FRAC * held_r
 
 
-def stranded_drop_penalty(fruits: list[Fruit], held_fruit: Fruit | None) -> float:
-    """Penalty for moves where the dropped fruit stops in a valley of much bigger fruits with no partner.
-
-    The valley seen by `_valley_flanks` is not a bad place in itself (valley growing drops here).
-    What is bad is **when there is no partner there**: that fruit is blocked by the big fruits on both sides,
-    stays without meeting a partner, and only the order breaks. A partner at the opposite edge of the board cannot reach either, so
-    it only looks at whether a same type remains **inside the same valley**.
-
-    `_size_order_penalty` cannot pick it up. That one is exempt wholesale on merging moves,
-    and `_size_order_exempt` removes fruits 'in a valley with a partner somewhere on the board'
-    from its scope, so this shape falls exactly into that loophole.
-
-    It gets heavier by the amount the type gap (the smaller of the valley's left and right − itself) exceeds `STRANDED_DROP_MIN_GAP`.
-    The bigger the unreachable neighbors, the less it can be undone.
-
-    `held_fruit` is a separate instance with the same values as after, so to avoid counting itself
-    as a partner it is told apart by position, not `is` (`_lineage_fruit`).
-    """
-    if held_fruit is None:
-        return 0.0
-    flanks = _valley_flanks(fruits, held_fruit.x, held_fruit.type)
-    if flanks is None:
-        return 0.0
-    left, right = flanks
-    gap = min(left.type, right.type) - held_fruit.type
-    if gap < STRANDED_DROP_MIN_GAP:
-        return 0.0
-    for fruit in fruits:
-        if fruit.type != held_fruit.type or abs(fruit.x - held_fruit.x) <= 0.5:
-            continue
-        if left.x < fruit.x < right.x:
-            return 0.0
-    return STRANDED_DROP_WEIGHT * (gap - STRANDED_DROP_MIN_GAP + 1)
-
-
 # --- Penalty terms ---------------------------------------------------------------
 
 
@@ -303,7 +272,7 @@ def board_penalties(
     are not penalized as size-order violations (see `policy._evaluate_drop`).
     """
     penalty = 0.0
-    penalty += BURY_WEIGHT * _bury_penalty(fruits)
+    penalty += _bury_penalty(fruits)
     penalty += PERCH_WEIGHT * _perch_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
@@ -399,9 +368,13 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
     return penalty
 
 
-def _bury_penalty(fruits: list[Fruit]) -> float:
-    """How much merge candidates are buried by other types."""
-    penalty = 0.0
+def _bury_counts(fruits: list[Fruit] | tuple[Fruit, ...]) -> tuple[float, float]:
+    """Return the number of fruits buried by other types split into (with partner, without partner).
+
+    It is a rule with two weights, so counting and weights are separated so that `band_escape.py`
+    can sweep them separately (AGENTS 'One rule per term').
+    """
+    paired = lone = 0.0
     for under in fruits:
         for over in fruits:
             if over is under or over.type <= under.type:
@@ -417,10 +390,16 @@ def _bury_penalty(fruits: list[Fruit]) -> float:
             if -MERGE_SLACK <= gap <= under.radius * 0.6:
                 siblings = sum(1 for f in fruits if f.type == under.type and f is not under)
                 if siblings >= 1:
-                    penalty += 1.0
+                    paired += 1.0
                 else:
-                    penalty += 0.35
-    return penalty
+                    lone += 1.0
+    return paired, lone
+
+
+def _bury_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """Penalty for burying merge candidates with other types. The weight depends on whether a partner exists."""
+    paired, lone = _bury_counts(fruits)
+    return BURY_WEIGHT * paired + BURY_LONE_WEIGHT * lone
 
 
 def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
@@ -443,6 +422,8 @@ def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
         return 0.0
     max_t = max(fruit.type for fruit in fruits)
     big_min = max_t - PERCH_BIG_SPAN
+    # Whether it is a rung depends only on the fruit sitting on top, so it is not recomputed per lower fruit.
+    rung: dict[int, bool] = {}
     penalty = 0.0
     for under in fruits:
         if under.type < big_min:
@@ -455,8 +436,33 @@ def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
                 continue
             if abs(over.x - under.x) > under.radius + over.radius:
                 continue
+            if id(over) not in rung:
+                rung[id(over)] = _is_rung(over, fruits)
+            if rung[id(over)]:
+                continue
             penalty += float(gap_type - PERCH_MIN_GAP + 1)
     return penalty
+
+
+def _is_rung(fruit: Fruit, fruits: list[Fruit] | tuple[Fruit, ...]) -> bool:
+    """Whether it sits in the hollow of the next rung. Distinguishes it from the bare top of a big fruit.
+
+    When the board fills with big fruits, a small fruit **has a wide type gap on whichever shoulder it goes**. With no escape route,
+    the policy avoids shoulders and tips toward roofing another small fruit (move 72 of
+    seed=890270: putting a grape on a peach's shoulder costs 16, on a pineapple 32, and roofing a strawberry
+    15, so the roof was cheapest). A roofed fruit cannot be reached by a partner from above,
+    so something that should be heavier than a shoulder had become lighter.
+
+    But not every hollow is fine. The cherry in the position that motivated `_perch_penalty`
+    was also sitting in the hollow between apple and orange. What separates them is
+    **the type gap to the wall**: with a wall one tier up (`PERCH_RUNG_MAX_GAP`), once a partner comes
+    it merges and catches up with the wall.
+    """
+    flanks = _valley_flanks(fruits, fruit.x, fruit.type)
+    if flanks is None:
+        return False
+    left, right = flanks
+    return min(left.type, right.type) - fruit.type <= PERCH_RUNG_MAX_GAP
 
 
 def foreign_aim_penalty(

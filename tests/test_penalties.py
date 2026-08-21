@@ -8,12 +8,11 @@ are different things, so they are kept separate.
 from src.observe import Observation
 from src.penalties import (
     MERGE_BIG_SIDE_SLACK_FRAC,
-    STRANDED_DROP_WEIGHT,
+    _perch_penalty,
     _is_nestled,
     _size_order_exempt,
     _size_order_penalty,
     merge_lands_big_side,
-    stranded_drop_penalty,
 )
 from src.policy import choose_x
 from src.sim.sim_physics import simulate_drop_held
@@ -22,6 +21,7 @@ from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
 
 PEAR, DEKOPON, GRAPE, STRAW, CHERRY = 6, 3, 2, 1, 0
+PEACH = 7
 # Size direction of the board. +1 = the left is big.
 LARGE_LEFT = 1
 
@@ -150,50 +150,34 @@ def test_merge_lands_big_side_needs_a_surviving_fruit() -> None:
     assert not merge_lands_big_side(200.0, None, fruit_radius(DEKOPON), -1)
 
 
-def test_stranded_drop_costs_more_the_bigger_the_walls() -> None:
-    """Heavier the wider the type gap to the valley walls. How unrecoverable it is applies directly.
+def test_perch_is_free_in_a_one_step_notch() -> None:
+    """A hollow in a wall one tier up is the next rung. Count a perch only when placed on a bare top.
 
-    What sets the weight is **the smaller of the left and right** walls (here the dekopon).
-    Measuring by the bigger one would make even shapes recoverable because one side is low heavy.
+    When the board fills with big fruits the type gap opens on every shoulder, so without the exemption a small fruit has no escape,
+    and the policy tips toward avoiding shoulders and roofing another small fruit
+    (move 72 of seed=890270).
     """
-    # The valley width is judged by the radius of the dropped fruit (`_valley_flanks`), so
-    # the spacing is set to one counted as a valley even for a cherry.
-    pear = _on_floor(PEAR, 70.0)
-    dekopon = _on_floor(DEKOPON, 200.0)
-    straw = _on_floor(STRAW, 150.0)
-    cherry = _on_floor(CHERRY, 150.0)
+    peach = _on_floor(PEACH, 78.0)
+    top_y = peach.y - peach.radius - fruit_radius(GRAPE)
+    grape = Fruit(type=GRAPE, x=120.0, y=top_y, radius=fruit_radius(GRAPE), confidence=90)
+    wall = Fruit(type=DEKOPON, x=180.0, y=top_y, radius=fruit_radius(DEKOPON), confidence=90)
 
-    shallow = stranded_drop_penalty([pear, straw, dekopon], straw)
-    deep = stranded_drop_penalty([pear, cherry, dekopon], cherry)
-
-    assert shallow == STRANDED_DROP_WEIGHT
-    assert deep == STRANDED_DROP_WEIGHT * 2
+    assert _perch_penalty([peach, grape]) > 0.0
+    assert _perch_penalty([peach, grape, wall]) == 0.0
 
 
-def test_stranded_drop_is_free_with_a_partner_in_the_same_valley() -> None:
-    """With a partner in the same valley it can merge, so it is not stranded. Does not crush valley growing."""
-    pear = _on_floor(PEAR, 70.0)
-    straw = _on_floor(STRAW, 170.0)
-    partner = _on_floor(STRAW, 200.0)
-    dekopon = _on_floor(DEKOPON, 230.0)
+def test_perch_still_counts_a_deep_valley() -> None:
+    """A valley with a wide type gap is a trap, not a rung. Keep counting it as a perch.
 
-    assert stranded_drop_penalty([pear, straw, partner, dekopon], straw) == 0.0
+    The cherry in the position that motivated `_perch_penalty` was also sitting in the valley between apple and orange.
+    Exempting valleys would erase that very case.
+    """
+    pine = _on_floor(8, 150.0)
+    top_y = pine.y - pine.radius - fruit_radius(CHERRY)
+    cherry = Fruit(type=CHERRY, x=150.0, y=top_y, radius=fruit_radius(CHERRY), confidence=90)
+    walls = [
+        Fruit(type=t, x=150.0 + dx, y=top_y, radius=fruit_radius(t), confidence=90)
+        for t, dx in ((5, -60.0), (4, 60.0))
+    ]
 
-
-def test_stranded_drop_ignores_a_partner_outside_the_valley() -> None:
-    """A partner outside the valley is blocked by the big wall fruits, so it stays stranded."""
-    pear = _on_floor(PEAR, 70.0)
-    straw = _on_floor(STRAW, 170.0)
-    dekopon = _on_floor(DEKOPON, 230.0)
-    outside = _on_floor(STRAW, 330.0)
-
-    assert stranded_drop_penalty([pear, straw, dekopon, outside], straw) > 0.0
-
-
-def test_stranded_drop_needs_walls_bigger_than_the_threshold() -> None:
-    """Merely being wedged one tier up is not stranded. The next merge fixes the order."""
-    dekopon_left = _on_floor(DEKOPON, 90.0)
-    grape = _on_floor(GRAPE, 160.0)
-    dekopon_right = _on_floor(DEKOPON, 220.0)
-
-    assert stranded_drop_penalty([dekopon_left, grape, dekopon_right], grape) == 0.0
+    assert _perch_penalty([pine, cherry, *walls]) > 0.0
