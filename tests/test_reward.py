@@ -1,5 +1,7 @@
 """Unit tests for the reward."""
 
+import math
+
 from src.observe import Observation
 from src.vision.classify import fruit_radius
 from src.reward import (
@@ -7,6 +9,7 @@ from src.reward import (
     CREATE_SCORE,
     WATERMELON,
     cleared_double_watermelon,
+    is_corner_watermelon,
     is_game_over,
     is_lost,
     merge_points,
@@ -120,3 +123,67 @@ def test_watermelon_count() -> None:
         )
     )
     assert watermelon_count(two) == 2
+
+
+def _corner_board(corner_type: int | None) -> tuple[Fruit, ...]:
+    """A watermelon at the bottom left, a melon at its upper right. A fruit of corner_type wedged in the corner.
+
+    The corner fruit is placed touching the wall, the floor and the watermelon. The watermelon is then
+    pushed out to x = r + 2*sqrt(R*r) (from the geometry of the contact points). For a cherry
+    this value is below R = it fits in the corner gap, so the watermelon stays against the wall.
+    """
+    big_r = fruit_radius(WATERMELON)
+    melon_r = fruit_radius(WATERMELON - 1)
+    fruits: list[Fruit] = []
+    wm_x = big_r
+    if corner_type is not None:
+        small_r = fruit_radius(corner_type)
+        wm_x = max(big_r, small_r + 2.0 * math.sqrt(big_r * small_r))
+        fruits.append(
+            Fruit(
+                type=corner_type,
+                x=small_r,
+                y=NORMALIZED_HEIGHT - small_r,
+                radius=small_r,
+                confidence=90,
+            )
+        )
+    watermelon = Fruit(
+        type=WATERMELON,
+        x=wm_x,
+        y=NORMALIZED_HEIGHT - big_r,
+        radius=big_r,
+        confidence=90,
+    )
+    # A melon resting at the upper right. At 45 degrees touching the watermelon.
+    offset = (big_r + melon_r) / math.sqrt(2.0)
+    melon = Fruit(
+        type=WATERMELON - 1,
+        x=watermelon.x + offset,
+        y=watermelon.y - offset,
+        radius=melon_r,
+        confidence=90,
+    )
+    fruits.extend((watermelon, melon))
+    return tuple(fruits)
+
+
+def test_corner_watermelon_needs_the_wall_and_the_floor() -> None:
+    assert is_corner_watermelon(_corner_board(None))
+
+    middle = tuple(
+        Fruit(type=f.type, x=f.x + 60.0, y=f.y, radius=f.radius, confidence=f.confidence)
+        for f in _corner_board(None)
+    )
+    assert not is_corner_watermelon(middle)
+
+
+def test_corner_watermelon_survives_a_cherry_or_strawberry_in_the_corner() -> None:
+    """A small fruit that fits in the corner still leaves a corner watermelon even when it pushes."""
+    assert is_corner_watermelon(_corner_board(0))
+    assert is_corner_watermelon(_corner_board(1))
+
+
+def test_corner_watermelon_is_lost_to_a_grape_in_the_corner() -> None:
+    """A grape pushes the watermelon 23 from the wall. Lifted this far it is not a corner."""
+    assert not is_corner_watermelon(_corner_board(2))

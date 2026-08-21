@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 from .observe import Observation
 from .vision.colors import MAX_FRUIT_TYPE
+from .vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from .vision.state import Fruit
 
 WATERMELON = MAX_FRUIT_TYPE
@@ -47,6 +48,31 @@ def is_lost(fruits: Sequence[Fruit]) -> bool:
 
 def is_game_over(obs: Observation) -> bool:
     return is_lost(obs.fruits)
+
+
+# Tolerance for the corner check. A cherry (radius 14.2) fits as is into the corner gap left when a watermelon (radius 112)
+# touches the wall and floor, and the watermelon does not move. A strawberry pushes
+# the watermelon 4.9 from the wall, a grape 23.2 (both from the position of a circle touching the wall, floor and
+# watermelon). Taking the middle, up to a strawberry counts as a corner.
+CORNER_SLACK = 12.0
+
+
+def is_corner_watermelon(fruits: Sequence[Fruit]) -> bool:
+    """Whether there is a watermelon tight against the wall and floor.
+
+    A corner watermelon is the target shape (→NOTES 'Current approach'). So that reaching it can be seen from outside,
+    it is judged only from the board's fruits. Even with a small fruit wedged in the corner, if the amount pushed out
+    fits within `CORNER_SLACK` it counts as a corner.
+    """
+    for fruit in fruits:
+        if fruit.type != WATERMELON:
+            continue
+        if fruit.y + fruit.radius < NORMALIZED_HEIGHT - CORNER_SLACK:
+            continue
+        wall_gap = min(fruit.x - fruit.radius, NORMALIZED_WIDTH - fruit.x - fruit.radius)
+        if wall_gap <= CORNER_SLACK:
+            return True
+    return False
 
 
 def watermelon_count(obs: Observation) -> int:
