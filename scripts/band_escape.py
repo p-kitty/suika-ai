@@ -49,7 +49,7 @@ SWEEP_KEYS = (
     "perch",
     "excess_same",
     "size_order",
-    "big_layout",
+    "corner_pocket",
     "foreign_aim",
 )
 
@@ -72,7 +72,7 @@ def _components(
         "perch": -pen.PERCH_WEIGHT * pen._perch_penalty(after),
         "excess_same": -pen._excess_same_penalty(after),
         "size_order": 0.0 if held_merged else -pen._size_order_penalty(after, sign),
-        "big_layout": -pen._big_layout_penalty(after, sign),
+        "corner_pocket": -pen._corner_pocket_penalty(after, sign),
         "foreign_aim": -pen.foreign_aim_penalty(before, x, drop_type, held_r),
         # 同点をほどくだけの項だが、入れないと合計が eval と合わない。
         "center": -pen.center_tiebreak(x),

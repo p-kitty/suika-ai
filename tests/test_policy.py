@@ -522,7 +522,7 @@ def test_ladder_needs_no_ignition_hint() -> None:
 
 def test_avoids_under_max_center_on_outer_edge() -> None:
     # 最大より大側端に小実を置くのは可だが、L 中心より下の角ポケットは避ける。
-    from src.penalties import _big_layout_penalty
+    from src.penalties import _corner_pocket_penalty
 
     peach_r = fruit_radius(7)
     orange_r = fruit_radius(4)
@@ -555,7 +555,7 @@ def test_avoids_under_max_center_on_outer_edge() -> None:
         confidence=90,
     )
     assert shoulder.y <= peach.y
-    assert _big_layout_penalty((peach, pocket), sign=1) > _big_layout_penalty(
+    assert _corner_pocket_penalty((peach, pocket), sign=1) > _corner_pocket_penalty(
         (peach, shoulder), sign=1
     ) + 30
     # 小側 (右) の床に小実があっても、大側レイアウトでは角ポケットにしない。
@@ -566,7 +566,7 @@ def test_avoids_under_max_center_on_outer_edge() -> None:
         radius=orange_r,
         confidence=90,
     )
-    assert _big_layout_penalty((peach, right_floor), sign=1) < 20
+    assert _corner_pocket_penalty((peach, right_floor), sign=1) < 20
 
     obs = _obs(held_type=4, fruits=(peach,))
     x = choose_x(obs)
