@@ -52,7 +52,6 @@ SWEEP_KEYS = (
     "size_order",
     "corner_pocket",
     "foreign_aim",
-    "stranded_drop",
     "merge_big_side",
 )
 
@@ -80,7 +79,6 @@ def _components(
         "size_order": 0.0 if held_merged else -pen._size_order_penalty(after, sign),
         "corner_pocket": -pen._corner_pocket_penalty(after, sign),
         "foreign_aim": -pen.foreign_aim_penalty(before, x, drop_type, held_r),
-        "stranded_drop": -pen.stranded_drop_penalty(after, held_fruit),
         # 同点をほどくだけの項だが、入れないと合計が eval と合わない。
         "center": -pen.center_tiebreak(x),
         "valley_grow": 0.0,

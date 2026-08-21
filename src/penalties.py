@@ -45,13 +45,6 @@ MERGE_BIG_SIDE_BONUS = 0.5
 # 中点なので、寄せる意図の無い手でも半径未満はふつうにずれる。
 MERGE_BIG_SIDE_SLACK_FRAC = 1.0
 
-# 落とした実が大実の谷に取り残されたときの減点。型差 1 つぶん。連鎖の点数を
-# 蹴ってでも並びを保たせる水準で入れてある (型差 5 なら 80.0 で、46 点の 3 連鎖に
-# 勝つ)。型差 2 で発火し、選んだ手の 17〜20% に掛かる (150 手 × 3 seed の実測)。
-STRANDED_DROP_WEIGHT = 20.0
-# 取り残しとみなす最小の型差 (谷の左右のうち小さいほうとの差)。
-STRANDED_DROP_MIN_GAP = 2
-
 # 谷育成ボーナス (減点から引く形で入れる)。`valley_grow_ok` が成立する着地だけ。
 # 実合体より強くしない。8.0 だと grape 合体 (6 点) を蹴って非合体の谷を選んだ。
 # 2.0 で育成側に倒れ、3.0 でも合体は取り続ける (実測)。
@@ -80,9 +73,6 @@ PERCH_WEIGHT = 16.0
 # 3 seed の全候補で測ると、免除されるのは perch の 6.8% だけ。窪みなら免除、
 # にすると 77.5% が消えるうえ、この規則を入れる動機になった局面のさくらんぼ自身が
 # りんごとオレンジの窪みに載っているので、症例ごと免除してしまう。
-# `STRANDED_DROP_MIN_GAP` と値が揃っているのは、どちらも同じ量 (壁との型差) を
-# 読んで同じ線を引いているため。**規則としては別物**で、あちらは「いま落とした実が
-# 谷で相方に会えない」、こちらは「大実の上面に載っている」を見る。
 PERCH_RUNG_MAX_GAP = 1
 # 同種 3 個目以降 1 個ぶん。
 EXCESS_SAME_WEIGHT = 20.0
@@ -268,41 +258,6 @@ def merge_lands_big_side(
         return False
     toward_big = -sign * (held_fruit.x - drop_x)
     return toward_big >= MERGE_BIG_SIDE_SLACK_FRAC * held_r
-
-
-def stranded_drop_penalty(fruits: list[Fruit], held_fruit: Fruit | None) -> float:
-    """落とした実が、ずっと大きい実の谷に相方なしで止まった手の減点。
-
-    `_valley_flanks` で見る谷そのものは悪い場所ではない (谷育成はここへ落とす)。
-    悪いのは**そこに相方がいないとき**で、その実は左右の大実に阻まれて相方に
-    会えないまま居座り、並びだけが崩れる。相方が盤の反対端にいても届かないので、
-    見るのは**同じ谷の中**に同種が残っているかだけ。
-
-    `_size_order_penalty` では拾えない。あちらは合体した手では丸ごと免除される
-    うえ、`_size_order_exempt` が「谷にいて盤のどこかに相方がいる」実を対象から
-    外すので、この形はちょうどその抜け穴に落ちる。
-
-    型差 (谷の左右のうち小さいほう − 自分) が `STRANDED_DROP_MIN_GAP` を
-    超えたぶんだけ重くする。届かない相手に挟まれるほど戻せなくなる。
-
-    `held_fruit` は after と同じ値を持つ別インスタンスなので、自分自身を相方に
-    数えないよう `is` ではなく位置で見分ける (`_lineage_fruit`)。
-    """
-    if held_fruit is None:
-        return 0.0
-    flanks = _valley_flanks(fruits, held_fruit.x, held_fruit.type)
-    if flanks is None:
-        return 0.0
-    left, right = flanks
-    gap = min(left.type, right.type) - held_fruit.type
-    if gap < STRANDED_DROP_MIN_GAP:
-        return 0.0
-    for fruit in fruits:
-        if fruit.type != held_fruit.type or abs(fruit.x - held_fruit.x) <= 0.5:
-            continue
-        if left.x < fruit.x < right.x:
-            return 0.0
-    return STRANDED_DROP_WEIGHT * (gap - STRANDED_DROP_MIN_GAP + 1)
 
 
 # --- 減点項 ---------------------------------------------------------------

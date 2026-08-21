@@ -15,7 +15,6 @@ from src.penalties import (
     center_tiebreak,
     foreign_aim_penalty,
     ideal_x,
-    stranded_drop_penalty,
 )
 from src.policy import _candidates, _score, choose_x
 from src.reward import is_lost, merge_points
@@ -741,41 +740,6 @@ def test_merge_big_side_bonus_never_outranks_a_merge() -> None:
     (`center_tiebreak` の同名テストと同じ理由)。
     """
     assert MERGE_BIG_SIDE_BONUS < merge_points(0)
-
-
-def test_declines_a_merge_that_strands_the_dropped_fruit() -> None:
-    """合体の点数より並びを取る。落とした実を大実の谷へ置き去りにしない。
-
-    ナシとパインの間にいちごが 1 個だけ残った谷。そこへ落とせば合体できるが、
-    できたグレープは左右の大実に阻まれて相方に会えないまま居座る
-    (seed=834761 の 35 手目が同じ形。あちらは 3 連鎖 46 点と引き換えだった)。
-    """
-    straw_r = fruit_radius(1)
-    grape_r = fruit_radius(2)
-    pear_x = 100.0
-    pine_x = pear_x + fruit_radius(6) + fruit_radius(8) + grape_r * 2 + 2.0
-    valley_x = (pear_x + fruit_radius(6) + pine_x - fruit_radius(8)) / 2
-    fruits = tuple(
-        Fruit(
-            type=t,
-            x=x,
-            y=NORMALIZED_HEIGHT - fruit_radius(t),
-            radius=fruit_radius(t),
-            confidence=90,
-        )
-        for t, x in ((6, pear_x), (1, valley_x), (8, pine_x))
-    )
-    obs = _obs(held_type=1, fruits=fruits, next_type=0)
-
-    # 合体そのものは候補に入っている (見えていないのではなく、蹴っている)。
-    merged, merges, _types, _held, lineage = simulate_drop_held(fruits, 1, valley_x)
-    assert merges == 1
-    assert stranded_drop_penalty(merged, lineage) > 0.0
-    assert _score(obs, valley_x, straw_r) < _score(obs, 30.0, straw_r)
-
-    x = choose_x(obs)
-    after, _m, _t, _h, held_fruit = simulate_drop_held(fruits, 1, x)
-    assert stranded_drop_penalty(after, held_fruit) == 0.0
 
 
 def test_prefers_a_big_shoulder_over_roofing_a_lone_fruit() -> None:

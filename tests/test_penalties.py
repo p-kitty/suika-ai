@@ -8,13 +8,11 @@
 from src.observe import Observation
 from src.penalties import (
     MERGE_BIG_SIDE_SLACK_FRAC,
-    STRANDED_DROP_WEIGHT,
     _perch_penalty,
     _is_nestled,
     _size_order_exempt,
     _size_order_penalty,
     merge_lands_big_side,
-    stranded_drop_penalty,
 )
 from src.policy import choose_x
 from src.sim.sim_physics import simulate_drop_held
@@ -150,55 +148,6 @@ def test_merge_lands_big_side_ignores_a_shift_under_the_slack() -> None:
 def test_merge_lands_big_side_needs_a_surviving_fruit() -> None:
     """スイカまで育って消えたときは寄せ先が無い (held_fruit が None)。"""
     assert not merge_lands_big_side(200.0, None, fruit_radius(DEKOPON), -1)
-
-
-def test_stranded_drop_costs_more_the_bigger_the_walls() -> None:
-    """谷の壁との型差が開くほど重い。戻せなくなる度合いがそのまま効く。
-
-    重さを決めるのは**左右のうち小さいほう**の壁 (ここではデコポン)。
-    大きいほうで測ると、片側さえ低ければ戻せる形まで重くなる。
-    """
-    # 谷の幅は落ちる実の半径で見るので (`_valley_flanks`)、さくらんぼでも
-    # 谷と認める間隔に寄せておく。
-    pear = _on_floor(PEAR, 70.0)
-    dekopon = _on_floor(DEKOPON, 200.0)
-    straw = _on_floor(STRAW, 150.0)
-    cherry = _on_floor(CHERRY, 150.0)
-
-    shallow = stranded_drop_penalty([pear, straw, dekopon], straw)
-    deep = stranded_drop_penalty([pear, cherry, dekopon], cherry)
-
-    assert shallow == STRANDED_DROP_WEIGHT
-    assert deep == STRANDED_DROP_WEIGHT * 2
-
-
-def test_stranded_drop_is_free_with_a_partner_in_the_same_valley() -> None:
-    """同じ谷に相方がいれば合体できるので取り残しではない。谷育成を潰さない。"""
-    pear = _on_floor(PEAR, 70.0)
-    straw = _on_floor(STRAW, 170.0)
-    partner = _on_floor(STRAW, 200.0)
-    dekopon = _on_floor(DEKOPON, 230.0)
-
-    assert stranded_drop_penalty([pear, straw, partner, dekopon], straw) == 0.0
-
-
-def test_stranded_drop_ignores_a_partner_outside_the_valley() -> None:
-    """谷の外の相方は壁の大実に阻まれて会えないので、取り残しのまま。"""
-    pear = _on_floor(PEAR, 70.0)
-    straw = _on_floor(STRAW, 170.0)
-    dekopon = _on_floor(DEKOPON, 230.0)
-    outside = _on_floor(STRAW, 330.0)
-
-    assert stranded_drop_penalty([pear, straw, dekopon, outside], straw) > 0.0
-
-
-def test_stranded_drop_needs_walls_bigger_than_the_threshold() -> None:
-    """1 段上に挟まれただけでは取り残しにしない。次の合体で並びが直る。"""
-    dekopon_left = _on_floor(DEKOPON, 90.0)
-    grape = _on_floor(GRAPE, 160.0)
-    dekopon_right = _on_floor(DEKOPON, 220.0)
-
-    assert stranded_drop_penalty([dekopon_left, grape, dekopon_right], grape) == 0.0
 
 
 def test_perch_is_free_in_a_one_step_notch() -> None:
