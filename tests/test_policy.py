@@ -796,3 +796,31 @@ def test_uses_the_next_rung_instead_of_roofing_a_small_fruit() -> None:
     assert grape is not None
     # いちごの真上に屋根を掛けていない。
     assert abs(grape.x - straw.x) > straw.radius + grape.radius
+
+
+def test_reaches_a_same_type_partner_under_a_roof() -> None:
+    """屋根の下の同種の相方へ、横から転がして届く手を候補から落とさない。
+
+    seed=871514 の 37 手目。さくらんぼはいちごの真下に埋まっていて、真上から
+    落としてもいちごの肩に載るだけ。床まで抜けて相方に届く x は 2px 幅しか
+    無く、そこを跨ぐと方策は代わりにりんご 2 個を梨にして (21 点)、
+    さくらんぼを桃と梨の間に挟み込む。
+    """
+    fruits = tuple(
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90)
+        for t, x, y in (
+            (7, 69.4, 430.6),
+            (5, 184.6, 448.7),
+            (4, 245.7, 385.8),
+            (5, 306.8, 448.8),
+            (1, 376.8, 449.8),
+            (0, 383.9, 483.9),
+        )
+    )
+    obs = _obs(held_type=0, fruits=fruits, next_type=4)
+
+    x = choose_x(obs)
+    after, _merges, _types, held_merged, _held = simulate_drop_held(fruits, 0, x)
+    assert held_merged
+    # 埋まっていた相方ごと片付いている (さくらんぼ 2 個 -> いちご -> ぶどう)。
+    assert not [f for f in after if f.type == 0]
