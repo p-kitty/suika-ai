@@ -38,6 +38,9 @@ HELD_TOP = 2
 NEXT_CANDIDATE_STEP = 32.0
 # Uniform spacing of held candidates. Coarser puts the spot directly above a dangerous pile among the candidates, so do not raise it
 # (test_avoids_dangerous_tall_stack failed at 20). Speed is earned on the lookahead side.
+# The finer side is closed too. The window for rolling into a same-type fruit can be only 1-3px,
+# and lowering to 3.0 catches it, but score did not move against 248 → 540ms per move
+# (NOTES 'Candidate spacing and the merge window').
 CANDIDATE_STEP = 12.0
 
 
