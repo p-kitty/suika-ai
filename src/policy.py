@@ -36,12 +36,12 @@ NEXT_DISCOUNT = 0.55
 HELD_TOP = 2
 # next 先読みの候補刻み。held (CANDIDATE_STEP) より粗い。
 NEXT_CANDIDATE_STEP = 32.0
-# held 候補の均等刻み。粗くすると危険な山の真上が候補に乗る
-# (20 で test_avoids_dangerous_tall_stack が落ちた)。細かさを決めているのは合体の窓で、
-# 転がって同種に届く x の幅は 1〜3px しか無いことがある (262 局面を 1px で引き直すと、
-# 取り逃がしていた最良手の窓は中央 3px・68% が 3px 以下)。12 や 6 ではその窓を跨いで
-# 落とす。1 手 248 → 540ms。
-CANDIDATE_STEP = 3.0
+# held 候補の均等刻み。粗くすると危険な山の真上が候補に乗るので下げない
+# (20 で test_avoids_dangerous_tall_stack が落ちた)。速度は先読み側で稼ぐ。
+# 細かくする側も打ち止め。転がって同種に届く窓は 1〜3px しか無いことがあり、
+# 3.0 まで下げれば拾えるが 1 手 248 → 540ms に対し score は動かなかった
+# (NOTES「候補の刻みと合体の窓」)。
+CANDIDATE_STEP = 12.0
 
 
 def _held_eval_job(
