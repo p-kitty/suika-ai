@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import secrets
+import subprocess
 import sys
 import time
 from concurrent.futures import Executor, ProcessPoolExecutor, as_completed
@@ -42,6 +43,19 @@ from src.util.stats import correlation, paired_stats
 EARLY_STEPS = 30
 # 連鎖発火とみなす 1 手あたりの合成数。
 CASCADE_MERGES = 3
+
+
+def _head() -> str:
+    """今の HEAD。保存した A 側がどの方策のものかを残す。"""
+    try:
+        return subprocess.run(
+            ["git", "-C", str(Path(__file__).resolve().parents[1]), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except Exception:
+        return ""
 
 
 def _apply_variant(enabled: bool) -> None:
@@ -234,6 +248,9 @@ def main() -> None:
             json.dumps(
                 {
                     "seed": seed,
+                    # A 側を `compare_b_only.py` で使い回すとき、方策が変わって
+                    # いないかを突き合わせる。ずれたベースラインは黙って効く。
+                    "baseline_commit": _head(),
                     "episodes": args.episodes,
                     "max_steps": args.max_steps,
                     "variant": variant_doc[0] if variant_doc else "",
