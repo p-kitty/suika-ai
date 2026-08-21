@@ -247,9 +247,6 @@ def _evaluate_drop(
     # FOREIGN_AIM looks at 'is the fruit directly below a different type', not merges.
     # A same type directly below is OK (waiting to merge). Rolling off a different type and merging on the floor is still penalized.
     penalties += pen.foreign_aim_penalty(before, x, drop_type, held_r)
-    # Moves where the dropped fruit itself is stranded in a valley of big fruits. Applied even on merging moves
-    # (moves that leave a small fruit behind in exchange for cascade points are stopped here).
-    penalties += pen.stranded_drop_penalty(after, held_fruit)
     # A term only for breaking ties. It decides the order when every term above ties.
     penalties += pen.center_tiebreak(x)
     if not held_merged:

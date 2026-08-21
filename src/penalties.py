@@ -45,13 +45,6 @@ MERGE_BIG_SIDE_BONUS = 0.5
 # of the two centers, so even moves with no intent to push normally shift by less than a radius.
 MERGE_BIG_SIDE_SLACK_FRAC = 1.0
 
-# Penalty when the dropped fruit is stranded in a valley of big fruits. Per type gap. Set at a level that keeps the order
-# even at the cost of rejecting cascade points (at type gap 5 it is 80.0, beating a 46-point 3-step cascade).
-# It fires at type gap 2 and applies to 17-20% of chosen moves (measured over 150 moves × 3 seeds).
-STRANDED_DROP_WEIGHT = 20.0
-# The minimum type gap considered stranded (difference from the smaller of the valley's left and right).
-STRANDED_DROP_MIN_GAP = 2
-
 # Valley-growing bonus (applied by subtracting from penalties). Only for landings where `valley_grow_ok` holds.
 # Not stronger than a real merge. At 8.0 it rejected a grape merge (6 points) for a non-merging valley.
 # At 2.0 it tips toward growing, and at 3.0 it still keeps taking merges (measured).
@@ -80,9 +73,6 @@ PERCH_WEIGHT = 16.0
 # Measured over every candidate on 3 seeds, only 6.8% of perches are exempt. Exempting any hollow
 # would remove 77.5%, and the cherry in the very position that motivated this rule
 # sits in the hollow between apple and orange, so it would exempt the case itself.
-# The value matches `STRANDED_DROP_MIN_GAP` because both read the same quantity (type gap to the wall)
-# and draw the same line. **As rules they are different**: that one looks at 'the fruit just dropped
-# cannot meet its partner in a valley', this one at 'sitting on the top face of a big fruit'.
 PERCH_RUNG_MAX_GAP = 1
 # Per fruit from the third of a type onward.
 EXCESS_SAME_WEIGHT = 20.0
@@ -268,41 +258,6 @@ def merge_lands_big_side(
         return False
     toward_big = -sign * (held_fruit.x - drop_x)
     return toward_big >= MERGE_BIG_SIDE_SLACK_FRAC * held_r
-
-
-def stranded_drop_penalty(fruits: list[Fruit], held_fruit: Fruit | None) -> float:
-    """Penalty for moves where the dropped fruit stops in a valley of much bigger fruits with no partner.
-
-    The valley seen by `_valley_flanks` is not a bad place in itself (valley growing drops here).
-    What is bad is **when there is no partner there**: that fruit is blocked by the big fruits on both sides,
-    stays without meeting a partner, and only the order breaks. A partner at the opposite edge of the board cannot reach either, so
-    it only looks at whether a same type remains **inside the same valley**.
-
-    `_size_order_penalty` cannot pick it up. That one is exempt wholesale on merging moves,
-    and `_size_order_exempt` removes fruits 'in a valley with a partner somewhere on the board'
-    from its scope, so this shape falls exactly into that loophole.
-
-    It gets heavier by the amount the type gap (the smaller of the valley's left and right − itself) exceeds `STRANDED_DROP_MIN_GAP`.
-    The bigger the unreachable neighbors, the less it can be undone.
-
-    `held_fruit` is a separate instance with the same values as after, so to avoid counting itself
-    as a partner it is told apart by position, not `is` (`_lineage_fruit`).
-    """
-    if held_fruit is None:
-        return 0.0
-    flanks = _valley_flanks(fruits, held_fruit.x, held_fruit.type)
-    if flanks is None:
-        return 0.0
-    left, right = flanks
-    gap = min(left.type, right.type) - held_fruit.type
-    if gap < STRANDED_DROP_MIN_GAP:
-        return 0.0
-    for fruit in fruits:
-        if fruit.type != held_fruit.type or abs(fruit.x - held_fruit.x) <= 0.5:
-            continue
-        if left.x < fruit.x < right.x:
-            return 0.0
-    return STRANDED_DROP_WEIGHT * (gap - STRANDED_DROP_MIN_GAP + 1)
 
 
 # --- Penalty terms ---------------------------------------------------------------
