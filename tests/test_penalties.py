@@ -1,4 +1,4 @@
-"""大小順の減点と、その谷免除の単体テスト。
+"""大小順の減点と、その谷免除、合体の寄せ方の単体テスト。
 
 手の選び方は tests/test_policy.py。ここは減点規則そのものの意味を固定する。
 谷の判定 (`_is_nestled`) と、そのうち実際に免除する条件 (`_size_order_exempt`)
@@ -6,14 +6,22 @@
 """
 
 from src.observe import Observation
-from src.penalties import _is_nestled, _size_order_exempt, _size_order_penalty
+from src.penalties import (
+    MERGE_BIG_SIDE_SLACK_FRAC,
+    STRANDED_DROP_WEIGHT,
+    _is_nestled,
+    _size_order_exempt,
+    _size_order_penalty,
+    merge_lands_big_side,
+    stranded_drop_penalty,
+)
 from src.policy import choose_x
 from src.sim.sim_physics import simulate_drop_held
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
 
-PEAR, DEKOPON, GRAPE = 6, 3, 2
+PEAR, DEKOPON, GRAPE, STRAW, CHERRY = 6, 3, 2, 1, 0
 # 盤面の大小の向き。+1 = 左が大きい。
 LARGE_LEFT = 1
 
@@ -43,22 +51,37 @@ def test_nestled_only_when_the_valley_is_narrow() -> None:
 
 
 def test_valley_fruit_is_exempt_only_with_a_merge_partner() -> None:
-    """谷にいる実を大小順から外すのは、盤に同種の相方が残っているときだけ。
+    """谷にいる実を大小順から外すのは、同じ谷に相方が残っているときだけ。
 
     どちらの盤もグレープ (2) がデコポン (3) の左＝逆転で、谷の形も同じ。
-    違いは合体相手のグレープがもう 1 個あるかどうかだけ。相方がいなければ
-    その谷から出る当てが無いので、ただの並び順違反として数える。
+    違いは合体相手のグレープが谷の中にもう 1 個いるかどうかだけ。相方が
+    いなければその谷から出る当てが無いので、ただの並び順違反として数える。
     """
     pear = _on_floor(PEAR, 70.0)
     grape = _on_floor(GRAPE, 170.0)
     dekopon = _on_floor(DEKOPON, 230.0)
     alone = [pear, grape, dekopon]
-    with_partner = [pear, grape, dekopon, _on_floor(GRAPE, 300.0)]
+    with_partner = [pear, grape, _on_floor(GRAPE, 200.0), dekopon]
 
     assert _is_nestled(grape, alone)
     assert _is_nestled(grape, with_partner)
     assert not _size_order_exempt(grape, alone)
     assert _size_order_exempt(grape, with_partner)
+
+
+def test_valley_fruit_is_not_exempt_by_a_partner_outside_the_valley() -> None:
+    """谷の外の相方では免除しない。壁の大実に阻まれて会えないため。
+
+    seed=834761 の 35 手目がこの形だった (ナシとパインの谷に残ったいちごが、
+    反対端のいちごを根拠に免除されていた)。
+    """
+    pear = _on_floor(PEAR, 70.0)
+    grape = _on_floor(GRAPE, 170.0)
+    dekopon = _on_floor(DEKOPON, 230.0)
+    outside = [pear, grape, dekopon, _on_floor(GRAPE, 330.0)]
+
+    assert _is_nestled(grape, outside)
+    assert not _size_order_exempt(grape, outside)
 
 
 def test_inversion_costs_more_than_the_correct_order() -> None:
@@ -95,10 +118,82 @@ def test_drop_does_not_exempt_the_inversion_it_creates() -> None:
         held_x=NORMALIZED_WIDTH / 2,
         next_type=0,
     )
-    after, _merges, _types, _held_merged = simulate_drop_held(
+    after, _merges, _types, _held_merged, _held_fruit = simulate_drop_held(
         list(fruits), DEKOPON, choose_x(obs)
     )
     dekopon = next(f for f in after if f.type == DEKOPON)
     grape = next(f for f in after if f.type == GRAPE)
 
     assert dekopon.x < grape.x
+
+
+def test_merge_lands_big_side_follows_the_board_direction() -> None:
+    """同じ移動でも、大側がどちらかで合否が反転する。"""
+    held_r = fruit_radius(DEKOPON)
+    moved_right = _on_floor(DEKOPON, 200.0 + held_r * (MERGE_BIG_SIDE_SLACK_FRAC + 0.1))
+
+    assert merge_lands_big_side(200.0, moved_right, held_r, -1)
+    assert not merge_lands_big_side(200.0, moved_right, held_r, LARGE_LEFT)
+
+
+def test_merge_lands_big_side_ignores_a_shift_under_the_slack() -> None:
+    """合体位置は 2 中心の中点なので、半径未満のずれは寄せたうちに入れない。"""
+    held_r = fruit_radius(DEKOPON)
+    slack = held_r * MERGE_BIG_SIDE_SLACK_FRAC
+
+    assert not merge_lands_big_side(200.0, _on_floor(DEKOPON, 200.0 + slack - 1.0), held_r, -1)
+    assert merge_lands_big_side(200.0, _on_floor(DEKOPON, 200.0 + slack + 1.0), held_r, -1)
+
+
+def test_merge_lands_big_side_needs_a_surviving_fruit() -> None:
+    """スイカまで育って消えたときは寄せ先が無い (held_fruit が None)。"""
+    assert not merge_lands_big_side(200.0, None, fruit_radius(DEKOPON), -1)
+
+
+def test_stranded_drop_costs_more_the_bigger_the_walls() -> None:
+    """谷の壁との型差が開くほど重い。戻せなくなる度合いがそのまま効く。
+
+    重さを決めるのは**左右のうち小さいほう**の壁 (ここではデコポン)。
+    大きいほうで測ると、片側さえ低ければ戻せる形まで重くなる。
+    """
+    # 谷の幅は落ちる実の半径で見るので (`_valley_flanks`)、さくらんぼでも
+    # 谷と認める間隔に寄せておく。
+    pear = _on_floor(PEAR, 70.0)
+    dekopon = _on_floor(DEKOPON, 200.0)
+    straw = _on_floor(STRAW, 150.0)
+    cherry = _on_floor(CHERRY, 150.0)
+
+    shallow = stranded_drop_penalty([pear, straw, dekopon], straw)
+    deep = stranded_drop_penalty([pear, cherry, dekopon], cherry)
+
+    assert shallow == STRANDED_DROP_WEIGHT
+    assert deep == STRANDED_DROP_WEIGHT * 2
+
+
+def test_stranded_drop_is_free_with_a_partner_in_the_same_valley() -> None:
+    """同じ谷に相方がいれば合体できるので取り残しではない。谷育成を潰さない。"""
+    pear = _on_floor(PEAR, 70.0)
+    straw = _on_floor(STRAW, 170.0)
+    partner = _on_floor(STRAW, 200.0)
+    dekopon = _on_floor(DEKOPON, 230.0)
+
+    assert stranded_drop_penalty([pear, straw, partner, dekopon], straw) == 0.0
+
+
+def test_stranded_drop_ignores_a_partner_outside_the_valley() -> None:
+    """谷の外の相方は壁の大実に阻まれて会えないので、取り残しのまま。"""
+    pear = _on_floor(PEAR, 70.0)
+    straw = _on_floor(STRAW, 170.0)
+    dekopon = _on_floor(DEKOPON, 230.0)
+    outside = _on_floor(STRAW, 330.0)
+
+    assert stranded_drop_penalty([pear, straw, dekopon, outside], straw) > 0.0
+
+
+def test_stranded_drop_needs_walls_bigger_than_the_threshold() -> None:
+    """1 段上に挟まれただけでは取り残しにしない。次の合体で並びが直る。"""
+    dekopon_left = _on_floor(DEKOPON, 90.0)
+    grape = _on_floor(GRAPE, 160.0)
+    dekopon_right = _on_floor(DEKOPON, 220.0)
+
+    assert stranded_drop_penalty([dekopon_left, grape, dekopon_right], grape) == 0.0

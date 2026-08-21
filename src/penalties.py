@@ -36,6 +36,22 @@ FOREIGN_AIM_PENALTY = 100.0
 # 手の良し悪しをこれで表そうとしないこと。
 CENTER_TIEBREAK_WEIGHT = 0.001
 
+# 大側へ寄せた合体のボーナス (減点から引く形で入れる)。`merge_lands_big_side`
+# が成立する手だけ。合体どうしの順位を本家点で決める性質は壊さない。最小の
+# 合成点差が 1.0 (cherry -> straw) なので、それを覆さない値に収める。
+# 同点帯の幅 0.1 の 5 倍。
+MERGE_BIG_SIDE_BONUS = 0.5
+# 寄せたと認める最小の移動量 (落とした実の半径に対する割合)。合体位置は 2 中心の
+# 中点なので、寄せる意図の無い手でも半径未満はふつうにずれる。
+MERGE_BIG_SIDE_SLACK_FRAC = 1.0
+
+# 落とした実が大実の谷に取り残されたときの減点。型差 1 つぶん。連鎖の点数を
+# 蹴ってでも並びを保たせる水準で入れてある (型差 5 なら 80.0 で、46 点の 3 連鎖に
+# 勝つ)。型差 2 で発火し、選んだ手の 17〜20% に掛かる (150 手 × 3 seed の実測)。
+STRANDED_DROP_WEIGHT = 20.0
+# 取り残しとみなす最小の型差 (谷の左右のうち小さいほうとの差)。
+STRANDED_DROP_MIN_GAP = 2
+
 # 谷育成ボーナス (減点から引く形で入れる)。`valley_grow_ok` が成立する着地だけ。
 # 実合体より強くしない。8.0 だと grape 合体 (6 点) を蹴って非合体の谷を選んだ。
 # 2.0 で育成側に倒れ、3.0 でも合体は取り続ける (実測)。
@@ -164,12 +180,23 @@ def _size_order_exempt(
     谷を成立させてグレープの逆転 1.5 が 0.14 に落ち、並べ直す手に 0.20 差で
     勝つ)。
 
+    **相方は同じ谷の中にいなければならない。** 盤のどこかに 1 個あればよいと
+    すると、谷の外の相方が届かないまま免除だけが立つ。谷を作っているのは自分より
+    大きい実なので、その向こう側の相方とは合体できず、その実はただ並びを崩した
+    まま居座る (seed=834761 の 35 手目: ナシとパインの谷に残ったいちごが、
+    反対端 x=23 のいちごを根拠に免除され、逆転 7.5 が 0 になっていた)。
+
     held と同種の谷はここからは見えないが、そちらは手ごとの `valley_grow_ok`
     が `VALLEY_GROW_BONUS` で拾うので、育成を潰すことにはならない。
     """
-    if not _is_nestled(fruit, fruits):
+    flanks = _valley_flanks(fruits, fruit.x, fruit.type)
+    if flanks is None:
         return False
-    return any(f.type == fruit.type and f is not fruit for f in fruits)
+    left, right = flanks
+    return any(
+        f.type == fruit.type and f is not fruit and left.x < f.x < right.x
+        for f in fruits
+    )
 
 
 def valley_grow_ok(
@@ -208,6 +235,60 @@ def valley_grow_ok(
         if left.x < land_x < right.x:
             return True
     return False
+
+
+def merge_lands_big_side(
+    drop_x: float, held_fruit: Fruit | None, held_r: float, sign: int
+) -> bool:
+    """合体でできた実が、落とした列より大側へ半径 1 つぶん以上寄ったか。
+
+    `held_fruit` は落とした実の系譜が最後に居る実 (`simulate_drop_held`)。合体は
+    反動で新実を横へ飛ばすので、同じ相方に当てても左右どちらから当てるかで
+    でき上がる並びが変わる。転がってから当てた場合も込みで、結果として
+    大側 (`sign`) へ寄った当て方を選ばせる。
+
+    合体した手にだけ掛ける。合体しなかった手の着地は `_size_order_penalty` が
+    そのまま見ているので、こちらで二重に見ない。
+    """
+    if held_fruit is None:
+        return False
+    toward_big = -sign * (held_fruit.x - drop_x)
+    return toward_big >= MERGE_BIG_SIDE_SLACK_FRAC * held_r
+
+
+def stranded_drop_penalty(fruits: list[Fruit], held_fruit: Fruit | None) -> float:
+    """落とした実が、ずっと大きい実の谷に相方なしで止まった手の減点。
+
+    `_valley_flanks` で見る谷そのものは悪い場所ではない (谷育成はここへ落とす)。
+    悪いのは**そこに相方がいないとき**で、その実は左右の大実に阻まれて相方に
+    会えないまま居座り、並びだけが崩れる。相方が盤の反対端にいても届かないので、
+    見るのは**同じ谷の中**に同種が残っているかだけ。
+
+    `_size_order_penalty` では拾えない。あちらは合体した手では丸ごと免除される
+    うえ、`_size_order_exempt` が「谷にいて盤のどこかに相方がいる」実を対象から
+    外すので、この形はちょうどその抜け穴に落ちる。
+
+    型差 (谷の左右のうち小さいほう − 自分) が `STRANDED_DROP_MIN_GAP` を
+    超えたぶんだけ重くする。届かない相手に挟まれるほど戻せなくなる。
+
+    `held_fruit` は after と同じ値を持つ別インスタンスなので、自分自身を相方に
+    数えないよう `is` ではなく位置で見分ける (`_lineage_fruit`)。
+    """
+    if held_fruit is None:
+        return 0.0
+    flanks = _valley_flanks(fruits, held_fruit.x, held_fruit.type)
+    if flanks is None:
+        return 0.0
+    left, right = flanks
+    gap = min(left.type, right.type) - held_fruit.type
+    if gap < STRANDED_DROP_MIN_GAP:
+        return 0.0
+    for fruit in fruits:
+        if fruit.type != held_fruit.type or abs(fruit.x - held_fruit.x) <= 0.5:
+            continue
+        if left.x < fruit.x < right.x:
+            return 0.0
+    return STRANDED_DROP_WEIGHT * (gap - STRANDED_DROP_MIN_GAP + 1)
 
 
 # --- 減点項 ---------------------------------------------------------------

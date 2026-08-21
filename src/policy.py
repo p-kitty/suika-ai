@@ -233,7 +233,9 @@ def _evaluate_drop(
     """1 手落としたあとの盤面・本家点・減点・合成回数・held が合体したか。"""
     before = list(fruits)
     sign = _order_sign(before)
-    after, merges, merge_types, held_merged = simulate_drop_held(before, drop_type, x)
+    after, merges, merge_types, held_merged, held_fruit = simulate_drop_held(
+        before, drop_type, x
+    )
     land_x, _land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
 
     score = merge_score(merge_types)
@@ -245,6 +247,9 @@ def _evaluate_drop(
     # FOREIGN_AIM は merges ではなく「真下の実が異種か」で見る。
     # 同種が真下なら合体待ちで OK。異種真上から転がって床で合体しても減点。
     penalties += pen.foreign_aim_penalty(before, x, drop_type, held_r)
+    # 落とした実自身が大実の谷に取り残される手。合体した手でも掛ける
+    # (連鎖の点数と引き換えに小実を置き去りにする手がここで止まる)。
+    penalties += pen.stranded_drop_penalty(after, held_fruit)
     # 同点をほどくためだけの項。ここより上の項が全部並んだときに順位を決める。
     penalties += pen.center_tiebreak(x)
     if not held_merged:
@@ -252,6 +257,11 @@ def _evaluate_drop(
         # 合体した手は本家点が付くので、そちらには足さない。
         if pen.valley_grow_ok(before, land_x, drop_type, next_type):
             penalties -= pen.VALLEY_GROW_BONUS
+    elif pen.merge_lands_big_side(x, held_fruit, held_r, sign):
+        # 合体でできた実がどちらへ寄ったか。合体した手は大小順を免除する
+        # (exempt_size_order) ので、どちら側から当てて新実をどこへ飛ばしたかを
+        # 見る項が他に無い。同じ合成点なら大側へ寄せる当て方を選ばせる。
+        penalties -= pen.MERGE_BIG_SIDE_BONUS
     return after, score, penalties, merges, held_merged
 
 
