@@ -803,3 +803,32 @@ def test_prefers_a_big_shoulder_over_roofing_a_lone_fruit() -> None:
     _after, _m, _t, _h, orange = simulate_drop_held(fruits, 4, x)
     assert orange is not None
     assert orange.x < cherry.x - cherry.radius
+
+
+def test_uses_the_next_rung_instead_of_roofing_a_small_fruit() -> None:
+    """If the escape route is a rung's hollow, place it there instead of roofing a small fruit.
+
+    Move 72 of seed=890270. The board is full of big fruits, and seen from the grape
+    the pineapple's shoulder is type gap 6 and the peach's 5. With no escape route, the roof (strawberry 15)
+    is cheapest. The hollow of the peach and dekopon is a wall one tier up, so it is the next rung.
+    """
+    fruits = tuple(
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90)
+        for t, x, y in (
+            (8, 78.0, 422.0),
+            (7, 222.0, 431.0),
+            (3, 291.0, 362.0),
+            (2, 314.0, 413.0),
+            (1, 356.0, 392.0),
+            (4, 359.0, 460.0),
+            (0, 384.0, 413.0),
+        )
+    )
+    straw = fruits[4]
+    obs = _obs(held_type=2, fruits=fruits, next_type=2)
+
+    x = choose_x(obs)
+    _after, _m, _t, _h, grape = simulate_drop_held(fruits, 2, x)
+    assert grape is not None
+    # No roof placed directly above the strawberry.
+    assert abs(grape.x - straw.x) > straw.radius + grape.radius

@@ -75,6 +75,15 @@ PERCH_MIN_GAP = 5
 # Range of fruits whose shoulders are checked (how many tiers below the biggest). 0 means only the biggest.
 PERCH_BIG_SPAN = 1
 PERCH_WEIGHT = 16.0
+# Depth of a hollow that exempts a perch. If the type gap to the wall (the smaller of the hollow's left and right)
+# is at most this, it is the next rung. When a partner comes it merges on the spot and can then merge with the wall.
+# Measured over every candidate on 3 seeds, only 6.8% of perches are exempt. Exempting any hollow
+# would remove 77.5%, and the cherry in the very position that motivated this rule
+# sits in the hollow between apple and orange, so it would exempt the case itself.
+# The value matches `STRANDED_DROP_MIN_GAP` because both read the same quantity (type gap to the wall)
+# and draw the same line. **As rules they are different**: that one looks at 'the fruit just dropped
+# cannot meet its partner in a valley', this one at 'sitting on the top face of a big fruit'.
+PERCH_RUNG_MAX_GAP = 1
 # Per fruit from the third of a type onward.
 EXCESS_SAME_WEIGHT = 20.0
 # Per tier of left-right size inversion.
@@ -458,6 +467,8 @@ def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
         return 0.0
     max_t = max(fruit.type for fruit in fruits)
     big_min = max_t - PERCH_BIG_SPAN
+    # Whether it is a rung depends only on the fruit sitting on top, so it is not recomputed per lower fruit.
+    rung: dict[int, bool] = {}
     penalty = 0.0
     for under in fruits:
         if under.type < big_min:
@@ -470,8 +481,33 @@ def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
                 continue
             if abs(over.x - under.x) > under.radius + over.radius:
                 continue
+            if id(over) not in rung:
+                rung[id(over)] = _is_rung(over, fruits)
+            if rung[id(over)]:
+                continue
             penalty += float(gap_type - PERCH_MIN_GAP + 1)
     return penalty
+
+
+def _is_rung(fruit: Fruit, fruits: list[Fruit] | tuple[Fruit, ...]) -> bool:
+    """Whether it sits in the hollow of the next rung. Distinguishes it from the bare top of a big fruit.
+
+    When the board fills with big fruits, a small fruit **has a wide type gap on whichever shoulder it goes**. With no escape route,
+    the policy avoids shoulders and tips toward roofing another small fruit (move 72 of
+    seed=890270: putting a grape on a peach's shoulder costs 16, on a pineapple 32, and roofing a strawberry
+    15, so the roof was cheapest). A roofed fruit cannot be reached by a partner from above,
+    so something that should be heavier than a shoulder had become lighter.
+
+    But not every hollow is fine. The cherry in the position that motivated `_perch_penalty`
+    was also sitting in the hollow between apple and orange. What separates them is
+    **the type gap to the wall**: with a wall one tier up (`PERCH_RUNG_MAX_GAP`), once a partner comes
+    it merges and catches up with the wall.
+    """
+    flanks = _valley_flanks(fruits, fruit.x, fruit.type)
+    if flanks is None:
+        return False
+    left, right = flanks
+    return min(left.type, right.type) - fruit.type <= PERCH_RUNG_MAX_GAP
 
 
 def foreign_aim_penalty(
