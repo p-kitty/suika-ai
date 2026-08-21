@@ -54,6 +54,8 @@ PERCH_MIN_GAP = 5
 # 肩を見る実の範囲 (最大実から何段下まで)。0 なら最大実だけ。
 PERCH_BIG_SPAN = 1
 PERCH_WEIGHT = 16.0
+# 同種 3 個目以降 1 個ぶん。
+EXCESS_SAME_WEIGHT = 20.0
 # 左右の大小逆転 1 段ぶん。
 SIZE_ORDER_PAIR_WEIGHT = 1.5
 # ideal_x からの平均乖離に掛ける。
@@ -270,14 +272,13 @@ def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
     超過分を累乗的に効かせる形は測って見送った
     (NOTES「終盤の低段位散在による即死」の改善試行)。
     """
-    excess_same_weight = 20.0
     counts: dict[int, int] = {}
     for fruit in fruits:
         counts[fruit.type] = counts.get(fruit.type, 0) + 1
     penalty = 0.0
     for count in counts.values():
         if count >= 3:
-            penalty += (count - 2) * excess_same_weight
+            penalty += (count - 2) * EXCESS_SAME_WEIGHT
     return penalty
 
 
