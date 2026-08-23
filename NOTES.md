@@ -4,6 +4,7 @@
 
 - [Current approach: fixed-point observation of seed 642746](#current-approach-fixed-point-observation-of-seed-642746-2026-08-19)
 - [Open tasks](#open-tasks)
+- [New term: pit](#measured-when-adding-a-new-term-pit-2026-08-23) ← most recent addition
 - [How to measure](#how-to-measure-traps-we-keep-stepping-in) ← read before reporting numbers
 - [Settled: the tie band really is indifferent](#settled-the-tie-band-really-is-indifferent-2026-08-19) ← the dead end of weight tuning
 - [Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22) ← a case where candidate generation, not weights, was the cause
@@ -34,6 +35,57 @@ Only the symptoms found and their diagnoses are kept here.
 **Name moves by `move` in the `view_sim` footer (1-based).** Changing the policy makes play
 diverge before that move, so the same move number points to the same position only before the change. To check whether it was fixed,
 do not play through; replay the pre-change moves up to that position and compare there.
+
+### Measured when adding a new term: pit (2026-08-23)
+
+**Symptom**: move 16 of seed=212721. On a clean downhill of pear, orange, apple, grape and cherry,
+a strawberry is driven like a wedge into the pit between orange and apple. That one fruit is pushed left on move 21
+by the peach merge and is still on the board at move 40.
+
+**The cause is how a two-way choice is priced**. The 37 candidates land in only 5 places, and every one of them breaks some rule:
+
+| Landing | What it is | score | bury | size_order | eval |
+|---|---|---|---|---|---|
+| 204.5 | wedge into the big-side pit (the chosen move) | 0 | 0 | 9.30 | −9.30 |
+| 355.7 | correct small-side spot; a type-gap-1 roof over a lone cherry | 0 | 15.0 | 1.66 | −16.75 |
+
+Making the roof side cheaper died for lack of a window (→[type gap 1 of bury](#measured-and-dropped-making-a-bury-with-type-gap-1-cheaper-2026-08-23)).
+The pit side is exactly the shape the `_size_order_exempt` docstring names, yet its only price was the global
+pair difference of 1.5 in `_size_order_penalty`, and that lever is dead
+(→[Ideas that did not work](#ideas-that-did-not-work-dropped-at-screening)).
+
+**What was added**: `_pit_penalty` (→[rule list](#current-penalty-rules)).
+The third one, looking **sideways**, where `_bury_penalty` looks above a fruit and `_perch_penalty` below.
+
+**Deterministic per-position quantities** (234 positions / seed 910000-5 / steps 0-120 / stride 3):
+
+- pit is nonzero for 71.7% of candidates, and **the candidate range is > 0 in 82.9% of positions** (median 2.0 rungs)
+- The nonzero rate by move range goes from 31.3% at moves 0-39 to **97.6%** at moves 78-117. Late in the game it applies to every candidate, but
+  **the range stays at 2.0 rungs** (> 0 in 94.9% of positions), so it does not degenerate into a constant offset
+- Band escape is 6.0% at w=4.0, **12.4% at 8.0**, 19.2% at 16.0
+- Weight window: below 4.0 move 16 is not fixed. Up to 24.0 every existing test stays intact
+- Conflicts with the valley-growing bonus are 0.6% of candidates (of 518 growing candidates, 52 increase pit).
+  `PIT_MIN_GAP` 2 lines up exactly with "one above held" in `valley_grow_ok`, so they do not contradict
+
+**The A/B is null** (n=50, cap 400, baseline reused with `compare_b_only`):
+
+| Metric | A | B | Δ | t |
+|---|---|---|---|---|
+| score | 2450.22 | 2482.28 | +1.3% | 0.43 |
+| steps | 246.1 | 248.4 | +1.0% | 0.40 |
+| merges | 224.2 | 226.6 | +1.1% | 0.39 |
+| cascades | 23.28 | 24.28 | +4.3% | 1.15 |
+| max_type | 9.34 | 9.36 | +0.2% | 0.21 |
+| early_crown | 348.1 | 346.1 | −0.6% | −1.10 |
+
+win/loss 26/24. The CI crosses 0 for every metric. **No claim is made that it raises score.**
+The reason for adding it is fixing a per-position defect, treated the same as [perch](#measured-when-adding-a-new-term-perch-2026-08-20) and
+the floor-filled check. **To the next person who touches the weight: this term has not been validated by score.**
+
+**It always overlaps with perch**: the `_is_rung` condition is exactly inverted, so a fruit counted by `_perch_penalty`
+is by definition also counted by `_pit_penalty`. Measured, of the 12169 fruits pit picks up,
+20.3% overlap, and per candidate 34.9% are nonzero in both. 80% are shapes only pit sees, but
+**when tuning weights, know that the two add up**.
 
 ### Status: one game after the fall calibration (2026-08-20)
 
