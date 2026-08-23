@@ -74,6 +74,12 @@ PERCH_WEIGHT = 16.0
 # would remove 77.5%, and the cherry in the very position that motivated this rule
 # sits in the hollow between apple and orange, so it would exempt the case itself.
 PERCH_RUNG_MAX_GAP = 1
+# Type gap to the wall for counting a fruit sunk in a pit. A wall one tier up is the next rung and not counted
+# (same criterion as `_is_rung`).
+PIT_MIN_GAP = 2
+# Per pit tier. Lighter than `_perch_penalty`. A fruit on a shoulder can meet a partner coming from above,
+# but a pit only has high walls with the top open, so it is recoverable.
+PIT_WEIGHT = 8.0
 # Per fruit from the third of a type onward.
 EXCESS_SAME_WEIGHT = 20.0
 # Per tier of left-right size inversion.
@@ -274,6 +280,7 @@ def board_penalties(
     penalty = 0.0
     penalty += _bury_penalty(fruits)
     penalty += PERCH_WEIGHT * _perch_penalty(fruits)
+    penalty += PIT_WEIGHT * _pit_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
@@ -441,6 +448,39 @@ def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
             if rung[id(over)]:
                 continue
             penalty += float(gap_type - PERCH_MIN_GAP + 1)
+    return penalty
+
+
+def _pit_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """Penalty for a fruit at the bottom of a valley of much bigger fruits with no partner in the same valley.
+
+    Where `_perch_penalty` looks 'above' a big fruit, this looks 'between'. If the walls are many tiers
+    bigger than itself it cannot merge sideways, and a partner can only come through the narrow gap directly above.
+    It is exactly the 'fruit with no prospect of leaving that valley' named in the docstring of `_size_order_exempt`,
+    and until now its only price was the pair difference of 1.5 in `_size_order_penalty`.
+    The global pair count barely moves with where one fruit goes, so that does not work
+    (NOTES 'Ideas that did not work'). This is a shape the dropped fruit itself creates, so it splits between candidates.
+
+    A type gap of 1 tier to the wall is the next rung and not counted (`PIT_MIN_GAP`). If a same-type partner
+    is in the same valley it is considered growing and excluded. The check matches `_size_order_exempt`.
+
+    Returns 1.0 for each step the type gap exceeds `PIT_MIN_GAP`. The caller applies the weight.
+    """
+    penalty = 0.0
+    for fruit in fruits:
+        flanks = _valley_flanks(fruits, fruit.x, fruit.type)
+        if flanks is None:
+            continue
+        left, right = flanks
+        gap = min(left.type, right.type) - fruit.type
+        if gap < PIT_MIN_GAP:
+            continue
+        if any(
+            f.type == fruit.type and f is not fruit and left.x < f.x < right.x
+            for f in fruits
+        ):
+            continue
+        penalty += float(gap - PIT_MIN_GAP + 1)
     return penalty
 
 
