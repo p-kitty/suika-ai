@@ -667,6 +667,15 @@ you have to look at the other side of the two-way choice → `_pit_penalty` (→
 Type gap 1 makes up 34.5% of lone detections and 34.4% of paired ones (measured over 9025 candidates), so
 making it entirely free was crude to begin with.
 
+**An A/B was run too** (n=50, cap 400, B does not count type-gap-1 lone roofs).
+score is **+0.6% (t=0.17, CI [−154.8, +183.1]), not significant**, win/loss 28/21/tie 1.
+On the other hand `early_score` +2.4% (t=2.29) and `early_crown` +1.6% (t=3.29) have CIs that do not cross 0.
+**The moves clearly change but it does not show in score** — the same shape as
+[Ideas that did not work](#ideas-that-did-not-work-dropped-at-screening).
+The 5 seeds that worsened most all go `max_type` 10 → 9, losing one watermelon.
+The A side of this A/B is saved in `artifacts/ab_bury_lone_gap.json`
+(later variants can run only B with `compare_b_only.py`).
+
 **Lesson**: finding a term that loses a two-way choice **does not mean the losing side's weight is wrong**.
 First check by tuning the weight whether another position with the same firing condition demands the opposite.
 
