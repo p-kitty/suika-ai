@@ -72,10 +72,6 @@ def _apply_variant(enabled: bool) -> None:
         from src import penalties
         penalties.BURY_WEIGHT = 30.0 if enabled else 20.0
     """
-    from src import penalties
-
-    # 谷底減点。A 側は 0.0 で master と同じ挙動に戻す。
-    penalties.PIT_WEIGHT = 8.0 if enabled else 0.0
 
 
 def _episode(
