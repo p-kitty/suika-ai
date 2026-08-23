@@ -642,6 +642,35 @@ the orange side was already correct and only dekopon (diameter 59.6) was off.
 
 ## Rules tried and reverted or retired
 
+### Measured and dropped: making a bury with type gap 1 cheaper (2026-08-23)
+
+`_bury_penalty` and `_perch_penalty` are mirror images looking at the same shape (different types stacked vertically),
+yet only one has a threshold. perch ignores type gaps below `PERCH_MIN_GAP` 5 and exempts the hollow one tier up
+with `_is_rung`, while **bury fires unconditionally from type gap 1**.
+At move 16 of seed=212721, a type-gap-1 roof of 15.0 over a lone cherry lost to the move that wedges
+a strawberry into the big-side pit (only size order 7.5).
+
+**There is no window.** Giving only the type-gap-1 lone roof its own weight and sweeping on 2 positions,
+both flip between 7.0 and 8.0.
+
+| gap1 lone weight | move 16 of seed 212721 | move 72 of seed 890270 |
+|---|---|---|
+| 8.0 or more | NG (wedge into the pit) | OK (place on the rung) |
+| 7.0 or less | OK (place on the small side) | **NG (put on a roof)** |
+
+Move 72 of 890270 is the position of `test_uses_the_next_rung_instead_of_roofing_a_small_fruit`,
+and it stops passing when a type-gap-1 roof gets cheaper. **The roof's type gap cannot separate the two.**
+What differs is not the roof but **the escape route**: 890270 has a rung hollow and 212721 does not
+(37 candidates land in only 5 places, all breaking one rule or the other). To fix the pricing
+you have to look at the other side of the two-way choice → `_pit_penalty` (→[rule list](#current-penalty-rules)).
+
+Type gap 1 makes up 34.5% of lone detections and 34.4% of paired ones (measured over 9025 candidates), so
+making it entirely free was crude to begin with.
+
+**Lesson**: finding a term that loses a two-way choice **does not mean the losing side's weight is wrong**.
+First check by tuning the weight whether another position with the same firing condition demands the opposite.
+
+
 ### Measured: excess_same was kept (2026-08-21)
 
 A/B cutting `_excess_same_penalty`, n=100, 0 truncated. **Cutting it leaned toward worse.**
