@@ -74,6 +74,12 @@ PERCH_WEIGHT = 16.0
 # にすると 77.5% が消えるうえ、この規則を入れる動機になった局面のさくらんぼ自身が
 # りんごとオレンジの窪みに載っているので、症例ごと免除してしまう。
 PERCH_RUNG_MAX_GAP = 1
+# 谷底に沈んだ実を数える壁との型差。1 段上の壁なら次の段なので数えない
+# (`_is_rung` と同じ基準)。
+PIT_MIN_GAP = 2
+# 谷底 1 段ぶん。`_perch_penalty` より軽い。肩に載った実は上から相方が来れば
+# 会えるが、谷底は壁が高いだけで上は開いているので、取り返しは効く。
+PIT_WEIGHT = 8.0
 # 同種 3 個目以降 1 個ぶん。
 EXCESS_SAME_WEIGHT = 20.0
 # 左右の大小逆転 1 段ぶん。
@@ -274,6 +280,7 @@ def board_penalties(
     penalty = 0.0
     penalty += _bury_penalty(fruits)
     penalty += PERCH_WEIGHT * _perch_penalty(fruits)
+    penalty += PIT_WEIGHT * _pit_penalty(fruits)
     penalty += _excess_same_penalty(fruits)
     if not exempt_size_order:
         penalty += _size_order_penalty(fruits, sign)
@@ -441,6 +448,39 @@ def _perch_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
             if rung[id(over)]:
                 continue
             penalty += float(gap_type - PERCH_MIN_GAP + 1)
+    return penalty
+
+
+def _pit_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
+    """自分よりずっと大きい実の谷底にいて、同じ谷に相方がいない実の減点。
+
+    `_perch_penalty` が大実の「上」を見るのに対し、こちらは「間」。壁が自分より
+    何段も大きいと横へは合体できないので、相方は真上の狭い隙間から来るしかない。
+    `_size_order_exempt` の docstring が名指ししている「その谷から出る当てが無い
+    実」そのもので、これまで値付けは `_size_order_penalty` のペア差 1.5 しか
+    無かった。大域のペア数は 1 個の置き場でほとんど動かないので効かない
+    (NOTES「効かなかった案」)。ここは落とした実自身が作る形なので候補間で割れる。
+
+    壁との型差 1 段は次の段なので数えない (`PIT_MIN_GAP`)。同じ谷に同種の相方が
+    いるなら育成中とみなして外す。判定は `_size_order_exempt` と揃える。
+
+    型差が `PIT_MIN_GAP` を 1 超えるごとに 1.0 を返す。重みは呼び元で掛ける。
+    """
+    penalty = 0.0
+    for fruit in fruits:
+        flanks = _valley_flanks(fruits, fruit.x, fruit.type)
+        if flanks is None:
+            continue
+        left, right = flanks
+        gap = min(left.type, right.type) - fruit.type
+        if gap < PIT_MIN_GAP:
+            continue
+        if any(
+            f.type == fruit.type and f is not fruit and left.x < f.x < right.x
+            for f in fruits
+        ):
+            continue
+        penalty += float(gap - PIT_MIN_GAP + 1)
     return penalty
 
 

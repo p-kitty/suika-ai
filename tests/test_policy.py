@@ -800,6 +800,37 @@ def test_uses_the_next_rung_instead_of_roofing_a_small_fruit() -> None:
     assert abs(grape.x - straw.x) > straw.radius + grape.radius
 
 
+def test_does_not_wedge_a_lone_small_fruit_into_a_deep_valley() -> None:
+    """相方のいない小実を、自分より何段も大きい実の谷底へ落とさない。
+
+    seed=212721 の 16 手目。盤は左から梨・オレンジ・りんご・ぶどう・さくらんぼの
+    下り坂で、いちごの居場所は小側の端しかない。ところがそこへ置くと単独の
+    さくらんぼに型差 1 の屋根が乗って bury 15.0、オレンジとりんごの谷底へ
+    落とすと減点は大小順の 7.5 だけ、と谷底のほうが安かった。谷底の 1 個は
+    壁が高すぎて横へ合体できず、そのまま居座る。
+    """
+    fruits = tuple(
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90)
+        for t, x, y in (
+            (6, 57.8, 442.3),
+            (4, 150.5, 459.6),
+            (5, 273.0, 448.8),
+            (2, 345.2, 471.7),
+            (0, 383.9, 483.9),
+        )
+    )
+    obs = _obs(held_type=1, fruits=fruits, next_type=4)
+
+    x = choose_x(obs)
+    after, _m, _t, _h, straw = simulate_drop_held(fruits, 1, x)
+    assert straw is not None
+    # いちごより 2 段以上大きい実に左右から挟まれていない。
+    bigger = [f for f in after if f is not straw and f.type - straw.type >= 2]
+    assert not (
+        any(f.x < straw.x for f in bigger) and any(f.x > straw.x for f in bigger)
+    )
+
+
 @pytest.mark.xfail(
     strict=True,
     reason="候補の刻みが合体の窓を跨ぐ。NOTES「候補の刻みと合体の窓」",
