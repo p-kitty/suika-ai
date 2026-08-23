@@ -82,6 +82,22 @@ win/loss 26/24. The CI crosses 0 for every metric. **No claim is made that it ra
 The reason for adding it is fixing a per-position defect, treated the same as [perch](#measured-when-adding-a-new-term-perch-2026-08-20) and
 the floor-filled check. **To the next person who touches the weight: this term has not been validated by score.**
 
+**This is a trade, not a free improvement**. Swapping only the policy and fixing the dirt metrics to the three terms from
+before pit (bury / perch / corner) (6 seeds × 220 moves, 1258-1282 positions):
+
+| | without pit | with pit | Δ |
+|---|---|---|---|
+| Moves that dirtied the board | 28.4% | 29.4% | +1.0pt |
+| of which avoidable | 11.2% | 12.1% | +0.9pt |
+| Total dirt added / move | 6.176 | 7.695 | **+24.6%** |
+| Pits left on the board / move | 3.835 | 2.426 | **−36.7%** |
+
+**Pits fall by nearly 40%, but roofs, shoulders and corner pockets rise by just over 20%.** The term reassigns which violation
+to take, so that is expected, but **the premise that "one pit is worse than one roof"
+has only been checked on one game of seed 212721 (it stayed 24+ moves).**
+A null A/B is consistent with this trade. If you doubt it, first measure fossil age
+split by pits created versus roofs created (the classification in `scripts/fossils.py` can be reused).
+
 **It always overlaps with perch**: the `_is_rung` condition is exactly inverted, so a fruit counted by `_perch_penalty`
 is by definition also counted by `_pit_penalty`. Measured, of the 12169 fruits pit picks up,
 20.3% overlap, and per candidate 34.9% are nonzero in both. 80% are shapes only pit sees, but
