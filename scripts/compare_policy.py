@@ -72,10 +72,6 @@ def _apply_variant(enabled: bool) -> None:
         from src import penalties
         penalties.BURY_WEIGHT = 30.0 if enabled else 20.0
     """
-    from src import penalties
-
-    # Pit penalty. Side A is 0.0, returning to master's behavior.
-    penalties.PIT_WEIGHT = 8.0 if enabled else 0.0
 
 
 def _episode(
