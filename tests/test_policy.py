@@ -800,6 +800,37 @@ def test_uses_the_next_rung_instead_of_roofing_a_small_fruit() -> None:
     assert abs(grape.x - straw.x) > straw.radius + grape.radius
 
 
+def test_does_not_wedge_a_lone_small_fruit_into_a_deep_valley() -> None:
+    """Do not drop a partnerless small fruit into a pit of fruits many tiers bigger than itself.
+
+    Move 16 of seed=212721. From the left the board is a downhill of pear, orange, apple, grape and cherry,
+    and the only home for the strawberry is the small-side edge. But placing it there puts a type-gap-1 roof over
+    a lone cherry for bury 15.0, while dropping it into the pit between orange and apple
+    costs only size order 7.5, so the pit was cheaper. A fruit in a pit
+    has walls too high to merge sideways and just stays.
+    """
+    fruits = tuple(
+        Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90)
+        for t, x, y in (
+            (6, 57.8, 442.3),
+            (4, 150.5, 459.6),
+            (5, 273.0, 448.8),
+            (2, 345.2, 471.7),
+            (0, 383.9, 483.9),
+        )
+    )
+    obs = _obs(held_type=1, fruits=fruits, next_type=4)
+
+    x = choose_x(obs)
+    after, _m, _t, _h, straw = simulate_drop_held(fruits, 1, x)
+    assert straw is not None
+    # Not squeezed left and right by fruits 2 or more tiers bigger than the strawberry.
+    bigger = [f for f in after if f is not straw and f.type - straw.type >= 2]
+    assert not (
+        any(f.x < straw.x for f in bigger) and any(f.x > straw.x for f in bigger)
+    )
+
+
 @pytest.mark.xfail(
     strict=True,
     reason="candidate spacing straddles the merge window. NOTES 'Candidate spacing and the merge window'",
