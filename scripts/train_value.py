@@ -13,9 +13,13 @@ The fit is ridge (closed form, numpy only). Starting linear is because if the ba
 the features are shown to be lacking, and a thicker model would stop at the same place.
 scipy is deliberately not installed, so it is not used.
 
+**Do not use R² as the screen.** R² also penalizes scale mismatch, so for a high-variance
+final return it collapses to 0 even when the ranking is right (measured: R² 0.012 against r 0.286).
+Only the ranking is used, so correlation is what to look at.
+
 Usage:
-  python scripts/train_value.py artifacts/value_20ep.npz
-  python scripts/train_value.py artifacts/value_20ep.npz --eps 0.5 --alpha 10
+  python scripts/train_value.py --sweep                    # at which horizon the signal is
+  python scripts/train_value.py --horizon 100 --detrend --drop-dead
 """
 
 from __future__ import annotations
@@ -200,6 +204,13 @@ def main() -> None:
         action="store_true",
         help="only run cross-validation over horizon × alpha and exit (where the signal is)",
     )
+    parser.add_argument(
+        "--horizon",
+        type=int,
+        default=None,
+        metavar="K",
+        help="make the label the points over the next K moves (default is to the end of the game)",
+    )
     args = parser.parse_args()
 
     data = np.load(args.data)
@@ -265,11 +276,13 @@ def main() -> None:
     if not use:
         raise SystemExit("no usable features left")
 
-    label = returns
-    trend = None
+    if args.horizon is None:
+        label = returns
+    else:
+        label = _horizon_return(data["rewards"][keep], episodes, ep_ids, args.horizon)
     if args.detrend:
-        trend = _step_trend(steps[~is_test], returns[~is_test])
-        label = returns - trend[np.clip(steps, 0, len(trend) - 1)]
+        trend = _step_trend(steps[~is_test], label[~is_test])
+        label = label - trend[np.clip(steps, 0, len(trend) - 1)]
 
     mean, std = _standardize(feats[~is_test])
     x = ((feats - mean) / std)[:, use]
@@ -277,7 +290,9 @@ def main() -> None:
 
     train_pred = _predict(x[~is_test], w)
     test_pred = _predict(x[is_test], w)
-    what = "return − mean per move number" if args.detrend else "return"
+    what = "to the end" if args.horizon is None else f"next {args.horizon} moves"
+    if args.detrend:
+        what += " − mean per move number"
     print(f"=== fit (label = {what}) ===")
     print(f"  features {len(use)}/{len(FEATURE_NAMES)}" + ("  (only those that move)" if args.drop_dead else ""))
     print(f"  train R^2 {_r2(train_pred, label[~is_test]):.3f}")

@@ -1485,6 +1485,42 @@ is not predicted. It can be refit with `python scripts/train_value.py --detrend 
 from the teacher", with no guarantee its ranking is right. Replacing 80% of moves with a wrong ranking
 would be worse than the teacher. **First settle the 100-move horizon signal with n.**
 
+### Measured: the 100-move horizon signal is real; whether it reaches final score is open (n=100, 2026-08-30)
+
+100 games, 24421 moves, 130236 candidate rows (33.6 minutes, `--workers 8`, 0/100 truncated, corner watermelons 10/100).
+
+`--sweep` (alpha=100, 4-fold, split by episode):
+
+| Label | without detrend | with detrend |
+|---|---|---|
+| to the end | 0.737 ± 0.042 | 0.013 ± 0.093 |
+| 100 moves | 0.633 ± 0.032 | **0.167 ± 0.033** |
+| 30 moves | 0.232 ± 0.023 | 0.118 ± 0.029 |
+| 10 moves | 0.142 ± 0.008 | 0.126 ± 0.008 |
+| 3 moves | 0.091 ± 0.005 | 0.087 ± 0.003 |
+| 1 move | 0.039 ± 0.003 | 0.038 ± 0.002 |
+
+**The 100 moves unreadable at n=20 tightened to 0.167 ± 0.033** (the between-fold SD is 1/6).
+Board features **really do predict the points of the next 100 moves**.
+Fitted with `--horizon 100 --detrend --drop-dead`: test R² 0.151, r(V, move number) −0.153,
+all candidates tie inside the band 14.1%, 79.5% escape the band.
+
+**Correction: "to the end" predicts the ranking even with R² at 0.** R² also penalizes scale mismatch, so
+for a high-variance final return it collapses to 0. **By correlation, which looks only at ranking, r = 0.286 ± 0.042**
+(0.277 ± 0.040 even for the V fitted on 100 moves). **Only the ranking is used, so R² must not
+be used as the screen.** Reading "to the end 0.013" in the table above as "no signal" is wrong.
+
+**But it does not show per episode.** Fixing the move number and comparing games gives
+r = +0.09 (move 40) / +0.09 (60) / +0.03 (100), with between-fold SD 0.11-0.17,
+**indistinguishable from 0** (100 games / 25 games per fold). This is
+[r = 0.00-0.12 recorded for the inversion rate](#how-to-measure-traps-we-keep-stepping-in),
+values for which that metric was concluded "unusable as a per-episode metric".
+
+**So "boards that earn well over the next 100 moves" can be predicted, but "games that end with a high score"
+cannot yet.** Whether maximizing the former raises the latter cannot in principle come out of
+per-position measurement (→[the value of a single move cannot be measured with rollouts](#how-to-measure-traps-we-keep-stepping-in)).
+**Whether to bet on an A/B is the next decision as is**; the cheap screens are exhausted here.
+
 ## Planned: RL (REINFORCE)
 
 *The BC -> REINFORCE line. A different road from the value function above; both are alive.*
