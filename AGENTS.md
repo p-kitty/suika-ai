@@ -232,7 +232,7 @@ All git operations are collected in this section. Do not scatter them into other
 
 - **Do not work on `master`.** Cut a branch before touching anything:
   `git switch -c <topic>` (e.g. `fix-wall-friction`, `docs-agents-md`)
-- PRs target `main`
+- PRs target `master`
 
 **commit**
 
