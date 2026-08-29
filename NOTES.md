@@ -1425,11 +1425,37 @@ in [the lethal filter](#wont-do-deepen-the-lethal-filter-to-two-plies-2026-08-20
 in 0/10 cases for over 30x the search. **"The branching point is 3 or more moves earlier" was written
 as a reason not to deepen**, not as grounds to deepen. It is easy to misread, so this note is added.
 
-**Not yet measured**: whether the learned V can put an order into the teacher's tie band. The candidate table is
-kept every `--candidate-stride` moves to measure this. If it does not, the features are
-lacking (the shape where all candidates tie inside the band; →[Split composite terms into sub-terms](#split-composite-terms-into-sub-terms-2026-08-21)).
-**Feature scales differ by 3 orders of magnitude per term** (measured: `size_order_pair` 54.2 against
-`fruit_count` 0.34), so without normalization on the learning side only the large terms are seen.
+### Measured: V orders the band, but most of the fit is the clock (n=20, 2026-08-30)
+
+Ridge was fitted on 20 games, 5164 moves, 27502 candidate rows (`python scripts/train_value.py`).
+Collection took 8.2 minutes, 0/20 truncated.
+
+**It puts an order into the band.** All candidates tie inside the band in only **16.0%** of positions; in 84% V
+makes a difference inside the band. 87.3% escape the band. **But do not read this as "better than the teacher".**
+[The screen](#screen-on-does-it-escape-the-band) is a tool that measures **whether tuning a weight escapes the band**, and
+a whole different scoring function escaping it is to be expected. All that can be said here is
+**that it does not collapse to a constant like `_corner_lift_penalty`**. Whether it is good only comes out of an A/B.
+
+**Most of the fit is "how many moves are left"**. Against test R² 0.688,
+r(V, move number) = **−0.948**. The largest coefficient is `units` (−650.8, 6x the next), but
+**it is a quantity conserved by merges, so it is exactly equal for every candidate in the same position** (measured 100.0%).
+In other words the main earner of the fit **has no effect whatsoever on ranking**
+(→[Properties that cannot be changed](#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21)).
+`sign` 100% / `watermelon_count` 99.7% / `melon_count` 99.5% / `max_type` 97.7% are the same.
+Removing these 4 takes test R² from 0.688 → 0.651.
+
+**What decides the ranking is the continuous quantities.** What moves between candidates is `size_order_pair`
+(median range 39.0, all candidates tie 3.1%), `size_order_ideal` 0.0%, `big_wall_gap` 0.0%,
+`big_floor_gap` 3.1%, `crown_margin` 3.1%, `mean_height` 3.1%.
+
+**`big_cornered` (touching both wall and floor) has all candidates tie in 83.1%** —
+the same constant collapse as [the failed `_corner_lift_penalty`](#ideas-that-did-not-work-dropped-at-screening).
+**Corner geometry dies as a binary but lives as a continuous quantity** (`big_wall_gap` / `big_floor_gap` differ
+between candidates in 97-100% of positions). When writing the next term that looks at corners, use this form.
+
+**n=20 is not enough to read coefficients.** There are 5164 rows but only 20 independent games, and
+as r(return, move number) = −0.815 shows, the label is dominated by within-game structure.
+Do not settle the sign or size of individual coefficients from this.
 
 ## Planned: RL (REINFORCE)
 
