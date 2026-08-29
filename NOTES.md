@@ -312,11 +312,10 @@ go from 28/100 → 76/100**. As played, the peach lifts to floor 98, and by move
 the biggest fruit moves to x=234 (wall 89), which is the type-A way of losing above.
 
 **Tuning weights on the one position**: `BURY_WEIGHT` must drop all the way to 0 before the middle is chosen
-(the 19.88 difference is the whole bury 20). If a bonus of "the biggest fruit touches both wall and floor" were
-added, **it flips at 20 or above**. But this bonus probably takes the same value for every candidate in
-many positions, so before adding it, pass it through
-[the screen](#screen-on-does-it-escape-the-band) and
-[properties that cannot be changed](#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21).
+(the 19.88 difference is the whole bury 20). Adding "penalize unless the biggest fruit touches both wall and floor"
+flips this position at w=20 or above. **But that term was dropped at screening**
+(→[Ideas that did not work](#ideas-that-did-not-work-dropped-at-screening)).
+It is a classic case of **fixing one position does not move the policy**, so do not go tuning weights from here.
 
 ### Failure types
 
@@ -1149,6 +1148,14 @@ so **this retirement alone remains unmeasured**.
 
 ### Ideas that did not work (dropped at screening)
 
+- **"Penalize when the biggest fruit on the big-side wall is lifted off the floor"** (`_corner_lift_penalty`, w=20.
+  Aimed at fixing [move 40 of 803005](#example-move-40-of-803005-on-a-merge-move-the-layout-does-not-enter-eval)):
+  **0.0% escape the band** (489 positions, 6 seeds × 240 moves, `--skip 60`). Not even a move changes,
+  0/489. The cause is the constant value: **only 1.8% of positions have candidate range > 0, and in 21.5% of positions
+  every candidate gets the same 20.0** (compare: `pit` 97.1%, `size_order` 99.8%, `corner_pocket` 11.5%).
+  Once the big fruit is lifted, there is no candidate that puts it back on the floor that move. Raising the weight hits a ceiling:
+  0.4% at effective w=100, **0.6% even at w=800** (of the 9 positions where a range appears, only 3 can be moved).
+  The implementation is reverted. **The hole of `_corner_pocket_penalty` looking only outside remains**
 - **`size_order_pair_weight` from 1.5 → 9.0**: agreement 88.6%, and the inversion increase of changed moves is **+0.11**.
   It is a global statistic, the pair count of the whole board, so dropping one fruit is buried in the baseline. **This line is dead**
 - In contrast, a local term counting per move "the inversions the dropped fruit itself creates" has agreement 80.7% at w=1.0,
