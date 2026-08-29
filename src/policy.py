@@ -46,17 +46,26 @@ CANDIDATE_STEP = 12.0
 
 def _held_eval_job(
     obs: Observation, held_r: float, x: float
-) -> tuple[float, float, list[Fruit]]:
-    """held 候補 1 個ぶんの (eval, x, after)。プールに投げる単位。"""
-    after, held_eval = _held_eval(obs, x, held_r)
-    return held_eval, x, after
+) -> tuple[float, float, list[Fruit], float]:
+    """held 候補 1 個ぶんの (eval, x, after, 本家点)。プールに投げる単位。
+
+    本家点を eval と別に返すのは、価値関数の学習が Q = 本家点 + V(after) の形で
+    候補を並べるため (`training/collect.py`)。eval は score - penalties なので
+    そこからは割り戻せない。
+    """
+    after, held_eval, score = _held_eval(obs, x, held_r)
+    return held_eval, x, after, score
 
 
-def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
-    """観測から落とす列を返す。ready で held_type がある前提。
+def rank_candidates(
+    obs: Observation, *, pool: Executor | None = None
+) -> list[tuple[float, float, list[Fruit], float]]:
+    """候補ごとの (eval, x, 落下後の盤, 本家点) を eval 降順で返す。
 
-    pool を渡すと held/next 候補の simulate_drop をプロセスプールに分散する。
-    結果は逐次実行と同じ (どの候補も互いに独立、盤面は読むだけ)。
+    `choose_x` の 1 手目の評価そのもの。next 先読みの手前で切ってあるのは、
+    学習データの収集が同じ物理を二度回さずに候補表を取れるようにするため
+    (`training/collect.py`)。1 手のほぼ全部が `simulate_drop` なので、
+    収集側で引き直すと素直に倍かかる (NOTES「実行コスト: 物理の高速化と探索幅」)。
     """
     if obs.held_type is None:
         raise ValueError("held_type が無い")
@@ -67,7 +76,7 @@ def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
         for x in _candidates(list(obs.fruits), obs.held_type, held_r, extra_type=obs.next_type)
     ]
     if not xs:
-        return NORMALIZED_WIDTH / 2
+        return []
 
     if pool is None:
         ranked = [_held_eval_job(obs, held_r, x) for x in xs]
@@ -77,6 +86,29 @@ def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
         )
 
     ranked.sort(key=lambda row: row[0], reverse=True)
+    return ranked
+
+
+def choose_x(
+    obs: Observation,
+    *,
+    pool: Executor | None = None,
+    ranked: list[tuple[float, float, list[Fruit], float]] | None = None,
+) -> float:
+    """観測から落とす列を返す。ready で held_type がある前提。
+
+    pool を渡すと held/next 候補の simulate_drop をプロセスプールに分散する。
+    結果は逐次実行と同じ (どの候補も互いに独立、盤面は読むだけ)。
+
+    ranked に `rank_candidates` の結果を渡すと 1 手目の物理を引き直さない。
+    候補表そのものが欲しい収集側 (`training/collect.py`) が、教師の手を
+    ここで決め直させるために使う。手選びの規則を写して持たせない。
+    """
+    if ranked is None:
+        ranked = rank_candidates(obs, pool=pool)
+    if not ranked:
+        return NORMALIZED_WIDTH / 2
+
     # 死ぬ手は eval で競わせない。減点で表すと、汚い盤を避けた分が死の重さを
     # 上回って自殺する (428 局面で 5 件。生きる手が 30〜45 本あるのに選んでいた)。
     # 差は最大 261 あったので、有限の減点では足りない。
@@ -89,7 +121,7 @@ def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
     # next 先読みは held の eval 上位だけ (物理が重い)。候補は held より粗い刻み。
     best_x = ranked[0][1]
     best_score = -math.inf
-    for held_eval, x, after in ranked[:HELD_TOP]:
+    for held_eval, x, after, _score in ranked[:HELD_TOP]:
         value = held_eval + NEXT_DISCOUNT * _best_next_score(
             after, obs.next_type, step=NEXT_CANDIDATE_STEP, pool=pool
         )
@@ -171,19 +203,21 @@ def drop_scores(
     return score, penalties, score - penalties, after, merges
 
 
-def _held_eval(obs: Observation, x: float, held_r: float) -> tuple[list[Fruit], float]:
-    """held を x に落としたあとの (盤面, score - penalties)。next は見ない。"""
+def _held_eval(
+    obs: Observation, x: float, held_r: float
+) -> tuple[list[Fruit], float, float]:
+    """held を x に落としたあとの (盤面, score - penalties, 本家点)。next は見ない。"""
     assert obs.held_type is not None
     before = list(obs.fruits)
     after, score, penalties, _merges, _held_merged = _evaluate_drop(
         before, obs.held_type, x, held_r, next_type=obs.next_type
     )
-    return after, score - penalties
+    return after, score - penalties, score
 
 
 def _score(obs: Observation, x: float, held_r: float) -> float:
     """held を落とした盤＋ next の仮想最善手を採点する。"""
-    after, value = _held_eval(obs, x, held_r)
+    after, value, _score = _held_eval(obs, x, held_r)
     if obs.next_type is not None:
         value += NEXT_DISCOUNT * _best_next_score(after, obs.next_type)
     return value
