@@ -13,9 +13,13 @@ A/B では何も出ない。
 なら特徴が足りないと分かり、モデルを厚くしても同じところで止まるため。
 scipy は意図して入れていないので使わない。
 
+**足切りに R² を使わない。** R² は目盛りのずれも罰するので、分散の大きい
+最終リターンでは順位が当たっていても 0 に潰れる（実測: R² 0.012 に対し r 0.286）。
+順位しか使わないので見るのは相関のほう。
+
 用法:
-  python scripts/train_value.py artifacts/value_20ep.npz
-  python scripts/train_value.py artifacts/value_20ep.npz --eps 0.5 --alpha 10
+  python scripts/train_value.py --sweep                    # 信号がどの地平線にあるか
+  python scripts/train_value.py --horizon 100 --detrend --drop-dead
 """
 
 from __future__ import annotations
@@ -200,6 +204,13 @@ def main() -> None:
         action="store_true",
         help="地平線 × alpha の交差検証だけ回して終わる (信号がどこにあるか)",
     )
+    parser.add_argument(
+        "--horizon",
+        type=int,
+        default=None,
+        metavar="K",
+        help="ラベルを先 K 手ぶんの点にする (既定は局の最後まで)",
+    )
     args = parser.parse_args()
 
     data = np.load(args.data)
@@ -265,11 +276,13 @@ def main() -> None:
     if not use:
         raise SystemExit("使える特徴が残らなかった")
 
-    label = returns
-    trend = None
+    if args.horizon is None:
+        label = returns
+    else:
+        label = _horizon_return(data["rewards"][keep], episodes, ep_ids, args.horizon)
     if args.detrend:
-        trend = _step_trend(steps[~is_test], returns[~is_test])
-        label = returns - trend[np.clip(steps, 0, len(trend) - 1)]
+        trend = _step_trend(steps[~is_test], label[~is_test])
+        label = label - trend[np.clip(steps, 0, len(trend) - 1)]
 
     mean, std = _standardize(feats[~is_test])
     x = ((feats - mean) / std)[:, use]
@@ -277,7 +290,9 @@ def main() -> None:
 
     train_pred = _predict(x[~is_test], w)
     test_pred = _predict(x[is_test], w)
-    what = "リターン − 手番ごとの平均" if args.detrend else "リターン"
+    what = "最後まで" if args.horizon is None else f"先 {args.horizon} 手"
+    if args.detrend:
+        what += " − 手番ごとの平均"
     print(f"=== 当てはまり (ラベル = {what}) ===")
     print(f"  特徴 {len(use)}/{len(FEATURE_NAMES)} 本" + ("  (動く分だけ)" if args.drop_dead else ""))
     print(f"  train R^2 {_r2(train_pred, label[~is_test]):.3f}")
