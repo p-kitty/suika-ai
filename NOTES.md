@@ -1519,7 +1519,45 @@ values for which that metric was concluded "unusable as a per-episode metric".
 **So "boards that earn well over the next 100 moves" can be predicted, but "games that end with a high score"
 cannot yet.** Whether maximizing the former raises the latter cannot in principle come out of
 per-position measurement (→[the value of a single move cannot be measured with rollouts](#how-to-measure-traps-we-keep-stepping-in)).
-**Whether to bet on an A/B is the next decision as is**; the cheap screens are exhausted here.
+
+### Did not work: cascades as the label (2026-08-30)
+
+`cascades` (3+ merges per move) is the only proxy validated against score
+(sensitivity ratio 1.34-1.40, r(score) 0.83), so it was expected to be easier to fit given its lower variance,
+and was plugged in as the label (`python scripts/train_value.py --label cascades --sweep`).
+**It got weaker instead.** At the 100-move horizon after detrend it is **0.087 ± 0.110** (score is 0.167 ± 0.033),
+with the between-fold SD covering the mean. cascades is a sparse event happening in only 9.5% of 24421 moves,
+so counting it over a 100-move window has more counting noise. **"Low variance in an A/B, so low variance as a training
+label" does not hold.** `merges` is kept in the data collection, so no redraw is needed.
+
+### Settled: it does not carry across games; the cheap screens end here (2026-08-30)
+
+**Fix the move number and compare games with each other** (`--carry`). Pooling across positions inflates the correlation with
+consecutive boards inflate the correlation (pooled r=0.28 against r=0.09 at a fixed move number),
+so this is the only way to look at how good a game is. The target is the real-game score regardless of the label.
+
+| Horizon fitted | move 40 | move 60 | move 100 |
+|---|---|---|---|
+| score / 100 moves | +0.091 ± 0.141 | +0.086 ± 0.110 | +0.030 ± 0.170 |
+| score / to the end | +0.063 ± 0.076 | +0.129 ± 0.083 | +0.094 ± 0.140 |
+| cascades / 100 moves | +0.124 ± 0.128 | +0.109 ± 0.096 | −0.002 ± 0.131 |
+| cascades / to the end | +0.069 ± 0.045 | **+0.141 ± 0.059** | +0.062 ± 0.129 |
+
+**No row exceeds 0.15.** Even the tightest, cascades / to the end / move 60, is
++0.141 ± 0.059. This is what NOTES
+[r = 0.00-0.12 recorded for the inversion rate](#how-to-measure-traps-we-keep-stepping-in),
+values for which that metric was concluded "unusable as a per-episode metric".
+
+- **A V that predicts its own horizon does not necessarily carry across games.** The 100-move label predicts its own target
+  well (R² 0.167) yet gives 0.03-0.12 across games. Conversely the "to the end" label has R² 0 on its own target
+  yet is tightest across games. **Aiming at the target directly beats going through an easier proxy**
+- Correlation is observation, not causation. A board with high V may be high not "because it is a good board" but
+  "because that game happened to be going well". That this cannot be separated is for the same reason as
+  [the value of a single move cannot be measured with rollouts](#how-to-measure-traps-we-keep-stepping-in)
+
+**All that remains is the A/B, with less than even odds.** With the cross-game r not reaching 0.15,
+it is unlikely to clear the ±7% screen at n=50. If run, run it knowing it is
+"to confirm the refutation". **There is no new cheap screening left.**
 
 ## Planned: RL (REINFORCE)
 

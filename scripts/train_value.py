@@ -173,6 +173,59 @@ def _sweep(
     )
 
 
+# Move numbers at which games are compared. Too early and boards have not grown; too late and fewer games reach it.
+CARRY_PROBES = (40, 60, 100)
+
+
+def _carry(
+    feats: np.ndarray,
+    per_move: np.ndarray,
+    score_per_move: np.ndarray,
+    episodes: np.ndarray,
+    steps: np.ndarray,
+    ep_ids: np.ndarray,
+    alpha: float,
+) -> None:
+    """Check whether V can predict 'whether the game ends with a high score'.
+
+    **Fix the move number and compare games with each other.** Pooling across positions, consecutive boards of the same game
+    have similar V and remaining points, which inflates the correlation (measured: pooled
+    r=0.28, fixed move number r=0.09). Whatever the label, the target is the real-game score.
+    """
+    full_score = _horizon_return(score_per_move, episodes, ep_ids, None)
+    groups = np.array_split(ep_ids, SWEEP_FOLDS)
+    print("=== does it carry across games (fix the move number, compare games) ===")
+    print(f"{'horizon fitted':>12} {'move':>6}   r(V, remaining points of that game)")
+    for horizon in (100, 30, None):
+        y = _horizon_return(per_move, episodes, ep_ids, horizon)
+        for probe in CARRY_PROBES:
+            rs: list[float] = []
+            counts: list[int] = []
+            for group in groups:
+                test = np.isin(episodes, group)
+                trend = _step_trend(steps[~test], y[~test])
+                label = y - trend[np.clip(steps, 0, len(trend) - 1)]
+                mean, std = _standardize(feats[~test])
+                x = (feats - mean) / std
+                w = _ridge(x[~test], label[~test], alpha)
+                sel = test & (steps == probe)
+                if int(sel.sum()) < 5:
+                    continue
+                rs.append(float(np.corrcoef(_predict(x[sel], w), full_score[sel])[0, 1]))
+                counts.append(int(sel.sum()))
+            if not rs:
+                continue
+            name = "to the end" if horizon is None else f"{horizon} moves"
+            print(
+                f"{name:>12} {probe:>6}   {np.mean(rs):+.3f} ± {np.std(rs):.3f}"
+                f"   (games {int(np.mean(counts))}/fold)"
+            )
+    print(
+        "\nRows where ±SD covers the mean cannot be told from 0. If in the same range as"
+        "\nr=0.00-0.12 that NOTES recorded for the inversion rate, it is unusable per episode."
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -211,25 +264,49 @@ def main() -> None:
         metavar="K",
         help="make the label the points over the next K moves (default is to the end of the game)",
     )
+    parser.add_argument(
+        "--label",
+        choices=("score", "cascades"),
+        default="score",
+        help="the quantity counted. cascades is the number of moves with 3+ merges (lower variance than score)",
+    )
+    parser.add_argument(
+        "--carry",
+        action="store_true",
+        help="only measure whether it carries across games (fix the move number, compare games)",
+    )
     args = parser.parse_args()
 
     data = np.load(args.data)
     feats = data["feats"]
-    returns = data["returns"]
     episodes = data["episodes"]
     steps = data["steps"]
     truncated = data["truncated"]
 
+    if args.label == "cascades" and "merges" not in data:
+        raise SystemExit(
+            f"{args.data} has no merges. Counting cascades needs recollection"
+        )
+    # The quantity counted per move. cascades is 3+ merges per move (the only proxy validated against score
+    # in NOTES. Sensitivity ratio 1.34-1.40, r(score) 0.83).
+    per_move = (
+        data["rewards"].astype(np.float64)
+        if args.label == "score"
+        else (data["merges"] >= 3).astype(np.float64)
+    )
+
     keep = np.ones(len(feats), dtype=bool) if args.keep_truncated else ~truncated
     dropped = int((~keep).sum())
-    feats, returns, episodes, steps = (
+    feats, episodes, steps, per_move = (
         feats[keep],
-        returns[keep],
         episodes[keep],
         steps[keep],
+        per_move[keep],
     )
     if len(feats) == 0:
         raise SystemExit("no moves left usable for training")
+    # The target for whether it carries to the final score is the real-game score, whatever the label.
+    score_per_move = data["rewards"].astype(np.float64)[keep]
 
     ep_ids = np.array(sorted(set(episodes.tolist())))
     n_test = max(1, int(len(ep_ids) * HOLDOUT_FRAC))
@@ -243,9 +320,15 @@ def main() -> None:
     )
     print(f"held-out: {n_test} episodes / {int(is_test.sum())} moves\n")
 
+    print(f"quantity counted: {args.label}\n")
     if args.sweep:
-        _sweep(feats, data["rewards"][keep], episodes, steps, ep_ids)
+        _sweep(feats, per_move, episodes, steps, ep_ids)
         return
+    if args.carry:
+        _carry(feats, per_move, score_per_move, episodes, steps, ep_ids, args.alpha)
+        return
+
+    returns = _horizon_return(per_move, episodes, ep_ids, None)
 
     cand_feats = data["cand_feats"]
     cand_rewards = data["cand_rewards"]
@@ -279,7 +362,7 @@ def main() -> None:
     if args.horizon is None:
         label = returns
     else:
-        label = _horizon_return(data["rewards"][keep], episodes, ep_ids, args.horizon)
+        label = _horizon_return(per_move, episodes, ep_ids, args.horizon)
     if args.detrend:
         trend = _step_trend(steps[~is_test], label[~is_test])
         label = label - trend[np.clip(steps, 0, len(trend) - 1)]
