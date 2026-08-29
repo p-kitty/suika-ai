@@ -54,7 +54,6 @@ SWEEP_KEYS = (
     "corner_pocket",
     "foreign_aim",
     "merge_big_side",
-    "blocked_partner",
 )
 
 
@@ -86,11 +85,9 @@ def _components(
         "center": -pen.center_tiebreak(x),
         "valley_grow": 0.0,
         "merge_big_side": 0.0,
-        "blocked_partner": 0.0,
     }
     if not held_merged:
         parts["valley_grow"] = pen.valley_grow_bonus(before, land_x, drop_type, next_type)
-        parts["blocked_partner"] = -pen.blocked_partner_penalty(after, held_fruit)
     else:
         parts["merge_big_side"] = pen.merge_big_side_bonus(x, held_fruit, held_r, sign)
     return parts, sum(parts.values())

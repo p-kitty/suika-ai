@@ -7,9 +7,7 @@ are different things, so they are kept separate.
 
 from src.observe import Observation
 from src.penalties import (
-    BLOCKED_PARTNER_WEIGHT,
     MERGE_BIG_SIDE_SLACK_FRAC,
-    blocked_partner_penalty,
     _perch_penalty,
     _is_nestled,
     _size_order_exempt,
@@ -183,53 +181,3 @@ def test_perch_still_counts_a_deep_valley() -> None:
     ]
 
     assert _perch_penalty([pine, cherry, *walls]) > 0.0
-
-
-# --- Landing walled off from the partner (`blocked_partner_penalty`) ---
-# Only the position the dropped fruit itself entered is looked at. Board-wide reachability is not counted.
-
-
-def test_blocked_partner_fires_when_a_bigger_fruit_walls_off_the_only_partner() -> None:
-    """Applies to a landing where a big fruit stands between it and its partner."""
-    held = _on_floor(CHERRY, 40.0)
-    partner = _on_floor(CHERRY, 330.0)
-    wall = _on_floor(PEACH, 185.0)
-
-    assert blocked_partner_penalty([held, partner], held) == 0.0
-    assert blocked_partner_penalty([held, partner, wall], held) == BLOCKED_PARTNER_WEIGHT
-
-
-def test_blocked_partner_clears_when_any_partner_is_reachable() -> None:
-    """Does not apply if even one partner is reachable. A binary that applies only when all are blocked."""
-    held = _on_floor(CHERRY, 40.0)
-    walled = _on_floor(CHERRY, 330.0)
-    wall = _on_floor(PEACH, 185.0)
-    near = _on_floor(CHERRY, 90.0)
-
-    assert blocked_partner_penalty([held, walled, wall], held) == BLOCKED_PARTNER_WEIGHT
-    assert blocked_partner_penalty([held, walled, wall, near], held) == 0.0
-
-
-def test_blocked_partner_ignores_fruits_without_a_partner() -> None:
-    """A fruit with no partner on the board is not a missed merge (that is bury_lone's job)."""
-    held = _on_floor(CHERRY, 40.0)
-    wall = _on_floor(PEACH, 185.0)
-
-    assert blocked_partner_penalty([held, wall], held) == 0.0
-
-
-def test_blocked_partner_does_not_count_walls_it_can_get_past() -> None:
-    """Only fruits bigger than itself with the top above both centers count as walls."""
-    held = _on_floor(GRAPE, 40.0)
-    partner = _on_floor(GRAPE, 330.0)
-    # A same type can be pushed out and disappears by merging, so it is not a wall.
-    same = _on_floor(GRAPE, 185.0)
-    assert blocked_partner_penalty([held, partner, same], held) == 0.0
-    # One tier up is the next rung. When a partner comes it merges and catches up with the wall.
-    rung = _on_floor(DEKOPON, 185.0)
-    assert blocked_partner_penalty([held, partner, rung], held) == 0.0
-    # Even a big one can be passed over if its top is sunk.
-    sunk = Fruit(
-        type=PEACH, x=185.0, y=NORMALIZED_HEIGHT + 60.0, radius=fruit_radius(PEACH), confidence=90
-    )
-    assert blocked_partner_penalty([held, partner, sunk], held) == 0.0

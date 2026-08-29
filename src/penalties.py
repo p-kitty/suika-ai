@@ -45,13 +45,6 @@ MERGE_BIG_SIDE_WEIGHT = 0.5
 # of the two centers, so even moves with no intent to push normally shift by less than a radius.
 MERGE_BIG_SIDE_SLACK_FRAC = 1.0
 
-# One landing walled off from the partner. The binary returned by `blocked_partner_penalty`.
-# A rule stopping moves that enter a position where a partner is on the board but unreachable, working as an applies-or-not
-# filter (the same shape as the 3 terms that work, perch/bury/foreign_aim, all being binary.
-# NOTES 'The existing weights have no leverage'). The value matches the one looking at the same 'missed partner',
-# `BURY_WEIGHT`.
-BLOCKED_PARTNER_WEIGHT = 20.0
-
 # Valley-growing bonus (applied by subtracting from penalties). The value `valley_grow_bonus` returns.
 # Not stronger than a real merge. At 8.0 it rejected a grape merge (6 points) for a non-merging valley.
 # At 2.0 it tips toward growing, and at 3.0 it still keeps taking merges (measured).
@@ -273,71 +266,6 @@ def merge_big_side_bonus(
     if toward_big < MERGE_BIG_SIDE_SLACK_FRAC * held_r:
         return 0.0
     return MERGE_BIG_SIDE_WEIGHT
-
-
-def _partner_blocked(a: Fruit, b: Fruit, fruits: list[Fruit] | tuple[Fruit, ...]) -> bool:
-    """Whether same types a and b are blocked from each other by fruits bigger than itself.
-
-    The blocking conditions are three: 'type gap of `PIT_MIN_GAP` or more', 'sandwiched sideways', 'top above both centers'.
-    A fruit many tiers bigger cannot be moved by pushing or merging, so if its top sticks out
-    above the centers there is no path over it to the partner. Same-type and smaller fruits can be pushed out and disappear by merging.
-
-    **One tier up does not count as a wall.** That is the next rung: when a partner comes it merges on the spot and
-    catches up with the wall (the same line as `PIT_MIN_GAP` of `_pit_penalty` and, in `_is_rung`,
-    `PERCH_RUNG_MAX_GAP`). Counting one tier up as a wall makes the correct move into a rung's hollow
-    count as blocked from the partner, and it tips toward roofing a small fruit
-    (`test_uses_the_next_rung_instead_of_roofing_a_small_fruit` in tests/test_policy.py).
-    """
-    lo, hi = (a.x, b.x) if a.x <= b.x else (b.x, a.x)
-    top = min(a.y, b.y)
-    for wall in fruits:
-        if wall.type - a.type < PIT_MIN_GAP:
-            continue
-        if not lo < wall.x < hi:
-            continue
-        if wall.y - wall.radius < top:
-            return True
-    return False
-
-
-def blocked_partner_penalty(
-    fruits: list[Fruit] | tuple[Fruit, ...],
-    held_fruit: Fruit | None,
-) -> float:
-    """Penalty for moves where the dropped fruit enters a position blocked from every partner on the board.
-
-    In the fossil measurement, fruits staying 50+ moves **had a partner on the board in 66.1% of moves**
-    (NOTES 'Measuring fruits that never merge (fossils)'). Missed merges rather than waiting ones, the shape named
-    as the supply-side hole. `_bury_penalty` looks at roofs and `_pit_penalty` at
-    valleys squeezed by big fruits on both sides, but the shape **with a wall on one side and only a big fruit on the other**
-    is caught by neither (`_valley_flanks` counts a valley only when both sides are present).
-    `_corner_pocket_penalty` only picks up corners with the biggest fruit on the big-side wall.
-
-    Board-wide reachability is not summed. Board properties the current move cannot change take the same value for every candidate
-    and do not change the ranking (NOTES 'Do not penalize board properties the current move cannot
-    change'). It looks **only at the position the dropped fruit itself entered**, which splits between candidates.
-
-    0 if even one partner is reachable. A binary that applies only when all are blocked. A fruit with no partner
-    on the board at all is not a missed merge, so it is out of scope (that is `BURY_LONE_WEIGHT`).
-
-    Applied only to moves that did not merge (by the caller). A merging move gets the real-game score, and
-    the fruit made is a different type one tier up, so this rule does not erode the motive to merge.
-    """
-    if held_fruit is None:
-        return 0.0
-    # `_lineage_fruit` returns a separate instance with the same values as after, so
-    # excluding itself is done by position, not `is` (the docstring of simulate_drop_held).
-    partners = [
-        f
-        for f in fruits
-        if f.type == held_fruit.type
-        and not (f.x == held_fruit.x and f.y == held_fruit.y)
-    ]
-    if not partners:
-        return 0.0
-    if any(not _partner_blocked(held_fruit, p, fruits) for p in partners):
-        return 0.0
-    return BLOCKED_PARTNER_WEIGHT
 
 
 # --- Penalty terms ---------------------------------------------------------------
