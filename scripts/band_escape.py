@@ -127,7 +127,7 @@ def _candidate_table(positions: list[Observation]) -> list[list[tuple[float, dic
         # Check per position, on one candidate, that the breakdown matches the real eval.
         # Aggregating while it is off breaks the definition of the band itself, so do not proceed silently.
         if first_x is not None:
-            _after, ref = pol._held_eval(obs, first_x, held_r)
+            _after, ref, _score = pol._held_eval(obs, first_x, held_r)
             if abs(rows[0][0] - ref) > 1e-6:
                 raise SystemExit(f"breakdown does not match eval: {rows[0][0]} != {ref}")
         table.append(rows)

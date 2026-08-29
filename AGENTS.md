@@ -133,6 +133,15 @@ Examples of sim evaluation, A/B and training runs are in the README Scripts sect
   swaps them by rewriting module attributes, so binding makes A and B run the same policy
 - `scripts/*.py` follow the pattern of `sys.path.insert` → `from scripts._bootstrap import ROOT`
   at the top (do not write a function that adds the path)
+- **There are two kinds of training data; do not mix them.** BC uses `src/training/encode.py`
+  (board **before the drop** → teacher action), the value function uses `src/training/features.py`
+  (board **after the drop** → realized return; collected by `scripts/collect_value.py`). Value features are
+  **passed as separate columns per term, never summed**. Summing leaves the learner unable to relearn the weighting,
+  and it merely approximates the teacher's eval
+  (→[NOTES](NOTES.md#decided-learn-value-from-realized-returns-not-the-teachers-eval-2026-08-30))
+- **When you need the candidate table, call `policy.rank_candidates` and pass its result to
+  `choose_x(obs, ranked=...)`.** Do not copy the move-selection rules into the caller
+  (copies silently drift when `choose_x` changes). It also avoids running the physics twice
 - Tests do not pin concrete procedures. Assert **properties of the policy** such as merging, danger avoidance and
   accident prevention (the policy at the top of `tests/test_policy.py`). Fall physics lives in `tests/sim/test_sim_physics.py`
 
