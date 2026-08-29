@@ -45,6 +45,13 @@ MERGE_BIG_SIDE_WEIGHT = 0.5
 # 中点なので、寄せる意図の無い手でも半径未満はふつうにずれる。
 MERGE_BIG_SIDE_SLACK_FRAC = 1.0
 
+# 相方から遮られた着地 1 手ぶん。`blocked_partner_penalty` が返す二値。
+# 相方が盤にいるのに会えない位置へ自分から入る手を止める規則で、掛かるか否かの
+# フィルタとして働かせる (効いている 3 本 perch/bury/foreign_aim がどれも二値
+# なのと同じ形。NOTES「既存の重みには梃子が無い」)。値は同じ「相方の取り逃し」を
+# 見る `BURY_WEIGHT` に合わせてある。
+BLOCKED_PARTNER_WEIGHT = 20.0
+
 # 谷育成ボーナス (減点から引く形で入れる)。`valley_grow_bonus` が返す値。
 # 実合体より強くしない。8.0 だと grape 合体 (6 点) を蹴って非合体の谷を選んだ。
 # 2.0 で育成側に倒れ、3.0 でも合体は取り続ける (実測)。
@@ -266,6 +273,71 @@ def merge_big_side_bonus(
     if toward_big < MERGE_BIG_SIDE_SLACK_FRAC * held_r:
         return 0.0
     return MERGE_BIG_SIDE_WEIGHT
+
+
+def _partner_blocked(a: Fruit, b: Fruit, fruits: list[Fruit] | tuple[Fruit, ...]) -> bool:
+    """同種 a と b の間が、自分より大きい実で遮られているか。
+
+    遮る条件は「型差が `PIT_MIN_GAP` 以上」「横に挟まる」「頭が両者の中心より上」
+    の 3 つ。何段も大きい実は押しても合体でも動かせないので、頭が中心より上に
+    出ていれば越えて相方に届く経路が無い。同型・小型は押し出せるし合体で消える。
+
+    **1 段上は壁に数えない。** そこは次の段で、相方が来ればその場で合体して
+    壁に追いつける (`_pit_penalty` の `PIT_MIN_GAP`、`_is_rung` の
+    `PERCH_RUNG_MAX_GAP` と同じ線引き)。1 段上まで壁にすると、段の窪みへ置く
+    正しい手が相方から遮られた扱いになり、小実に屋根を掛ける側へ倒れる
+    (tests/test_policy.py の `test_uses_the_next_rung_instead_of_roofing_a_small_fruit`)。
+    """
+    lo, hi = (a.x, b.x) if a.x <= b.x else (b.x, a.x)
+    top = min(a.y, b.y)
+    for wall in fruits:
+        if wall.type - a.type < PIT_MIN_GAP:
+            continue
+        if not lo < wall.x < hi:
+            continue
+        if wall.y - wall.radius < top:
+            return True
+    return False
+
+
+def blocked_partner_penalty(
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    held_fruit: Fruit | None,
+) -> float:
+    """落とした実が、盤にいる相方のどれからも遮られる位置へ入った手の減点。
+
+    居座る実の測定で、50 手以上残る実は **66.1% の手で相方が盤にいた**
+    (NOTES「居座る実 (fossil) の測定」)。合体待ちではなく取り逃しで、供給側の
+    穴として名指しされていた形。`_bury_penalty` は屋根を、`_pit_penalty` は
+    左右とも大実に挟まれた谷を見るが、**片側が壁でもう片側だけが大実**という
+    形はどちらにも掛からない (`_valley_flanks` は左右そろって初めて谷とみなす)。
+    `_corner_pocket_penalty` が拾うのは最大実が大側壁に付いた角だけ。
+
+    盤全体の到達可能性を合計しない。今の手で動かせない盤の性質はどの候補でも
+    同じ値になり、順位を変えない (NOTES「今の手で動かせない盤の性質には減点を
+    付けない」)。見るのは**落とした実自身が入った位置**だけで、候補ごとに割れる。
+
+    相方が 1 個でも届くなら 0。全部遮られて初めて掛かる二値。相方がそもそも
+    盤にいない実は取り逃しではないので対象外 (そちらは `BURY_LONE_WEIGHT`)。
+
+    合体しなかった手にだけ掛ける (呼び元)。合体した手は本家点が付くうえ、
+    できた実は 1 段上の別型なので、この規則で合体の動機を削らない。
+    """
+    if held_fruit is None:
+        return 0.0
+    # `_lineage_fruit` は after と同じ値を持つ別インスタンスを返すので、
+    # 自分自身を外すのは `is` ではなく位置で見る (simulate_drop_held の docstring)。
+    partners = [
+        f
+        for f in fruits
+        if f.type == held_fruit.type
+        and not (f.x == held_fruit.x and f.y == held_fruit.y)
+    ]
+    if not partners:
+        return 0.0
+    if any(not _partner_blocked(held_fruit, p, fruits) for p in partners):
+        return 0.0
+    return BLOCKED_PARTNER_WEIGHT
 
 
 # --- 減点項 ---------------------------------------------------------------
