@@ -127,7 +127,7 @@ def _candidate_table(positions: list[Observation]) -> list[list[tuple[float, dic
         # 分解が実際の eval と一致しているか、局面ごとに 1 本だけ突き合わせる。
         # ずれたまま集計すると帯の定義そのものが狂うので、黙って進めない。
         if first_x is not None:
-            _after, ref = pol._held_eval(obs, first_x, held_r)
+            _after, ref, _score = pol._held_eval(obs, first_x, held_r)
             if abs(rows[0][0] - ref) > 1e-6:
                 raise SystemExit(f"分解が eval と一致しない: {rows[0][0]} != {ref}")
         table.append(rows)
