@@ -1425,7 +1425,7 @@ in [the lethal filter](#wont-do-deepen-the-lethal-filter-to-two-plies-2026-08-20
 in 0/10 cases for over 30x the search. **"The branching point is 3 or more moves earlier" was written
 as a reason not to deepen**, not as grounds to deepen. It is easy to misread, so this note is added.
 
-### Measured: V orders the band, but most of the fit is the clock (n=20, 2026-08-30)
+### Measured: the learned V cannot tell good boards from bad at n=20 (2026-08-30)
 
 Ridge was fitted on 20 games, 5164 moves, 27502 candidate rows (`python scripts/train_value.py`).
 Collection took 8.2 minutes, 0/20 truncated.
@@ -1456,6 +1456,34 @@ between candidates in 97-100% of positions). When writing the next term that loo
 **n=20 is not enough to read coefficients.** There are 5164 rows but only 20 independent games, and
 as r(return, move number) = −0.815 shows, the label is dominated by within-game structure.
 Do not settle the sign or size of individual coefficients from this.
+
+**Subtracting the move number makes the fit vanish.** Subtracting the per-move-number mean from the label,
+also removing the 4 that do not affect ranking, and refitting gives **train R² 0.117 / test R² −0.004**.
+In other words **R² 0.688 is almost entirely the clock**, and "is the board good compared with the average at the same move number"
+is not predicted. It can be refit with `python scripts/train_value.py --detrend --drop-dead`.
+
+**At what time scale the signal is** (`--sweep`. 4-fold, split by episode, alpha=100):
+
+| Label | without detrend | with detrend |
+|---|---|---|
+| to the end | 0.684 ± 0.069 | **−0.024 ± 0.158** |
+| 100 moves | 0.552 ± 0.072 | 0.163 ± 0.192 |
+| 30 moves | 0.146 ± 0.044 | 0.055 ± 0.073 |
+| 10 moves | 0.095 ± 0.027 | 0.081 ± 0.034 |
+| 3 moves | 0.070 ± 0.017 | 0.065 ± 0.022 |
+| 1 move | 0.030 ± 0.007 | 0.028 ± 0.010 |
+
+- **The return to the end cannot be predicted once the move number is removed** (indistinguishable from 0)
+- **Short horizons have a small but real signal** (1-10 moves; the between-fold SD is much smaller
+  than the mean). **But that range is already seen directly by `choose_x` through simulate and the next lookahead**,
+  so there is little benefit in adding V
+- **The real target is the middle (100 moves), but n=20 cannot read it**. 0.163 against a between-fold SD of 0.192,
+  which exceeds the mean. **Settling this is the next measurement**
+- Tuning alpha from 1-10000 does not change the order. It is not under-regularization
+
+**Do not run an A/B in this state.** 81.7% escaping the band only means "V chooses different moves
+from the teacher", with no guarantee its ranking is right. Replacing 80% of moves with a wrong ranking
+would be worse than the teacher. **First settle the 100-move horizon signal with n.**
 
 ## Planned: RL (REINFORCE)
 
