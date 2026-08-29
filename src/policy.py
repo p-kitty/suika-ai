@@ -290,9 +290,6 @@ def _evaluate_drop(
         # 谷育成。合体しない手の中では、育つ見込みのある谷への着地を選ばせる。
         # 合体した手は本家点が付くので、そちらには足さない。
         penalties -= pen.valley_grow_bonus(before, land_x, drop_type, next_type)
-        # 相方から遮られた着地。落とした実自身が入った位置だけを見る二値。
-        # 合体した手に掛けないのは valley_grow_bonus と同じ理由。
-        penalties += pen.blocked_partner_penalty(after, held_fruit)
     else:
         # 合体でできた実がどちらへ寄ったか。合体した手は大小順を免除する
         # (exempt_size_order) ので、どちら側から当てて新実をどこへ飛ばしたかを

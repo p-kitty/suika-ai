@@ -7,9 +7,7 @@
 
 from src.observe import Observation
 from src.penalties import (
-    BLOCKED_PARTNER_WEIGHT,
     MERGE_BIG_SIDE_SLACK_FRAC,
-    blocked_partner_penalty,
     _perch_penalty,
     _is_nestled,
     _size_order_exempt,
@@ -183,53 +181,3 @@ def test_perch_still_counts_a_deep_valley() -> None:
     ]
 
     assert _perch_penalty([pine, cherry, *walls]) > 0.0
-
-
-# --- 相方から遮られた着地 (`blocked_partner_penalty`) ---
-# 見るのは落とした実自身が入った位置だけ。盤全体の到達可能性は数えない。
-
-
-def test_blocked_partner_fires_when_a_bigger_fruit_walls_off_the_only_partner() -> None:
-    """間に大実が立っていて相方に会えない着地には掛かる。"""
-    held = _on_floor(CHERRY, 40.0)
-    partner = _on_floor(CHERRY, 330.0)
-    wall = _on_floor(PEACH, 185.0)
-
-    assert blocked_partner_penalty([held, partner], held) == 0.0
-    assert blocked_partner_penalty([held, partner, wall], held) == BLOCKED_PARTNER_WEIGHT
-
-
-def test_blocked_partner_clears_when_any_partner_is_reachable() -> None:
-    """相方が 1 個でも届くなら掛からない。全部遮られて初めて掛かる二値。"""
-    held = _on_floor(CHERRY, 40.0)
-    walled = _on_floor(CHERRY, 330.0)
-    wall = _on_floor(PEACH, 185.0)
-    near = _on_floor(CHERRY, 90.0)
-
-    assert blocked_partner_penalty([held, walled, wall], held) == BLOCKED_PARTNER_WEIGHT
-    assert blocked_partner_penalty([held, walled, wall, near], held) == 0.0
-
-
-def test_blocked_partner_ignores_fruits_without_a_partner() -> None:
-    """相方が盤にいない実は取り逃しではない (そちらは bury_lone の担当)。"""
-    held = _on_floor(CHERRY, 40.0)
-    wall = _on_floor(PEACH, 185.0)
-
-    assert blocked_partner_penalty([held, wall], held) == 0.0
-
-
-def test_blocked_partner_does_not_count_walls_it_can_get_past() -> None:
-    """壁として数えるのは自分より大きく、頭が両者の中心より上に出た実だけ。"""
-    held = _on_floor(GRAPE, 40.0)
-    partner = _on_floor(GRAPE, 330.0)
-    # 同型は押し出せるし合体で消えるので壁ではない。
-    same = _on_floor(GRAPE, 185.0)
-    assert blocked_partner_penalty([held, partner, same], held) == 0.0
-    # 1 段上は次の段。相方が来れば合体して壁に追いつける。
-    rung = _on_floor(DEKOPON, 185.0)
-    assert blocked_partner_penalty([held, partner, rung], held) == 0.0
-    # 大きくても頭が沈んでいれば乗り越えられる。
-    sunk = Fruit(
-        type=PEACH, x=185.0, y=NORMALIZED_HEIGHT + 60.0, radius=fruit_radius(PEACH), confidence=90
-    )
-    assert blocked_partner_penalty([held, partner, sunk], held) == 0.0
