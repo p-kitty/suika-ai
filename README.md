@@ -54,6 +54,10 @@ python scripts/train_sim.py --bc-episodes 100 --episodes 50 --lr 0.002
 # Collect the value-function dataset (post-drop boards + realized return)
 python scripts/collect_value.py --episodes 20
 
+# Fit a value function on it and screen whether it orders the tied band
+python scripts/train_value.py --sweep
+python scripts/train_value.py --horizon 100 --detrend --drop-dead
+
 # Run detection on saved images → debug/check/
 python scripts/check_detection.py
 
@@ -100,6 +104,7 @@ scripts/
   eval_policy.py
   train_sim.py
   collect_value.py      # value-function dataset: post-drop board -> realized return
+  train_value.py        # fit that value function and screen it before an A/B
   check_detection.py
   compare_policy.py     # A/B two policy variants on the same seeds
   analyze_ab.py         # pick a proxy metric from a compare_policy dump
