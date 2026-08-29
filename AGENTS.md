@@ -232,7 +232,7 @@ git の操作はこの節にまとめる。他の節に散らさない。
 
 - **`master` で作業しない。** 手を動かす前に branch を切る:
   `git switch -c <topic>`（例: `fix-wall-friction`, `docs-agents-md`）
-- PR 先は `main`
+- PR 先は `master`
 
 **commit**
 
