@@ -929,7 +929,7 @@ buries one part's work in the other's noise and gets misread** — both this sec
 **Note**: measurements of `big_layout` appearing earlier in NOTES (5.7% outside the band and so on) are
 **from when the 2 rules were combined**. They are kept as the record of that time.
 
-### Retired: bumpiness (height variance)(2026-08-21)
+### Retired: bumpiness (height variance) (2026-08-21)
 
 An A/B cutting `_height_variance` (spread of crowns per column bin) at n=100, 0 truncated, is
 null. score 2312.42 → 2346.60, t=0.53, CI [−94.5, +162.8], win/loss 52/48, and
