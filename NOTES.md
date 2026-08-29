@@ -3,6 +3,7 @@
 ## Contents
 
 - [Current approach: fixed-point observation of seed 642746](#current-approach-fixed-point-observation-of-seed-642746-2026-08-19)
+- [Investigated: why corner watermelons do not happen](#investigated-why-corner-watermelons-do-not-happen-2026-08-29) ← why the target shape does not appear
 - [Open tasks](#open-tasks)
 - [New term: pit](#measured-when-adding-a-new-term-pit-2026-08-23) ← most recent addition
 - [How to measure](#how-to-measure-traps-we-keep-stepping-in) ← read before reporting numbers
@@ -228,6 +229,83 @@ paired SD=582.0, n=130 needed to speak to ±100 points), and the seed head-to-he
 
 **How to read it**: n=10 only detects a large collapse, and none appeared. It is not evidence of improvement either.
 The basis for keeping the rule is still the per-position quantities above and the fraction escaping the band.
+
+## Investigated: why corner watermelons do not happen (2026-08-29)
+
+Traces of 20 games (seed 803000-803019, bootstrap, `--max-steps 400`, every game died naturally,
+4730 moves total). Per move, the gap between the biggest fruit and the wall/floor and the type occupying the bottom corner were recorded.
+
+Stages reached: **melon 20/20, watermelon 5/20, corner watermelon 1/20** (803014).
+**Every game reaches melon. Only what comes after is stuck.**
+
+### Two melons never sit on the board at once
+
+In 4730 moves, the number of moves with two melons on the board at once is **0**. In all 5 games that made a watermelon,
+the second melon was **born inside the cascade of the same move and merged immediately**.
+A position of "line up two melons and then aim" never occurred with the current policy, so
+before adding rules built on that premise (making room for the second one, and so on), first check the premise.
+
+### The dividing line is whether the watermelon is on the floor when it forms
+
+In 4 of the 5 games that made a watermelon, the previous state was a corner melon (wall 1.9 / floor 1.9). And
+**the watermelon produced is almost always knocked out of the corner** (wall 54-87 right after it forms).
+Whether it becomes a corner watermelon split only on whether it **touched the floor** at that moment:
+
+| seed | wall right after | floor right after | final floor | result |
+|---|---|---|---|---|
+| 803014 | 77.7 | **2.0** | 1.9 | corner watermelon |
+| 803011 | 87.1 | **3.3** | 103.6 | on the floor once, lifted later |
+| 803008 | 55.3 | 47.9 | 58.4 | born on top of the pile |
+| 803000 | 54.2 | 60.6 | 31.6 | same |
+| 803003 | 1.8 | 105.4 | 112.8 | same |
+
+Only the 2 games born on the floor could roll back to the wall. **Pushing it toward the wall is not the problem in itself**
+(the 16 games other than the 4 type-A games below have wall ≤ 12 in roughly 70% or more of the moves where the biggest fruit is tier 8 or above).
+
+### The floor is lost on cascade moves
+
+Of the **1751 moves** where a big fruit (tier 8 or above) was wall-anchored **and also on the floor**, the moves where it left
+the floor by 10 or more on the next move are **11 (0.6%)**. These 11 moves are heavily skewed toward cascade moves:
+
+| | n | mean merges | 2+ chain | 3+ chain | fruit dropped |
+|---|---|---|---|---|---|
+| moves that left the floor | 11 | 3.82 | 72.7% | 63.6% | dekopon 5 / orange 4 / grape 2 |
+| all others | 1740 | 0.93 | 21.7% | 9.8% | orange 360 / cherry 355 / straw 344 |
+
+Moves 85→86 of seed 700001 are typical. The recoil of a 3-step cascade on the small side moves a dekopon that was on the floor
+31 to the right, slipping under the corner melon, and floor goes 2.0 → 35.6. For the next 182 moves,
+it never returns to the floor (the watermelon made on move 166 also stays 35-47 above it).
+
+**`_corner_pocket_penalty` watches this shape (a small fruit outside and below the big fruit) at 50 points, but
+it only applies to the move about to be dropped.** The path where an existing fruit slips under through cascade recoil goes through untouched.
+
+### Failure types
+
+| type | n | content |
+|---|---|---|
+| A big fruit not on the wall | 4 | 803005/007/010/019. Median x of the big fruit 180-216, moves with wall ≤ 12 are 0-4% |
+| B on the wall but lifted off the floor | 7 | 803000/002/003/004/008/009/017. Lifted in 33-100% of wall-anchored moves |
+| C corner kept but ran out of moves | 8 | dies while keeping a corner melon for 65-199 moves |
+| D corner watermelon | 1 | 803014 |
+
+### The draws do not decide corner watermelons
+
+Compared using the first 194 draws, aligned to the shortest game:
+
+- **Whether a corner melon was made (11 games vs 9) does not correlate with the draws.** cherry / straw / grape /
+  dekopon / orange rates, mean units and same-type run rate all have |t| < 1.6
+- **Whether a watermelon was reached (5 games vs 15) differs only in the cherry rate**
+  (22.6% vs 20.0%, t=3.39). **Mean units (total material) are the same, 6.168 vs 6.169**,
+  so it is not "whether big fruits were drawn"
+- What matters is the number of moves. r(steps, max_type) = **+0.85**, 291 moves for games that reached it / 218 for those that did not.
+  The cherry rate correlates with steps across windows too (at W=50/100/150/194
+  +0.47 / +0.61 / +0.49 / +0.54)
+
+**The cherry rate is one of five types picked at n=20, so it is not established**
+(the selection bias in →[How to measure](#how-to-measure-traps-we-keep-stepping-in)). The corner watermelon side is
+n=1, and all this one game can say is "it was on the floor when it formed".
+**What is certain here is that "looking for good or bad draws cannot explain whether a corner watermelon happens".**
+What to look at is the path that loses the corner floor through cascade recoil, and the watermelon leaving the corner through merge recoil.
 
 ## Open tasks
 
