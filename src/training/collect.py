@@ -147,6 +147,7 @@ class ValueDataset:
 
     feats: np.ndarray  # (T, FEATURE_DIM)
     rewards: np.ndarray  # (T,) その手で得た本家点
+    merges: np.ndarray  # (T,) その手の合体数。cascades (3 以上) の材料
     returns: np.ndarray  # (T,) その盤から先の本家点の総和
     steps: np.ndarray  # (T,) 手番 (0 始まり)
     episodes: np.ndarray  # (T,) エピソード番号
@@ -166,7 +167,7 @@ def _empty_dataset() -> ValueDataset:
     ints = np.zeros(0, dtype=np.int32)
     flags = np.zeros(0, dtype=bool)
     return ValueDataset(
-        feats, scalars, scalars, ints, ints, flags, flags,
+        feats, scalars, ints, scalars, ints, ints, flags, flags,
         feats, scalars, scalars, flags, ints,
     )
 
@@ -187,6 +188,7 @@ def collect_value_episode(
     obs = env.reset()
     feats: list[np.ndarray] = []
     rewards: list[float] = []
+    merges: list[int] = []
     steps: list[int] = []
     cand_feats: list[np.ndarray] = []
     cand_rewards: list[float] = []
@@ -220,6 +222,7 @@ def collect_value_episode(
         result = env.step(x)
         feats.append(board_features(result.observation.fruits, sign=sign))
         rewards.append(result.score)
+        merges.append(result.merges)
         steps.append(step)
         if is_corner_watermelon(result.observation.fruits):
             cornered = True
@@ -243,6 +246,7 @@ def collect_value_episode(
     return ValueDataset(
         feats=np.stack(feats).astype(np.float32),
         rewards=np.asarray(rewards, dtype=np.float32),
+        merges=np.asarray(merges, dtype=np.int32),
         returns=returns,
         steps=np.asarray(steps, dtype=np.int32),
         episodes=np.full(n, episode, dtype=np.int32),
@@ -269,6 +273,7 @@ def _concat(parts: list[ValueDataset]) -> ValueDataset:
     return ValueDataset(
         feats=np.concatenate([p.feats for p in parts]),
         rewards=np.concatenate([p.rewards for p in parts]),
+        merges=np.concatenate([p.merges for p in parts]),
         returns=np.concatenate([p.returns for p in parts]),
         steps=np.concatenate([p.steps for p in parts]),
         episodes=np.concatenate([p.episodes for p in parts]),
@@ -344,6 +349,7 @@ def save_value_dataset(data: ValueDataset, path: str | PathLike) -> None:
         path,
         feats=data.feats,
         rewards=data.rewards,
+        merges=data.merges,
         returns=data.returns,
         steps=data.steps,
         episodes=data.episodes,
