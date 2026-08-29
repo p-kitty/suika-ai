@@ -1356,7 +1356,12 @@ Seed head-to-head win 59 / loss 41. Significance would need n≈136.
   logs use the real game's `score` (moves on ties). **The RL reward is score too** (dense penalties are not rewards)
 - `src/reward.py`: `merge_score(merge_types)` gives only merge points identical to the real game (cherry→0 …
   watermelon 55, double clear 65). No survival bonus or death penalty
-- `src/training/encode.py`: fixed-length observation vector
+- `src/training/encode.py`: fixed-length observation vector (the board **before the drop**; for BC)
+- `src/training/features.py`: features of the board **after the drop** (for the value function). Passed as a separate column per term,
+  **never summed** (summing leaves the learner unable to relearn the weighting). `size_order` is the sum of 2 rules, so
+  it is split here too (→[Split composite terms into sub-terms](#split-composite-terms-into-sub-terms-2026-08-21))
+- Collecting value data: `python scripts/collect_value.py --episodes 20`
+  (post-drop board -> points actually scored afterwards. The candidate table is also kept every `--candidate-stride` moves)
 - `src/sim/sim_env.py`: headless drop sim. `SimStep` is the real game's `score` only
 - Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`. `--workers` default = logical cores/2)
 - A/B: `python scripts/compare_policy.py`. **Plug the change you want to compare into `_apply_variant`**
@@ -1400,7 +1405,35 @@ it is **only 1.7x**. And the ratio to control goes from 2.4x early → **1.4x la
 it is not at the level of "able to imitate the teacher".
 (Caveat: the checkpoint used is hidden=128, not the best of the sweep)
 
+### Decided: learn value from realized returns, not the teacher's eval (2026-08-30)
+
+An external point ("the teacher actually drops candidates and looks at the results, while the learner only sees
+the board before the drop") was right, and its substance is the same as the 2026-08-05 conclusion above. The features were moved
+to the post-drop board (`src/training/features.py` / `scripts/collect_value.py`).
+Collection passes the candidate table from `policy.rank_candidates` back into `choose_x`, so the physics runs
+only once (recomputing would simply double the cost).
+
+**The label is the realized return. Do not regress the teacher's eval.** Merely approximating eval
+hits the same ceiling as the teacher. The inside of the band was measured as truly indifferent at n=133
+(→[Settled](#settled-the-tie-band-really-is-indifferent-2026-08-19)), so the only thing that can put an order into the band is
+"how many points were actually scored from that board onward".
+
+**The road of deepening the search to 2-4 moves is not taken.** It was part of the same point, but
+[Run cost](#run-cost-faster-physics-and-search-width-2026-08-17) showed width 8/16 at +3.8%,
+3.68x the cost, not significant at n=100, and
+in [the lethal filter](#wont-do-deepen-the-lethal-filter-to-two-plies-2026-08-20) candidates split at two plies
+in 0/10 cases for over 30x the search. **"The branching point is 3 or more moves earlier" was written
+as a reason not to deepen**, not as grounds to deepen. It is easy to misread, so this note is added.
+
+**Not yet measured**: whether the learned V can put an order into the teacher's tie band. The candidate table is
+kept every `--candidate-stride` moves to measure this. If it does not, the features are
+lacking (the shape where all candidates tie inside the band; →[Split composite terms into sub-terms](#split-composite-terms-into-sub-terms-2026-08-21)).
+**Feature scales differ by 3 orders of magnitude per term** (measured: `size_order_pair` 54.2 against
+`fruit_count` 0.34), so without normalization on the learning side only the large terms are seen.
+
 ## Planned: RL (REINFORCE)
+
+*The BC -> REINFORCE line. A different road from the value function above; both are alive.*
 
 - Still too early. Plain REINFORCE easily breaks things when BC is shallow (confirmed in the past)
 - Condition for adding it: `match` fairly high (roughly 60–70%+) and the student's `score` close to bootstrap
