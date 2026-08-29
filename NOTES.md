@@ -65,7 +65,7 @@ The third one, looking **sideways**, where `_bury_penalty` looks above a fruit a
 - Band escape is 6.0% at w=4.0, **12.4% at 8.0**, 19.2% at 16.0
 - Weight window: below 4.0 move 16 is not fixed. Up to 24.0 every existing test stays intact
 - Conflicts with the valley-growing bonus are 0.6% of candidates (of 518 growing candidates, 52 increase pit).
-  `PIT_MIN_GAP` 2 lines up exactly with "one above held" in `valley_grow_ok`, so they do not contradict
+  `PIT_MIN_GAP` 2 lines up exactly with "one above held" in `valley_grow_bonus`, so they do not contradict
 
 **The A/B is null** (n=50, cap 400, baseline reused with `compare_b_only`):
 
@@ -1130,7 +1130,7 @@ is not overriding size order and trapping. The basis is
   Not cut by `merges` (closes the loophole of rolling off a different type below and merging). Stacking a different type in valleys or on shoulders
   is not itself forbidden
 - Excess same type (`EXCESS_SAME`): once 3 or more of a type accumulate, a penalty of 20 per excess fruit
-- Valley growing (`valley_grow_ok`): the valley fruit is the same type as held, or the valley fruit is one above held and
+- Valley growing (`valley_grow_bonus`): the valley fruit is the same type as held, or the valley fruit is one above held and
   held and next are the same type: a bonus for landing in that valley. The reference is the valley fruit; the wall types are not looked at
 - Layout: big fruits stay close together. On the big side (`sign`), the corner pocket outside an edge-anchored L and below L's center
   is heavily penalized (`_big_layout_penalty`)
@@ -1155,9 +1155,9 @@ is not overriding size order and trapping. The basis is
 
 | Rule | Function | Content | Weight |
 |---|---|---|---|
-| directly above a different type | `foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | fixed 100.0 |
-| valley-growing bonus | `valley_grow_ok` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type | **−3.0** (bonus) |
-| merge pushed to the big side | `merge_lands_big_side` | moves where the fruit made by the merge (held's lineage) stops **at least one radius of the dropped fruit** toward the big side of the drop column | **−0.5** (bonus) |
+| directly above a different type | `foreign_aim_penalty` | when the fruit directly below the drop column (center offset within ±20%) is a different type | `FOREIGN_AIM_WEIGHT` fixed 100.0 |
+| valley-growing bonus | `valley_grow_bonus` | landing in a valley whose fruit is the same type as held / whose fruit is one above held with held and next the same type | `VALLEY_GROW_WEIGHT` **−3.0** (bonus) |
+| merge pushed to the big side | `merge_big_side_bonus` | moves where the fruit made by the merge (held's lineage) stops **at least one radius of the dropped fruit** toward the big side of the drop column | `MERGE_BIG_SIDE_WEIGHT` **−0.5** (bonus) |
 | center tie-break | `center_tiebreak` | distance between the drop column and the center. **A term only for ordering**, it does not express how good a move is | `CENTER_TIEBREAK_WEIGHT` 0.001 (max 0.19 < minimum merge score 1.0) |
 
 **These two bonuses are mutually exclusive**. Valley growing applies only **when held itself did not merge**, and the big-side merge
@@ -1174,7 +1174,7 @@ the real game's score is not broken.
 | perch | `_perch_penalty` | small fruits inside the footprint of a big fruit (from the biggest down to `PERCH_BIG_SPAN` 1 tier below) with their bottom above that big fruit's center. Counts the amount by which the type gap exceeds `PERCH_MIN_GAP` 5 (up to orange on a pineapple's shoulder is 0, dekopon 1 / grape 2 / strawberry 3 / cherry 4). Contact is not required, so shapes sitting on the pile with one tier in between are caught too. But if it fits **in a hollow whose type gap to the wall is `PERCH_RUNG_MAX_GAP` 1 or less**, it counts as the next rung and is exempt (`_is_rung`) | `PERCH_WEIGHT` 16.0x |
 | pit | `_pit_penalty` | a fruit stuck in a valley of fruits `PIT_MIN_GAP` 2 or more tiers bigger than itself, **with no same-type partner in the same valley** (judged the same as `_size_order_exempt`). The walls are too high to merge sideways, and a partner can only come through the narrow gap directly above. A type gap of 1 tier is the next rung and not counted. Where `_perch_penalty` looks "above" a big fruit, this looks "between" | `PIT_WEIGHT` 8.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
-| size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left in the same valley** are exempt = `_size_order_exempt`. A partner outside the valley is blocked by the big wall fruits, so it does not exempt). **Exempt on moves where held merged** (that hole is closed by `merge_lands_big_side` above) | pair difference×1.5 + ideal_x deviation×0.004 |
+| size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left in the same valley** are exempt = `_size_order_exempt`. A partner outside the valley is blocked by the big wall fruits, so it does not exempt). **Exempt on moves where held merged** (that hole is closed by `merge_big_side_bonus` above) | pair difference×1.5 + ideal_x deviation×0.004 |
 | corner pocket | `_corner_pocket_penalty` | the biggest fruit is on the big-side wall, yet there is a small fruit outside and below it (a fruit that gets behind L cannot meet its partner) | 50.0×(1+0.05×type gap)+depth×0.15 |
 
 **Not a penalty: the lethal-move filter (`choose_x`)**

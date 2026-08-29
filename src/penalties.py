@@ -28,7 +28,7 @@ MERGE_SLACK = 18.0
 # Sideways offset of a landing counted as directly above a different type (ratio to the lower fruit's radius).
 FOREIGN_AIM_CENTER_FRAC = 0.20
 # Penalty for landing in the center band of a different type directly below.
-FOREIGN_AIM_PENALTY = 100.0
+FOREIGN_AIM_WEIGHT = 100.0
 # A weight only for ordering tied candidates. Positions where every other term ties are the norm, and without it
 # the winning move would be decided by an implementation detail: the enumeration order of the candidate set = float hash order.
 # The smallest merge score is 1.0 (cherry -> straw), so to avoid overturning real differences it is kept at most
@@ -36,19 +36,19 @@ FOREIGN_AIM_PENALTY = 100.0
 # Do not try to express how good a move is with this.
 CENTER_TIEBREAK_WEIGHT = 0.001
 
-# Bonus for merges pushed to the big side (applied by subtracting from penalties). Only for moves where `merge_lands_big_side`
-# holds. Does not break the property that merges are ranked by the real-game score. The smallest
+# Bonus for merges pushed to the big side (applied by subtracting from penalties). The value `merge_big_side_bonus`
+# returns. Does not break the property that merges are ranked by the real game's score. The smallest
 # merge score difference is 1.0 (cherry -> straw), so it is kept to a value that does not overturn it.
 # 5x the tie band width of 0.1.
-MERGE_BIG_SIDE_BONUS = 0.5
+MERGE_BIG_SIDE_WEIGHT = 0.5
 # The minimum movement counted as pushed (ratio to the dropped fruit's radius). The merge position is the midpoint
 # of the two centers, so even moves with no intent to push normally shift by less than a radius.
 MERGE_BIG_SIDE_SLACK_FRAC = 1.0
 
-# Valley-growing bonus (applied by subtracting from penalties). Only for landings where `valley_grow_ok` holds.
+# Valley-growing bonus (applied by subtracting from penalties). The value `valley_grow_bonus` returns.
 # Not stronger than a real merge. At 8.0 it rejected a grape merge (6 points) for a non-merging valley.
 # At 2.0 it tips toward growing, and at 3.0 it still keeps taking merges (measured).
-VALLEY_GROW_BONUS = 3.0
+VALLEY_GROW_WEIGHT = 3.0
 
 # --- Wall-anchored check (shared by the corner pocket penalty and the ladder base) ---
 EDGE_ANCHOR_MIN = 24.0
@@ -196,8 +196,8 @@ def _size_order_exempt(
     breaking the order (move 35 of seed=834761: a strawberry left in the valley of a pear and a pineapple
     was exempted on the basis of a strawberry at the opposite edge x=23, and the inversion of 7.5 became 0).
 
-    Valleys of held's type cannot be seen from here, but those are picked up by the per-move `valley_grow_ok`
-    with `VALLEY_GROW_BONUS`, so it does not crush growing.
+    Valleys of held's type cannot be seen from here, but those are picked up by the per-move `valley_grow_bonus`,
+    so it does not crush growing.
     """
     flanks = _valley_flanks(fruits, fruit.x, fruit.type)
     if flanks is None:
@@ -209,13 +209,13 @@ def _size_order_exempt(
     )
 
 
-def valley_grow_ok(
+def valley_grow_bonus(
     fruits: list[Fruit] | tuple[Fruit, ...],
     land_x: float,
     drop_type: int,
     next_type: int | None,
-) -> bool:
-    """Whether it is a move that goes to grow a valley. The reference is the fruit in the valley; the wall types are not looked at.
+) -> float:
+    """A bonus for moves that go to grow a valley. The reference is the fruit in the valley; the wall types are not looked at.
 
     Targeting the valley fruit (a fruit squeezed between bigger fruits),
     - the fruit is the same type as held → dropping merges immediately
@@ -243,14 +243,14 @@ def valley_grow_ok(
             continue
         left, right = flanks
         if left.x < land_x < right.x:
-            return True
-    return False
+            return VALLEY_GROW_WEIGHT
+    return 0.0
 
 
-def merge_lands_big_side(
+def merge_big_side_bonus(
     drop_x: float, held_fruit: Fruit | None, held_r: float, sign: int
-) -> bool:
-    """Whether the fruit made by the merge ended up at least one radius toward the big side of the drop column.
+) -> float:
+    """A bonus for moves where the fruit made by the merge ends up at least one radius toward the big side of the drop column.
 
     `held_fruit` is where the dropped fruit's lineage ends up (`simulate_drop_held`). A merge
     throws the new fruit sideways by recoil, so hitting the same partner from the left or right
@@ -261,9 +261,11 @@ def merge_lands_big_side(
     so they are not looked at twice here.
     """
     if held_fruit is None:
-        return False
+        return 0.0
     toward_big = -sign * (held_fruit.x - drop_x)
-    return toward_big >= MERGE_BIG_SIDE_SLACK_FRAC * held_r
+    if toward_big < MERGE_BIG_SIDE_SLACK_FRAC * held_r:
+        return 0.0
+    return MERGE_BIG_SIDE_WEIGHT
 
 
 # --- Penalty terms ---------------------------------------------------------------
@@ -521,5 +523,5 @@ def foreign_aim_penalty(
     # If the center is off, it is not directly above. Shoulder landings are out of scope.
     if abs(x - under.x) > under.radius * FOREIGN_AIM_CENTER_FRAC:
         return 0.0
-    return FOREIGN_AIM_PENALTY
+    return FOREIGN_AIM_WEIGHT
 
