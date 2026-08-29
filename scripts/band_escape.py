@@ -85,10 +85,9 @@ def _components(
         "merge_big_side": 0.0,
     }
     if not held_merged:
-        if pen.valley_grow_ok(before, land_x, drop_type, next_type):
-            parts["valley_grow"] = pen.VALLEY_GROW_BONUS
-    elif pen.merge_lands_big_side(x, held_fruit, held_r, sign):
-        parts["merge_big_side"] = pen.MERGE_BIG_SIDE_BONUS
+        parts["valley_grow"] = pen.valley_grow_bonus(before, land_x, drop_type, next_type)
+    else:
+        parts["merge_big_side"] = pen.merge_big_side_bonus(x, held_fruit, held_r, sign)
     return parts, sum(parts.values())
 
 

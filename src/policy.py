@@ -255,13 +255,12 @@ def _evaluate_drop(
     if not held_merged:
         # Valley growing. Among non-merging moves, choose landings in valleys likely to grow.
         # Merging moves get the real-game score, so it is not added to them.
-        if pen.valley_grow_ok(before, land_x, drop_type, next_type):
-            penalties -= pen.VALLEY_GROW_BONUS
-    elif pen.merge_lands_big_side(x, held_fruit, held_r, sign):
+        penalties -= pen.valley_grow_bonus(before, land_x, drop_type, next_type)
+    else:
         # Which way the fruit made by the merge went. Merging moves are exempt from size order
         # (exempt_size_order), so no other term looks at which side it was hit from and where the new fruit was thrown.
         # At the same merge score, choose the way of hitting that pushes toward the big side.
-        penalties -= pen.MERGE_BIG_SIDE_BONUS
+        penalties -= pen.merge_big_side_bonus(x, held_fruit, held_r, sign)
     return after, score, penalties, merges, held_merged
 
 
