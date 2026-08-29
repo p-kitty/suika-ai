@@ -12,7 +12,7 @@ from src.penalties import (
     _is_nestled,
     _size_order_exempt,
     _size_order_penalty,
-    merge_lands_big_side,
+    merge_big_side_bonus,
 )
 from src.policy import choose_x
 from src.sim.sim_physics import simulate_drop_held
@@ -127,27 +127,27 @@ def test_drop_does_not_exempt_the_inversion_it_creates() -> None:
     assert dekopon.x < grape.x
 
 
-def test_merge_lands_big_side_follows_the_board_direction() -> None:
+def test_merge_big_side_bonus_follows_the_board_direction() -> None:
     """同じ移動でも、大側がどちらかで合否が反転する。"""
     held_r = fruit_radius(DEKOPON)
     moved_right = _on_floor(DEKOPON, 200.0 + held_r * (MERGE_BIG_SIDE_SLACK_FRAC + 0.1))
 
-    assert merge_lands_big_side(200.0, moved_right, held_r, -1)
-    assert not merge_lands_big_side(200.0, moved_right, held_r, LARGE_LEFT)
+    assert merge_big_side_bonus(200.0, moved_right, held_r, -1) > 0.0
+    assert merge_big_side_bonus(200.0, moved_right, held_r, LARGE_LEFT) == 0.0
 
 
-def test_merge_lands_big_side_ignores_a_shift_under_the_slack() -> None:
+def test_merge_big_side_bonus_ignores_a_shift_under_the_slack() -> None:
     """合体位置は 2 中心の中点なので、半径未満のずれは寄せたうちに入れない。"""
     held_r = fruit_radius(DEKOPON)
     slack = held_r * MERGE_BIG_SIDE_SLACK_FRAC
 
-    assert not merge_lands_big_side(200.0, _on_floor(DEKOPON, 200.0 + slack - 1.0), held_r, -1)
-    assert merge_lands_big_side(200.0, _on_floor(DEKOPON, 200.0 + slack + 1.0), held_r, -1)
+    assert merge_big_side_bonus(200.0, _on_floor(DEKOPON, 200.0 + slack - 1.0), held_r, -1) == 0.0
+    assert merge_big_side_bonus(200.0, _on_floor(DEKOPON, 200.0 + slack + 1.0), held_r, -1) > 0.0
 
 
-def test_merge_lands_big_side_needs_a_surviving_fruit() -> None:
+def test_merge_big_side_bonus_needs_a_surviving_fruit() -> None:
     """スイカまで育って消えたときは寄せ先が無い (held_fruit が None)。"""
-    assert not merge_lands_big_side(200.0, None, fruit_radius(DEKOPON), -1)
+    assert merge_big_side_bonus(200.0, None, fruit_radius(DEKOPON), -1) == 0.0
 
 
 def test_perch_is_free_in_a_one_step_notch() -> None:

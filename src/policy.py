@@ -255,13 +255,12 @@ def _evaluate_drop(
     if not held_merged:
         # 谷育成。合体しない手の中では、育つ見込みのある谷への着地を選ばせる。
         # 合体した手は本家点が付くので、そちらには足さない。
-        if pen.valley_grow_ok(before, land_x, drop_type, next_type):
-            penalties -= pen.VALLEY_GROW_BONUS
-    elif pen.merge_lands_big_side(x, held_fruit, held_r, sign):
+        penalties -= pen.valley_grow_bonus(before, land_x, drop_type, next_type)
+    else:
         # 合体でできた実がどちらへ寄ったか。合体した手は大小順を免除する
         # (exempt_size_order) ので、どちら側から当てて新実をどこへ飛ばしたかを
         # 見る項が他に無い。同じ合成点なら大側へ寄せる当て方を選ばせる。
-        penalties -= pen.MERGE_BIG_SIDE_BONUS
+        penalties -= pen.merge_big_side_bonus(x, held_fruit, held_r, sign)
     return after, score, penalties, merges, held_merged
 
 

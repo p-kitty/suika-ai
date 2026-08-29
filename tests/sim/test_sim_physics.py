@@ -408,7 +408,7 @@ def test_simulate_drop_held_false_for_unrelated_merge() -> None:
 def test_landed_xy_uses_real_position_when_only_unrelated_pair_merged() -> None:
     # 無関係なペアが合体しても、held 自身が生き残っていれば実際の静止位置を返す。
     # merges で切っていた頃はここで幾何推定を返し、着地位置を受け取る側
-    # (valley_grow_ok) が嘘の座標で動いていた。
+    # (valley_grow_bonus) が嘘の座標で動いていた。
     cherry_r = fruit_radius(0)
     melon_r = fruit_radius(9)
     orange_r = fruit_radius(4)
