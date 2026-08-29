@@ -173,6 +173,59 @@ def _sweep(
     )
 
 
+# 局どうしを比べる手番。序盤すぎると盤が育っておらず、遅すぎると届く局が減る。
+CARRY_PROBES = (40, 60, 100)
+
+
+def _carry(
+    feats: np.ndarray,
+    per_move: np.ndarray,
+    score_per_move: np.ndarray,
+    episodes: np.ndarray,
+    steps: np.ndarray,
+    ep_ids: np.ndarray,
+    alpha: float,
+) -> None:
+    """V が「局として高い score で終わるか」を当てられるかを見る。
+
+    **手番を固定して局どうしを比べる。** 局面をまたいでプールすると、同じ局の
+    連続する盤は V も残り点も似ているので相関が水増しされる（実測: プールで
+    r=0.28、手番固定で r=0.09）。的はラベルが何であれ本家点。
+    """
+    full_score = _horizon_return(score_per_move, episodes, ep_ids, None)
+    groups = np.array_split(ep_ids, SWEEP_FOLDS)
+    print("=== 局間に伝わるか (手番を固定して局どうしを比べる) ===")
+    print(f"{'当てた地平線':>12} {'手番':>6}   r(V, その局の残り点)")
+    for horizon in (100, 30, None):
+        y = _horizon_return(per_move, episodes, ep_ids, horizon)
+        for probe in CARRY_PROBES:
+            rs: list[float] = []
+            counts: list[int] = []
+            for group in groups:
+                test = np.isin(episodes, group)
+                trend = _step_trend(steps[~test], y[~test])
+                label = y - trend[np.clip(steps, 0, len(trend) - 1)]
+                mean, std = _standardize(feats[~test])
+                x = (feats - mean) / std
+                w = _ridge(x[~test], label[~test], alpha)
+                sel = test & (steps == probe)
+                if int(sel.sum()) < 5:
+                    continue
+                rs.append(float(np.corrcoef(_predict(x[sel], w), full_score[sel])[0, 1]))
+                counts.append(int(sel.sum()))
+            if not rs:
+                continue
+            name = "最後まで" if horizon is None else f"{horizon} 手"
+            print(
+                f"{name:>12} {probe:>6}   {np.mean(rs):+.3f} ± {np.std(rs):.3f}"
+                f"   (局 {int(np.mean(counts))}/fold)"
+            )
+    print(
+        "\n±SD が平均を覆っている行は 0 と区別が付かない。NOTES が逆転率について"
+        "\n記録した r=0.00〜0.12 と同じ range なら、エピソード単位では使えない。"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -211,25 +264,49 @@ def main() -> None:
         metavar="K",
         help="ラベルを先 K 手ぶんの点にする (既定は局の最後まで)",
     )
+    parser.add_argument(
+        "--label",
+        choices=("score", "cascades"),
+        default="score",
+        help="数える量。cascades は 1 手 3 合成以上の回数 (score より低分散)",
+    )
+    parser.add_argument(
+        "--carry",
+        action="store_true",
+        help="局間に伝わるかだけ測る (手番を固定して局どうしを比べる)",
+    )
     args = parser.parse_args()
 
     data = np.load(args.data)
     feats = data["feats"]
-    returns = data["returns"]
     episodes = data["episodes"]
     steps = data["steps"]
     truncated = data["truncated"]
 
+    if args.label == "cascades" and "merges" not in data:
+        raise SystemExit(
+            f"{args.data} に merges が無い。cascades を数えるには集め直しが要る"
+        )
+    # 手ごとに数える量。cascades は 1 手 3 合成以上 (NOTES で score に対して
+    # 検証済みの唯一の代理指標。感度比 1.34〜1.40、r(score) 0.83)。
+    per_move = (
+        data["rewards"].astype(np.float64)
+        if args.label == "score"
+        else (data["merges"] >= 3).astype(np.float64)
+    )
+
     keep = np.ones(len(feats), dtype=bool) if args.keep_truncated else ~truncated
     dropped = int((~keep).sum())
-    feats, returns, episodes, steps = (
+    feats, episodes, steps, per_move = (
         feats[keep],
-        returns[keep],
         episodes[keep],
         steps[keep],
+        per_move[keep],
     )
     if len(feats) == 0:
         raise SystemExit("学習に使える手が残らなかった")
+    # 最終 score へ伝わるかを見る側の的は、ラベルが何であれ本家点。
+    score_per_move = data["rewards"].astype(np.float64)[keep]
 
     ep_ids = np.array(sorted(set(episodes.tolist())))
     n_test = max(1, int(len(ep_ids) * HOLDOUT_FRAC))
@@ -243,9 +320,15 @@ def main() -> None:
     )
     print(f"held-out: {n_test} エピソード / {int(is_test.sum())} 手\n")
 
+    print(f"数える量: {args.label}\n")
     if args.sweep:
-        _sweep(feats, data["rewards"][keep], episodes, steps, ep_ids)
+        _sweep(feats, per_move, episodes, steps, ep_ids)
         return
+    if args.carry:
+        _carry(feats, per_move, score_per_move, episodes, steps, ep_ids, args.alpha)
+        return
+
+    returns = _horizon_return(per_move, episodes, ep_ids, None)
 
     cand_feats = data["cand_feats"]
     cand_rewards = data["cand_rewards"]
@@ -279,7 +362,7 @@ def main() -> None:
     if args.horizon is None:
         label = returns
     else:
-        label = _horizon_return(data["rewards"][keep], episodes, ep_ids, args.horizon)
+        label = _horizon_return(per_move, episodes, ep_ids, args.horizon)
     if args.detrend:
         trend = _step_trend(steps[~is_test], label[~is_test])
         label = label - trend[np.clip(steps, 0, len(trend) - 1)]
