@@ -1,11 +1,20 @@
 # AGENTS.md — how to work in this repo
 
+**Only two things to check before touching anything.** If you are on `master`, cut a branch
+(→[git](#git)). If the work falls under [When in doubt, ask before touching anything](#when-in-doubt-ask-before-touching-anything),
+ask instead of starting. The remaining sections are conventions per area,
+so read them when you touch that area.
+
 ## Who owns which document
 
 Each of the three has a separate role. **Do not write the same thing in two places**.
 
 - **AGENTS.md (this file)** … how to work. Commands, code conventions, how changes proceed,
-  repo-specific traps. Write it so "the next person can follow the same steps". No numbers
+  repo-specific traps. Write it so "the next person can follow the same steps".
+  **Do not write measured numbers (score, n, significance, measured run time).** What you may write is
+  defaults and thresholds you would stop to look up when typing a command (`--episodes 50`, `--skip 60`), and
+  the order of magnitude of run cost that changes whether to ask (seconds / minutes / hours).
+  Link to NOTES.md for the measurement behind such a value
 - **[NOTES.md](NOTES.md)** … domain knowledge and experiment log for the game and the policy. What measurements showed,
   failed attempts, the current penalty rules, open tasks. "Why this design", "what did it score"
 - **[README.md](README.md)** … the entry point for humans (English). Setup, how to run, layout
@@ -14,8 +23,9 @@ Where things go when unsure:
 
 | What you want to write | Where it goes |
 |---|---|
-| How to run tests / lint / scripts | AGENTS.md |
-| Measurement results and conclusions such as score, n, CI | NOTES.md |
+| How to run tests / lint / scripts, default arguments | AGENTS.md |
+| Why a default has that value | NOTES.md (link from AGENTS.md without the numbers) |
+| Measurement results and conclusions such as score, n, CI, run time | NOTES.md |
 | Penalty weights and their meaning, policy design decisions | NOTES.md |
 | Procedures such as "plug A/B changes into `_apply_variant`" | AGENTS.md (the resulting numbers go to NOTES.md) |
 | Attempts that had no effect, things decided against | NOTES.md |
@@ -58,14 +68,16 @@ wastes all the time already spent.
 
 Ask first:
 
-- **When running a measurement that takes hours.** Estimate the time from `--episodes` × `--max-steps`,
-  and confirm together with what that n can tell us ([How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in)).
-  There are examples such as 2.6 hours at n=100 and n=529 = 14 hours to reach significance
-- **When running something that fills the CPU. The line is the degree of parallelism, not the run time.** The user actually plays
-  the real Suika Game on the same machine. When something taking `--workers` (`compare_policy.py`,
-  `eval_policy.py`, `train_sim.py`) fills every core, the game stutters and becomes
-  unplayable. Background runs are the same. Ask with an option of fewer `--workers`.
-  Screening that only calls `choose_x` serially on a single thread and pytest need no asking
+- **When running a script that takes `--workers`.** The four scripts are `compare_policy.py`,
+  `compare_b_only.py`, `eval_policy.py` and `train_sim.py`; **always ask first, without exception**.
+  **The line is the script name, not the run time**. Judging by "it will probably be short"
+  wastes exactly the amount by which the estimate is wrong. Background runs are the same.
+  Include two things when asking:
+  - The expected time from `--episodes` × `--max-steps`, and what that n can tell us
+    (→[How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in). Examples that take hours
+    are listed there)
+  - An option with fewer `--workers`. The user actually plays the real Suika Game on the same machine,
+    and when every core is busy the game stutters and becomes unplayable
 - **When overturning a decision settled in NOTES.md.** To bring back or delete something marked
   "made permanent", "reverted" or "won't do", present the evidence and confirm
 - **When changing the design.** Splitting or renaming modules, large refactors, rebuilding features or
@@ -81,7 +93,8 @@ OK to proceed without asking:
 
 - Bug fixes, adding tests, fixing lint, recording in NOTES.md
 - Cutting a branch, committing ([git](#git))
-- Short sim runs (ones that finish in minutes)
+- Runs that do not take `--workers` — `pytest`, and screening that calls `choose_x` serially on a single thread
+  (`band_escape.py` and the like)
 - When a request reads two ways but the deliverable is nearly the same either way
 
 Ask everything in one go. Include the options and a recommendation, and keep doing the parts that do not depend on the answer.
@@ -97,7 +110,7 @@ Ask everything in one go. Include the options and a recommendation, and keep doi
 ## Common commands
 
 ```powershell
-pytest                 # about 160 tests, just under 8 seconds. Every time you change something
+pytest                 # finishes in seconds. Every time you change something
 basedpyright           # types. Pre-existing errors may remain, so check whether they come from your diff
 ruff check --fix       # unused imports / variables only (select = F401, F841)
 vulture                # unreferenced functions and constants. False positives; check callers before deleting
@@ -125,47 +138,39 @@ Examples of sim evaluation, A/B and training runs are in the README Scripts sect
 
 ## When touching the policy or training
 
-- **Read [How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in) before reporting numbers.**
-  Score noise is large; a rise or fall in the mean alone says nothing
-- **Run `python scripts/band_escape.py` before an A/B.** Inside the tie band the choice is indifferent, so
-  ([measured](NOTES.md#settled-the-tie-band-really-is-indifferent-2026-08-19)), so "what fraction of moves change"
-  is not a screen. Look at **the fraction that escapes the band**. If that is a few %, running the A/B
-  score does not move. It finishes in minutes
-- **Do not penalize board properties the current move cannot change.** A term with the same value for every candidate
-  adds equally to all of them and does not change the ranking. No matter how much you multiply the weight.
-  Look at the shape the dropped fruit itself creates
-  (→[Properties that cannot be changed](NOTES.md#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21))
-- **Some terms work in the early game even when their band escape is 0%.** The screening default is
-  `--skip 60`, which collects only the late game. Terms divided by the number of fruits are stronger on sparse boards,
-  so deleting based on that view alone breaks early-game behavior. **Before deleting, pass `pytest` and
-  rerun with `--skip 0` too** (→[Terms divided by an average](NOTES.md#terms-divided-by-an-average-thin-out-as-the-board-fills-2026-08-21))
-- **If an `early_*` metric is significant in an A/B, that is evidence that "something changed".** It is a separate matter from
-  "it does not correlate with score, so it is not a proxy". Do not ignore it and go delete things
-- **One rule per term. Split by the number of weights, not by the complexity of the condition.**
-  Something like the corner pocket that looks at "wall-anchored + outside + below + depth" is fine as one rule.
-  **If it needs two weights there are two rules**, so split the function, or at least make the weights
-  separate module constants. Left combined, `_apply_variant` cannot cut just one of them,
-  and the A/B can only measure them "together". **A dead rule hides in the shadow of
-  a live one** (→[Split composite terms into sub-terms](NOTES.md#split-composite-terms-into-sub-terms-2026-08-21))
-- **Put rule weights in module constants in `src/penalties.py`.** Written as function locals,
-  `_apply_variant` cannot reach them and that rule alone cannot be put through an A/B
-- Run an A/B by plugging the change into `_apply_variant` in `scripts/compare_policy.py`.
-  When making it permanent, revert the variant and **leave no ON/OFF toggle in the code**.
-  To compare with another commit, see the worktree item under [git](#git)
-- **The measurement default is `--episodes 50 --max-steps 400`. A change without a significant difference here
-  is considered not worth adding.** Do not keep piling up n until it becomes significant.
-  What this screen throws away is in
-  [How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in)
-- **Side A is the same policy across variants, so do not rerun it.** Once
-  saved with `--out`, from then on use `scripts/compare_b_only.py --baseline <that json>`
-  to run only B. It halves the compute. Discard the baseline when the policy itself
-  changes (a warning appears when `baseline_commit` in the JSON differs from HEAD)
-- When adding or removing a penalty rule or changing a weight, update NOTES.md's
-  [Current penalty rules](NOTES.md#current-penalty-rules) in the same diff
-- **Keep attempts that had no effect in NOTES.md too.** Write the content, n, conclusion and that it was reverted.
-  The record exists so nobody walks the same road twice; keeping only the successes makes it pointless
-- For a pure refactor, confirm play does not change
-  (whether x / score / penalties / merge match over a few hundred moves on the same seeds)
+Changes that alter play go through the order below. Only a pure refactor that is not meant to change play
+is different: it is enough to confirm that **x / score / penalties / merge match over a few hundred moves on the same seeds**
+(if they do not match it is not a refactor, so it goes through the order).
+
+### Order of steps
+
+**Top to bottom. Do not move on with a step skipped.** Steps 1-3 each take minutes,
+and many changes actually fail here.
+
+1. **Read [How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in).**
+   Score noise is large; a rise or fall in the mean alone says nothing
+2. **Check in view_sim that no obvious blunders remain.** If they do, do not go to the A/B;
+   fix them first (→[Do not run an A/B while obvious blunders remain](#do-not-run-an-ab-while-obvious-blunders-remain))
+3. **Screen with `python scripts/band_escape.py`.** Inside the tie band the choice is indifferent, so
+   ([measured](NOTES.md#settled-the-tie-band-really-is-indifferent-2026-08-19)), so "what fraction of moves change"
+   is not a screen. Look at **the fraction that escapes the band**. If that is a few %, running the A/B
+   score does not move
+4. **Run the A/B** (it takes `--workers`, so ask first →
+   [When in doubt, ask before touching anything](#when-in-doubt-ask-before-touching-anything)). Plug the change into
+   `_apply_variant` in `scripts/compare_policy.py`. The default is
+   `--episodes 50 --max-steps 400`, and **a change without a significant difference here is
+   considered not worth adding**. Do not keep piling up n until it becomes significant (what this screen
+   throws away is in [How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in)).
+   **Side A is the same policy across variants, so do not rerun it.** Once saved with `--out`,
+   run only B from then on with `scripts/compare_b_only.py --baseline <that json>`.
+   It halves the compute. Discard the baseline when the policy itself changes
+   (a warning appears when `baseline_commit` in the JSON differs from HEAD)
+5. **Make it permanent.** Revert the variant in `_apply_variant`, and **leave no ON/OFF toggle
+   in the code**. To compare with another commit, see the worktree item under [git](#git)
+6. **Fix NOTES.md in the same diff.** If you added or removed a rule or changed a weight, update
+   [Current penalty rules](NOTES.md#current-penalty-rules).
+   **Keep attempts that had no effect too** — the content, n, conclusion and the fact it was reverted.
+   The record exists so nobody walks the same road twice; keeping only the successes makes it pointless
 
 ### Do not run an A/B while obvious blunders remain
 
@@ -195,6 +200,30 @@ When a blunder seed and symptom come up, replay that one game and follow it move
 so the score difference cannot be told apart from draw luck. All one game can tell you is "was that move fixed"
 and "did a new pathology appear".
 
+### How to write a rule
+
+- **Do not penalize board properties the current move cannot change.** A term with the same value for every candidate
+  adds equally to all of them and does not change the ranking. No matter how much you multiply the weight.
+  Look at the shape the dropped fruit itself creates
+  (→[Properties that cannot be changed](NOTES.md#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21))
+- **One rule per term. Split by the number of weights, not by the complexity of the condition.**
+  Something like the corner pocket that looks at "wall-anchored + outside + below + depth" is fine as one rule.
+  **If it needs two weights there are two rules**, so split the function, or at least make the weights
+  separate module constants. Left combined, `_apply_variant` cannot cut just one of them,
+  and the A/B can only measure them "together". **A dead rule hides in the shadow of
+  a live one** (→[Split composite terms into sub-terms](NOTES.md#split-composite-terms-into-sub-terms-2026-08-21))
+- **Put rule weights in module constants in `src/penalties.py`.** Written as function locals,
+  `_apply_variant` cannot reach them and that rule alone cannot be put through an A/B
+
+### Before deleting a rule
+
+- **Some terms work in the early game even when their band escape is 0%.** The screening default is
+  `--skip 60`, which collects only the late game. Terms divided by the number of fruits are stronger on sparse boards,
+  so deleting based on that view alone breaks early-game behavior. **Before deleting, pass `pytest` and
+  rerun with `--skip 0` too** (→[Terms divided by an average](NOTES.md#terms-divided-by-an-average-thin-out-as-the-board-fills-2026-08-21))
+- **If an `early_*` metric is significant in an A/B, that is evidence that "something changed".** It is a separate matter from
+  "it does not correlate with score, so it is not a proxy". Do not ignore it and go delete things
+
 ## git
 
 All git operations are collected in this section. Do not scatter them into other sections.
@@ -203,7 +232,7 @@ All git operations are collected in this section. Do not scatter them into other
 
 - **Do not work on `master`.** Cut a branch before touching anything:
   `git switch -c <topic>` (e.g. `fix-wall-friction`, `docs-agents-md`)
-- PRs target `main`
+- PRs target `master`
 
 **commit**
 
@@ -213,7 +242,7 @@ All git operations are collected in this section. Do not scatter them into other
   with an imperative one-line summary
 - The body says **why** and **how it was checked**. For a pure refactor, include
   how play invariance was verified. Recent commits are the model
-- Run `pytest` before committing (just under 8 seconds). If you changed the policy, report numbers following
+- Run `pytest` before committing (seconds). If you changed the policy, report numbers following
   [How to measure](NOTES.md#how-to-measure-traps-we-keep-stepping-in)
 
 **merge**
