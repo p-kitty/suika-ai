@@ -28,7 +28,7 @@ MERGE_SLACK = 18.0
 # 異種真上とみなす着地の横ずれ (下実半径に対する割合)。
 FOREIGN_AIM_CENTER_FRAC = 0.20
 # 真下の異種中心帯に着地したときの減点。
-FOREIGN_AIM_PENALTY = 100.0
+FOREIGN_AIM_WEIGHT = 100.0
 # 同点候補の順位を決めるためだけの重み。他の項が全部並ぶ局面は常態で、これが無いと
 # 勝つ手が候補 set の列挙順 = float のハッシュ順という実装詳細で決まってしまう。
 # 最小の合成点が 1.0 (cherry -> straw) なので、本物の差を覆さないよう最大でも
@@ -36,19 +36,19 @@ FOREIGN_AIM_PENALTY = 100.0
 # 手の良し悪しをこれで表そうとしないこと。
 CENTER_TIEBREAK_WEIGHT = 0.001
 
-# 大側へ寄せた合体のボーナス (減点から引く形で入れる)。`merge_lands_big_side`
-# が成立する手だけ。合体どうしの順位を本家点で決める性質は壊さない。最小の
+# 大側へ寄せた合体のボーナス (減点から引く形で入れる)。`merge_big_side_bonus`
+# が返す値。合体どうしの順位を本家点で決める性質は壊さない。最小の
 # 合成点差が 1.0 (cherry -> straw) なので、それを覆さない値に収める。
 # 同点帯の幅 0.1 の 5 倍。
-MERGE_BIG_SIDE_BONUS = 0.5
+MERGE_BIG_SIDE_WEIGHT = 0.5
 # 寄せたと認める最小の移動量 (落とした実の半径に対する割合)。合体位置は 2 中心の
 # 中点なので、寄せる意図の無い手でも半径未満はふつうにずれる。
 MERGE_BIG_SIDE_SLACK_FRAC = 1.0
 
-# 谷育成ボーナス (減点から引く形で入れる)。`valley_grow_ok` が成立する着地だけ。
+# 谷育成ボーナス (減点から引く形で入れる)。`valley_grow_bonus` が返す値。
 # 実合体より強くしない。8.0 だと grape 合体 (6 点) を蹴って非合体の谷を選んだ。
 # 2.0 で育成側に倒れ、3.0 でも合体は取り続ける (実測)。
-VALLEY_GROW_BONUS = 3.0
+VALLEY_GROW_WEIGHT = 3.0
 
 # --- 壁付き判定 (角ポケット減点と梯子の土台で共有) ---
 EDGE_ANCHOR_MIN = 24.0
@@ -196,8 +196,8 @@ def _size_order_exempt(
     まま居座る (seed=834761 の 35 手目: ナシとパインの谷に残ったいちごが、
     反対端 x=23 のいちごを根拠に免除され、逆転 7.5 が 0 になっていた)。
 
-    held と同種の谷はここからは見えないが、そちらは手ごとの `valley_grow_ok`
-    が `VALLEY_GROW_BONUS` で拾うので、育成を潰すことにはならない。
+    held と同種の谷はここからは見えないが、そちらは手ごとの `valley_grow_bonus`
+    が拾うので、育成を潰すことにはならない。
     """
     flanks = _valley_flanks(fruits, fruit.x, fruit.type)
     if flanks is None:
@@ -209,13 +209,13 @@ def _size_order_exempt(
     )
 
 
-def valley_grow_ok(
+def valley_grow_bonus(
     fruits: list[Fruit] | tuple[Fruit, ...],
     land_x: float,
     drop_type: int,
     next_type: int | None,
-) -> bool:
-    """谷を育てにいく手か。基準は谷に入っている実で、壁の型は見ない。
+) -> float:
+    """谷を育てにいく手へのボーナス。基準は谷に入っている実で、壁の型は見ない。
 
     谷の実 (より大きい実に挟まれている実) を的にして、
     - その実が held と同種 → 落とせばそのまま合体する
@@ -243,14 +243,14 @@ def valley_grow_ok(
             continue
         left, right = flanks
         if left.x < land_x < right.x:
-            return True
-    return False
+            return VALLEY_GROW_WEIGHT
+    return 0.0
 
 
-def merge_lands_big_side(
+def merge_big_side_bonus(
     drop_x: float, held_fruit: Fruit | None, held_r: float, sign: int
-) -> bool:
-    """合体でできた実が、落とした列より大側へ半径 1 つぶん以上寄ったか。
+) -> float:
+    """合体でできた実が、落とした列より大側へ半径 1 つぶん以上寄った手へのボーナス。
 
     `held_fruit` は落とした実の系譜が最後に居る実 (`simulate_drop_held`)。合体は
     反動で新実を横へ飛ばすので、同じ相方に当てても左右どちらから当てるかで
@@ -261,9 +261,11 @@ def merge_lands_big_side(
     そのまま見ているので、こちらで二重に見ない。
     """
     if held_fruit is None:
-        return False
+        return 0.0
     toward_big = -sign * (held_fruit.x - drop_x)
-    return toward_big >= MERGE_BIG_SIDE_SLACK_FRAC * held_r
+    if toward_big < MERGE_BIG_SIDE_SLACK_FRAC * held_r:
+        return 0.0
+    return MERGE_BIG_SIDE_WEIGHT
 
 
 # --- 減点項 ---------------------------------------------------------------
@@ -521,5 +523,5 @@ def foreign_aim_penalty(
     # 中心がずれていれば真上ではない。肩着地は対象外。
     if abs(x - under.x) > under.radius * FOREIGN_AIM_CENTER_FRAC:
         return 0.0
-    return FOREIGN_AIM_PENALTY
+    return FOREIGN_AIM_WEIGHT
 

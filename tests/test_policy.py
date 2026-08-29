@@ -12,8 +12,8 @@ import pytest
 from src.observe import Observation, clamp_drop_x
 from src.penalties import (
     FOREIGN_AIM_CENTER_FRAC,
-    FOREIGN_AIM_PENALTY,
-    MERGE_BIG_SIDE_BONUS,
+    FOREIGN_AIM_WEIGHT,
+    MERGE_BIG_SIDE_WEIGHT,
     center_tiebreak,
     foreign_aim_penalty,
     ideal_x,
@@ -136,7 +136,7 @@ def test_prefers_held_that_enables_next_merge() -> None:
 def test_grows_valley_fruit_when_held_and_next_are_one_smaller() -> None:
     # 谷に ぶどう、held/next が いちご (谷の実のひとつ下)。2 枚落とせば ぶどうに
     # なって谷の ぶどう と合体するので、隅に逃がさず谷に置く。
-    from src.penalties import valley_grow_ok
+    from src.penalties import valley_grow_bonus
 
     orange_r = fruit_radius(4)
     apple_r = fruit_radius(5)
@@ -165,7 +165,7 @@ def test_grows_valley_fruit_when_held_and_next_are_one_smaller() -> None:
     obs = _obs(held_type=1, fruits=fruits, next_type=1)
     land_x, _land_y = preview_land(fruits, 1, choose_x(obs), straw_r)
     assert left.x < land_x < right.x
-    assert valley_grow_ok(fruits, land_x, 1, 1)
+    assert valley_grow_bonus(fruits, land_x, 1, 1) > 0.0
 
 
 def test_does_not_grow_smaller_junk_in_valley() -> None:
@@ -352,7 +352,7 @@ def test_foreign_aim_ignores_buried_foreign() -> None:
     # りんご中央列を狙うが、真下接触するのはずれたぶどうの方。
     assert foreign_aim_penalty((apple, grape), apple.x, 4, orange_r) == 0.0
     # 異種の頭をガチ真上から狙えば減点する。
-    assert foreign_aim_penalty((apple,), apple.x, 4, orange_r) == FOREIGN_AIM_PENALTY
+    assert foreign_aim_penalty((apple,), apple.x, 4, orange_r) == FOREIGN_AIM_WEIGHT
 
 
 def test_foreign_aim_ok_when_same_type_below() -> None:
@@ -375,7 +375,7 @@ def test_foreign_aim_penalizes_foreign_below_even_if_near_same_type() -> None:
         radius=orange_r,
         confidence=90,
     )
-    assert foreign_aim_penalty((apple, mate), apple.x, 4, orange_r) == FOREIGN_AIM_PENALTY
+    assert foreign_aim_penalty((apple, mate), apple.x, 4, orange_r) == FOREIGN_AIM_WEIGHT
 
 
 def test_merges_when_three_same_type_waiting() -> None:
@@ -741,7 +741,7 @@ def test_merge_big_side_bonus_never_outranks_a_merge() -> None:
     合体どうしの順位は本家点で決まる、という性質をここで固定する
     (`center_tiebreak` の同名テストと同じ理由)。
     """
-    assert MERGE_BIG_SIDE_BONUS < merge_points(0)
+    assert MERGE_BIG_SIDE_WEIGHT < merge_points(0)
 
 
 def test_prefers_a_big_shoulder_over_roofing_a_lone_fruit() -> None:
