@@ -133,6 +133,15 @@ sim の評価・A/B・学習の実行例は README の Scripts と
   module 属性を書き換えて差し替えるので、束縛すると A と B が同じ方策で走ってしまう
 - `scripts/*.py` は先頭の `sys.path.insert` → `from scripts._bootstrap import ROOT`
   の形を踏襲する（path を足す関数は作らない）
+- **学習データは 2 系統あり、混ぜない。** BC 用は `src/training/encode.py`
+  （**落とす前**の盤 → 教師の行動）、価値関数用は `src/training/features.py`
+  （**落下後**の盤 → 実リターン。収集は `scripts/collect_value.py`）。価値側の特徴は
+  **項ごとに別の列で渡し、合計しない**。合計すると学習側が重み配分を学び直せず、
+  教師の eval を近似するだけになる
+  （→[NOTES](NOTES.md#決めた-価値は教師の-eval-ではなく実リターンから学ぶ-2026-08-30)）
+- **候補表が要るときは `policy.rank_candidates` を呼び、その結果を
+  `choose_x(obs, ranked=...)` へ渡す。** 手選びの規則を呼び出し側へ写さない
+  （写すと `choose_x` を変えたときに黙ってずれる）。物理を二度回さない意味もある
 - test は具体手順を固定しない。合成・危険回避・事故防止といった**方策の性質**を
   assert する（`tests/test_policy.py` の冒頭方針）。落下物理は `tests/sim/test_sim_physics.py`
 
