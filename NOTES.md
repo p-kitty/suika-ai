@@ -1357,11 +1357,11 @@ Seed head-to-head win 59 / loss 41. Significance would need n≈136.
 - `src/reward.py`: `merge_score(merge_types)` gives only merge points identical to the real game (cherry→0 …
   watermelon 55, double clear 65). No survival bonus or death penalty
 - `src/training/encode.py`: fixed-length observation vector (the board **before the drop**; for BC)
-- `src/training/features.py`: features of the board **after the drop** (for the value function). Passed as a separate column per term,
-  **never summed** (summing leaves the learner unable to relearn the weighting). `size_order` is the sum of 2 rules, so
-  it is split here too (→[Split composite terms into sub-terms](#split-composite-terms-into-sub-terms-2026-08-21))
+- `src/training/features.py`: features of the board **after the drop** (for the value function; one column per term)
 - Collecting value data: `python scripts/collect_value.py --episodes 20`
   (post-drop board -> points actually scored afterwards. The candidate table is also kept every `--candidate-stride` moves)
+- Fitting and screening the value: `python scripts/train_value.py`
+  (`--sweep` for the signal per horizon, `--carry` for whether it carries across games)
 - `src/sim/sim_env.py`: headless drop sim. `SimStep` is the real game's `score` only
 - Evaluation: `python scripts/eval_policy.py` (`--policy bootstrap|learned`. `--workers` default = logical cores/2)
 - A/B: `python scripts/compare_policy.py`. **Plug the change you want to compare into `_apply_variant`**
@@ -1410,8 +1410,6 @@ it is not at the level of "able to imitate the teacher".
 An external point ("the teacher actually drops candidates and looks at the results, while the learner only sees
 the board before the drop") was right, and its substance is the same as the 2026-08-05 conclusion above. The features were moved
 to the post-drop board (`src/training/features.py` / `scripts/collect_value.py`).
-Collection passes the candidate table from `policy.rank_candidates` back into `choose_x`, so the physics runs
-only once (recomputing would simply double the cost).
 
 **The label is the realized return. Do not regress the teacher's eval.** Merely approximating eval
 hits the same ceiling as the teacher. The inside of the band was measured as truly indifferent at n=133
@@ -1425,69 +1423,10 @@ in [the lethal filter](#wont-do-deepen-the-lethal-filter-to-two-plies-2026-08-20
 in 0/10 cases for over 30x the search. **"The branching point is 3 or more moves earlier" was written
 as a reason not to deepen**, not as grounds to deepen. It is easy to misread, so this note is added.
 
-### Measured: the learned V cannot tell good boards from bad at n=20 (2026-08-30)
-
-Ridge was fitted on 20 games, 5164 moves, 27502 candidate rows (`python scripts/train_value.py`).
-Collection took 8.2 minutes, 0/20 truncated.
-
-**It puts an order into the band.** All candidates tie inside the band in only **16.0%** of positions; in 84% V
-makes a difference inside the band. 87.3% escape the band. **But do not read this as "better than the teacher".**
-[The screen](#screen-on-does-it-escape-the-band) is a tool that measures **whether tuning a weight escapes the band**, and
-a whole different scoring function escaping it is to be expected. All that can be said here is
-**that it does not collapse to a constant like `_corner_lift_penalty`**. Whether it is good only comes out of an A/B.
-
-**Most of the fit is "how many moves are left"**. Against test R² 0.688,
-r(V, move number) = **−0.948**. The largest coefficient is `units` (−650.8, 6x the next), but
-**it is a quantity conserved by merges, so it is exactly equal for every candidate in the same position** (measured 100.0%).
-In other words the main earner of the fit **has no effect whatsoever on ranking**
-(→[Properties that cannot be changed](#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21)).
-`sign` 100% / `watermelon_count` 99.7% / `melon_count` 99.5% / `max_type` 97.7% are the same.
-Removing these 4 takes test R² from 0.688 → 0.651.
-
-**What decides the ranking is the continuous quantities.** What moves between candidates is `size_order_pair`
-(median range 39.0, all candidates tie 3.1%), `size_order_ideal` 0.0%, `big_wall_gap` 0.0%,
-`big_floor_gap` 3.1%, `crown_margin` 3.1%, `mean_height` 3.1%.
-
-**`big_cornered` (touching both wall and floor) has all candidates tie in 83.1%** —
-the same constant collapse as [the failed `_corner_lift_penalty`](#ideas-that-did-not-work-dropped-at-screening).
-**Corner geometry dies as a binary but lives as a continuous quantity** (`big_wall_gap` / `big_floor_gap` differ
-between candidates in 97-100% of positions). When writing the next term that looks at corners, use this form.
-
-**n=20 is not enough to read coefficients.** There are 5164 rows but only 20 independent games, and
-as r(return, move number) = −0.815 shows, the label is dominated by within-game structure.
-Do not settle the sign or size of individual coefficients from this.
-
-**Subtracting the move number makes the fit vanish.** Subtracting the per-move-number mean from the label,
-also removing the 4 that do not affect ranking, and refitting gives **train R² 0.117 / test R² −0.004**.
-In other words **R² 0.688 is almost entirely the clock**, and "is the board good compared with the average at the same move number"
-is not predicted. It can be refit with `python scripts/train_value.py --detrend --drop-dead`.
-
-**At what time scale the signal is** (`--sweep`. 4-fold, split by episode, alpha=100):
-
-| Label | without detrend | with detrend |
-|---|---|---|
-| to the end | 0.684 ± 0.069 | **−0.024 ± 0.158** |
-| 100 moves | 0.552 ± 0.072 | 0.163 ± 0.192 |
-| 30 moves | 0.146 ± 0.044 | 0.055 ± 0.073 |
-| 10 moves | 0.095 ± 0.027 | 0.081 ± 0.034 |
-| 3 moves | 0.070 ± 0.017 | 0.065 ± 0.022 |
-| 1 move | 0.030 ± 0.007 | 0.028 ± 0.010 |
-
-- **The return to the end cannot be predicted once the move number is removed** (indistinguishable from 0)
-- **Short horizons have a small but real signal** (1-10 moves; the between-fold SD is much smaller
-  than the mean). **But that range is already seen directly by `choose_x` through simulate and the next lookahead**,
-  so there is little benefit in adding V
-- **The real target is the middle (100 moves), but n=20 cannot read it**. 0.163 against a between-fold SD of 0.192,
-  which exceeds the mean. **Settling this is the next measurement**
-- Tuning alpha from 1-10000 does not change the order. It is not under-regularization
-
-**Do not run an A/B in this state.** 81.7% escaping the band only means "V chooses different moves
-from the teacher", with no guarantee its ranking is right. Replacing 80% of moves with a wrong ranking
-would be worse than the teacher. **First settle the 100-move horizon signal with n.**
-
-### Measured: the 100-move horizon signal is real; whether it reaches final score is open (n=100, 2026-08-30)
+### Measured: V predicts the next 100 moves (n=100, 2026-08-30)
 
 100 games, 24421 moves, 130236 candidate rows (33.6 minutes, `--workers 8`, 0/100 truncated, corner watermelons 10/100).
+The fit is ridge (`python scripts/train_value.py`; closed form, numpy only).
 
 `--sweep` (alpha=100, 4-fold, split by episode):
 
@@ -1500,41 +1439,41 @@ would be worse than the teacher. **First settle the 100-move horizon signal with
 | 3 moves | 0.091 ± 0.005 | 0.087 ± 0.003 |
 | 1 move | 0.039 ± 0.003 | 0.038 ± 0.002 |
 
-**The 100 moves unreadable at n=20 tightened to 0.167 ± 0.033** (the between-fold SD is 1/6).
-Board features **really do predict the points of the next 100 moves**.
-Fitted with `--horizon 100 --detrend --drop-dead`: test R² 0.151, r(V, move number) −0.153,
-all candidates tie inside the band 14.1%, 79.5% escape the band.
+- **detrend is needed.** A raw fit can be earned from "how many moves are left"
+  (without detrend, test R² 0.688, r(V, move number) −0.948). Only after subtracting the mean per move number does it measure
+  "is this board good compared with the average at the same move number"
+- **`--horizon 100 --detrend --drop-dead` is best** (test R² 0.151, r(V, move number) −0.153)
+- **Short horizons (1-10 moves) have signal too but no benefit.** That range is already seen directly by `choose_x`
+  through simulate and the next lookahead
+- Tuning alpha from 1-10000 does not change the order. It is not under-regularization
 
-**Correction: "to the end" predicts the ranking even with R² at 0.** R² also penalizes scale mismatch, so
-for a high-variance final return it collapses to 0. **By correlation, which looks only at ranking, r = 0.286 ± 0.042**
-(0.277 ± 0.040 even for the V fitted on 100 moves). **Only the ranking is used, so R² must not
-be used as the screen.** Reading "to the end 0.013" in the table above as "no signal" is wrong.
+**Do not use R² as the screen.** R² also penalizes scale mismatch, so for a high-variance final return
+it collapses to 0 even when the ranking is right (measured R² 0.013 against **r = 0.286 ± 0.042**).
+Only the ranking is used, so correlation is what to look at. Reading "to the end 0.013" in the table above as
+"no signal" is wrong.
 
-**But it does not show per episode.** Fixing the move number and comparing games gives
-r = +0.09 (move 40) / +0.09 (60) / +0.03 (100), with between-fold SD 0.11-0.17,
-**indistinguishable from 0** (100 games / 25 games per fold). This is
-[r = 0.00-0.12 recorded for the inversion rate](#how-to-measure-traps-we-keep-stepping-in),
-values for which that metric was concluded "unusable as a per-episode metric".
+**It puts an order into the band (all candidates tie inside the band 14.1%, outside the band 79.5%), but this is not a pass.**
+[The screen](#screen-on-does-it-escape-the-band) is a tool that measures **whether tuning a weight escapes the band**, so
+a whole different scoring function escaping it is to be expected. All it says is that it does not collapse to a constant
+like [`_corner_lift_penalty`](#ideas-that-did-not-work-dropped-at-screening)
+did.
 
-**So "boards that earn well over the next 100 moves" can be predicted, but "games that end with a high score"
-cannot yet.** Whether maximizing the former raises the latter cannot in principle come out of
-per-position measurement (→[the value of a single move cannot be measured with rollouts](#how-to-measure-traps-we-keep-stepping-in)).
+**Features that do not move between candidates do not affect the ranking however much fit they earn**
+(→[Properties that cannot be changed](#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21)).
+`units` is a quantity conserved by merges, so it is **exactly equal for every candidate in the same position** (measured 100.0%),
+yet without detrend it gets the largest coefficient. `sign` 100% / `watermelon_count` 99.8% /
+`melon_count` 99.5% / `max_type` 97.7% are the same. What decides the ranking is
+the continuous quantities: `size_order_pair` (all candidates tie 3.2%), `size_order_ideal` 0.0%, `big_wall_gap` 0.4%,
+the continuous quantities `big_floor_gap` 3.3%, `crown_margin` 3.2%, `mean_height` 3.2%.
 
-### Did not work: cascades as the label (2026-08-30)
+**`big_cornered` (touching both wall and floor) has all candidates tie in 80.8%** —
+the same constant collapse as the failed `_corner_lift_penalty`. **Corner geometry dies as a binary
+but lives as a continuous quantity.** When writing the next term that looks at corners, use this form.
 
-`cascades` (3+ merges per move) is the only proxy validated against score
-(sensitivity ratio 1.34-1.40, r(score) 0.83), so it was expected to be easier to fit given its lower variance,
-and was plugged in as the label (`python scripts/train_value.py --label cascades --sweep`).
-**It got weaker instead.** At the 100-move horizon after detrend it is **0.087 ± 0.110** (score is 0.167 ± 0.033),
-with the between-fold SD covering the mean. cascades is a sparse event happening in only 9.5% of 24421 moves,
-so counting it over a 100-move window has more counting noise. **"Low variance in an A/B, so low variance as a training
-label" does not hold.** `merges` is kept in the data collection, so no redraw is needed.
-
-### Settled: it does not carry across games; the cheap screens end here (2026-08-30)
+### Settled: how a game ends cannot be predicted; the cheap screens are exhausted (2026-08-30)
 
 **Fix the move number and compare games with each other** (`--carry`). Pooling across positions inflates the correlation with
-consecutive boards inflate the correlation (pooled r=0.28 against r=0.09 at a fixed move number),
-so this is the only way to look at how good a game is. The target is the real-game score regardless of the label.
+consecutive boards of the same game (pooled r=0.28 against r=0.09 at a fixed move number). The target is the real game's score.
 
 | Horizon fitted | move 40 | move 60 | move 100 |
 |---|---|---|---|
@@ -1543,21 +1482,26 @@ so this is the only way to look at how good a game is. The target is the real-ga
 | cascades / 100 moves | +0.124 ± 0.128 | +0.109 ± 0.096 | −0.002 ± 0.131 |
 | cascades / to the end | +0.069 ± 0.045 | **+0.141 ± 0.059** | +0.062 ± 0.129 |
 
-**No row exceeds 0.15.** Even the tightest, cascades / to the end / move 60, is
-+0.141 ± 0.059. This is what NOTES
+**No row exceeds 0.15.** This is the same range as
 [r = 0.00-0.12 recorded for the inversion rate](#how-to-measure-traps-we-keep-stepping-in),
-values for which that metric was concluded "unusable as a per-episode metric".
+values for which that metric was concluded "unusable as a per-episode metric". **"Boards that earn well over the next 100 moves"
+can be predicted, but "games that end with a high score" cannot.**
 
-- **A V that predicts its own horizon does not necessarily carry across games.** The 100-move label predicts its own target
-  well (R² 0.167) yet gives 0.03-0.12 across games. Conversely the "to the end" label has R² 0 on its own target
-  yet is tightest across games. **Aiming at the target directly beats going through an easier proxy**
-- Correlation is observation, not causation. A board with high V may be high not "because it is a good board" but
-  "because that game happened to be going well". That this cannot be separated is for the same reason as
+- **Did not work: `cascades` as the label.** It is a proxy validated against score
+  (sensitivity ratio 1.34-1.40), so it seemed easier to fit, but at the 100-move horizon after detrend it is
+  **0.087 ± 0.110** (score is 0.167 ± 0.033), actually weaker. It happens in only 9.5% of 24421 moves,
+  a sparse event, and counting noise wins in a 100-move window. **Low variance in an A/B and low variance as a training label
+  are different things.** `merges` is kept in the collection, so no redraw is needed
+- **A V that predicts its own horizon better does not necessarily carry across games.** The 100-move label has
+  R² 0.167 on its own target yet 0.03-0.12 across games, while the "to the end" label has R² 0 on its own target yet
+  is tightest across games. **Aiming at the target directly beats going through an easier proxy**
+- Correlation is observation, not causation. A board with high V may be high not "because it is a good board" but "because that game
+  happened to be going well". It cannot be separated for the same reason that
   [the value of a single move cannot be measured with rollouts](#how-to-measure-traps-we-keep-stepping-in)
 
 **All that remains is the A/B, with less than even odds.** With the cross-game r not reaching 0.15,
-it is unlikely to clear the ±7% screen at n=50. If run, run it knowing it is
-"to confirm the refutation". **There is no new cheap screening left.**
+it is unlikely to clear the ±7% screen at n=50. If run, run it knowing it is "to confirm the refutation".
+**There is no new cheap screening left.**
 
 ## Planned: RL (REINFORCE)
 
