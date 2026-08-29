@@ -46,17 +46,26 @@ CANDIDATE_STEP = 12.0
 
 def _held_eval_job(
     obs: Observation, held_r: float, x: float
-) -> tuple[float, float, list[Fruit]]:
-    """(eval, x, after) for one held candidate. The unit sent to the pool."""
-    after, held_eval = _held_eval(obs, x, held_r)
-    return held_eval, x, after
+) -> tuple[float, float, list[Fruit], float]:
+    """(eval, x, after, real-game score) for one held candidate. The unit sent to the pool.
+
+    The real-game score is returned separately from eval because value-function training ranks candidates
+    as Q = real-game score + V(after) (`training/collect.py`). eval is score - penalties, so
+    it cannot be recovered from that.
+    """
+    after, held_eval, score = _held_eval(obs, x, held_r)
+    return held_eval, x, after, score
 
 
-def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
-    """Return the column to drop from the observation. Assumes ready with held_type present.
+def rank_candidates(
+    obs: Observation, *, pool: Executor | None = None
+) -> list[tuple[float, float, list[Fruit], float]]:
+    """Return (eval, x, post-drop board, real-game score) per candidate in descending eval order.
 
-    Passing pool spreads the simulate_drop of held/next candidates over a process pool.
-    The result is the same as serial execution (every candidate is independent and the board is only read).
+    This is exactly the first-ply evaluation of `choose_x`. It is cut before the next lookahead so that
+    training data collection can get the candidate table without running the same physics twice
+    (`training/collect.py`). Nearly all of a move is `simulate_drop`, so
+    recomputing it on the collection side would simply double the cost (NOTES 'Run cost: faster physics and search width').
     """
     if obs.held_type is None:
         raise ValueError("no held_type")
@@ -67,7 +76,7 @@ def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
         for x in _candidates(list(obs.fruits), obs.held_type, held_r, extra_type=obs.next_type)
     ]
     if not xs:
-        return NORMALIZED_WIDTH / 2
+        return []
 
     if pool is None:
         ranked = [_held_eval_job(obs, held_r, x) for x in xs]
@@ -77,6 +86,29 @@ def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
         )
 
     ranked.sort(key=lambda row: row[0], reverse=True)
+    return ranked
+
+
+def choose_x(
+    obs: Observation,
+    *,
+    pool: Executor | None = None,
+    ranked: list[tuple[float, float, list[Fruit], float]] | None = None,
+) -> float:
+    """Return the column to drop from the observation. Assumes ready with held_type present.
+
+    Passing pool spreads the simulate_drop of held/next candidates over a process pool.
+    The result is the same as serial execution (every candidate is independent and the board is only read).
+
+    Passing the result of `rank_candidates` as ranked avoids recomputing the first-ply physics.
+    Used by the collection side that wants the candidate table itself (`training/collect.py`) to have the teacher's move
+    decided here again. Do not copy the move-selection rules into it.
+    """
+    if ranked is None:
+        ranked = rank_candidates(obs, pool=pool)
+    if not ranked:
+        return NORMALIZED_WIDTH / 2
+
     # Dying moves are not compared by eval. Expressed as a penalty, the amount saved by avoiding a dirty board
     # outweighs the weight of death and it commits suicide (5 cases in 428 positions, chosen while 30-45 living moves existed).
     # The difference was up to 261, so no finite penalty is enough.
@@ -89,7 +121,7 @@ def choose_x(obs: Observation, *, pool: Executor | None = None) -> float:
     # The next lookahead covers only the top held eval (the physics is heavy). Candidates are coarser than held.
     best_x = ranked[0][1]
     best_score = -math.inf
-    for held_eval, x, after in ranked[:HELD_TOP]:
+    for held_eval, x, after, _score in ranked[:HELD_TOP]:
         value = held_eval + NEXT_DISCOUNT * _best_next_score(
             after, obs.next_type, step=NEXT_CANDIDATE_STEP, pool=pool
         )
@@ -171,19 +203,21 @@ def drop_scores(
     return score, penalties, score - penalties, after, merges
 
 
-def _held_eval(obs: Observation, x: float, held_r: float) -> tuple[list[Fruit], float]:
-    """(board, score - penalties) after dropping held at x. Does not look at next."""
+def _held_eval(
+    obs: Observation, x: float, held_r: float
+) -> tuple[list[Fruit], float, float]:
+    """(board, score - penalties, real-game score) after dropping held at x. Does not look at next."""
     assert obs.held_type is not None
     before = list(obs.fruits)
     after, score, penalties, _merges, _held_merged = _evaluate_drop(
         before, obs.held_type, x, held_r, next_type=obs.next_type
     )
-    return after, score - penalties
+    return after, score - penalties, score
 
 
 def _score(obs: Observation, x: float, held_r: float) -> float:
     """Score the board after dropping held + the hypothetical best move of next."""
-    after, value = _held_eval(obs, x, held_r)
+    after, value, _score = _held_eval(obs, x, held_r)
     if obs.next_type is not None:
         value += NEXT_DISCOUNT * _best_next_score(after, obs.next_type)
     return value
