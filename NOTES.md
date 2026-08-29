@@ -279,6 +279,45 @@ it never returns to the floor (the watermelon made on move 166 also stays 35-47 
 **`_corner_pocket_penalty` watches this shape (a small fruit outside and below the big fruit) at 50 points, but
 it only applies to the move about to be dropped.** The path where an existing fruit slips under through cascade recoil goes through untouched.
 
+### Example: move 40 of 803005 (on a merge move the layout does not enter eval)
+
+`held=grape` / `next=cherry`, 48 candidates. **Left (x 28-60) and middle (x 132-180) are
+exactly the same 4-step cascade** (grape→dekopon→orange→apple, score 52),
+and the only eval difference is bury:
+
+| candidate | score | bury | pit | tiebreak | bigside | eval |
+|---|---|---|---|---|---|---|
+| left x=60 (the chosen move) | 52 | 0.00 | 8.0 | 0.14 | −0.50 | **44.36** |
+| middle x=180 | 52 | **20.00** | 8.0 | 0.02 | −0.50 | 24.48 |
+
+The resulting board is better in the middle:
+
+| | biggest fruit (peach) wall / floor | size_order (raw value while exempt) |
+|---|---|---|
+| left x=60 | 1.9 / **31.6** (stays lifted) | 13.8 |
+| middle x=180 | 2.0 / **1.9** (back on the corner floor) | 6.2 |
+
+Two reasons for rejecting it overlap:
+
+- **A merge move is exempt from size order through `exempt_size_order`.** The 13.8 → 6.2 difference
+  does not enter eval. `merge_big_side_bonus`, which looks at it instead of the exemption, is −0.50 for both
+- **eval has no term for "is the big fruit on the corner floor".**
+  `_corner_pocket_penalty` only looks at fruits **outside** the big fruit, but what lifts the peach here is
+  on the inside (the orange at x=242), so both are 0.00. On the "floor lost by cascades" path measured above
+  the fruit pushing in comes from the inside, so **this rule cannot catch it at all**
+
+Swapping only move 40 to x=168 and playing to move 100 (with the same draws the total units on the board
+are conserved by merges, so they match every move; only the shape differs), **the moves in a corner (touching both wall and floor)
+go from 28/100 → 76/100**. As played, the peach lifts to floor 98, and by move 85
+the biggest fruit moves to x=234 (wall 89), which is the type-A way of losing above.
+
+**Tuning weights on the one position**: `BURY_WEIGHT` must drop all the way to 0 before the middle is chosen
+(the 19.88 difference is the whole bury 20). If a bonus of "the biggest fruit touches both wall and floor" were
+added, **it flips at 20 or above**. But this bonus probably takes the same value for every candidate in
+many positions, so before adding it, pass it through
+[the screen](#screen-on-does-it-escape-the-band) and
+[properties that cannot be changed](#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21).
+
 ### Failure types
 
 | type | n | content |
