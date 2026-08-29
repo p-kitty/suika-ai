@@ -30,8 +30,10 @@ def test_shapes_line_up() -> None:
     n = len(data.feats)
     assert 0 < n <= STEPS
     assert data.feats.shape == (n, FEATURE_DIM)
-    for arr in (data.rewards, data.returns, data.steps, data.episodes):
+    for arr in (data.rewards, data.merges, data.returns, data.steps, data.episodes):
         assert len(arr) == n
+    # A move that scored points always merged. If this breaks, cascades are miscounted.
+    assert bool(np.all(data.merges[data.rewards > 0] > 0))
     assert np.all(np.isfinite(data.feats))
     assert np.all(data.episodes == 7)
 
