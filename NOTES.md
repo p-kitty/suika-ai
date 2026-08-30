@@ -354,14 +354,6 @@ What to look at is the path that loses the corner floor through cascade recoil, 
 **Physics simulation**
 - Friction between fruits seems low: fruits slide in far more than in the real game.
 
-**Training pipeline**
-- Training episode length: the default `max_steps=300` of `train_sim.py`, against post-calibration measurements
-  (median 234 / p95 303 / max 320 moves, →[How to measure](#how-to-measure-traps-we-keep-stepping-in)),
-  **truncates 5-10%**. **In training it is not merely a reporting bias: the REINFORCE
-  return itself comes out missing**, so set it to 400 to match the other scripts.
-  The cost barely rises (games over 300 are under 10% and the longest is 320, so
-  removing the cap extends by at most 2 moves on average)
-
 ## How to measure (traps we keep stepping in)
 
 **Score noise is very large.** This is the biggest wall for improving the policy, and every attempt below
