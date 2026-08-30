@@ -143,7 +143,8 @@ On seed 642746 (209 moves), **253 fruits are born, with median age 3 moves**. Ho
 - **Short-lived fruits have nothing above them 98% of the time.** Having a roof clearly correlates with staying
 - **Fruits that stay have a partner on the board in 66.1% of moves.** They are missed merges, not waiting merges.
   This is the supply-side hole in "merging cannot keep up with supply" (→[scattered low tiers late](#investigated-sudden-death-from-scattered-low-tier-fruits-late-in-the-game))
-  a supply-side hole, **not yet addressed**
+  **The road of turning this number directly into a penalty was measured and closed on 2026-08-30**
+  (→[landing walled off from the partner](#measured-and-dropped-landing-walled-off-from-the-partner-2026-08-30))
 - **The numbers are diagnostics and must not be the basis for choosing a weight**
   (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
 
@@ -825,6 +826,53 @@ the orange side was already correct and only dekopon (diameter 59.6) was off.
   A change that fixes a wrong premise; it makes no claim of moving the score
 
 ## Rules tried and reverted or retired
+
+### Measured and dropped: landing walled off from the partner (2026-08-30)
+
+**Motivation**: in [the fossil measurement](#measuring-fruits-that-never-merge-fossils-2026-08-20), fruits staying 50+ moves
+**had a partner on the board in 66.1% of moves**. Missed merges rather than waiting ones, the shape named
+as the supply-side hole. None of the 3 existing rules look at it — `_bury_penalty` looks at roofs,
+`_pit_penalty` at valleys walled on both sides (`_valley_flanks` returns None when one side is a wall),
+`_corner_pocket_penalty` only at corners with the biggest fruit on the big-side wall. The shape with a wall on one side and
+only a big fruit on the other is caught by nothing.
+
+**What was added**: `blocked_partner_penalty`. After the dropped fruit lands, if **every** same-type
+partner on the board is walled off sideways by "fruits with type gap `PIT_MIN_GAP` or more", a binary 20.0.
+Board-wide reachability is not summed ([Properties that cannot be changed](#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21)).
+0 if even one partner is reachable, and out of scope if there is no partner at all (that is `BURY_LONE_WEIGHT`).
+
+**The wall does not count one tier up.** Written first as "every bigger fruit is a wall",
+`test_uses_the_next_rung_instead_of_roofing_a_small_fruit` failed. Treating the dekopon one tier up as
+a wall made the correct move into the rung's hollow count as blocked, and it tipped toward putting a roof on the strawberry.
+It is the same line already drawn by `PIT_MIN_GAP` of `_pit_penalty` and `PERCH_RUNG_MAX_GAP` of `_is_rung`.
+**If the same rule is written again, make this 2 tiers or more from the start.**
+
+**The measurement that dropped it** (`band_escape.py`, 6 seeds, eps=0.1, median band size 4):
+
+| | positions | x0.0 moves change | x0.0 outside the band |
+|---|---|---|---|
+| `--skip 60` | 484 | 1.2% | **1.2%** |
+| `--skip 0` | 664 | 0.9% | **0.9%** |
+
+It does not increase when the early game is included, so it is not the [terms divided by an average](#terms-divided-by-an-average-thin-out-as-the-board-fills-2026-08-21)
+pattern either. A band escape of 1.2% is under a fifth of the 6.3% of `drop_ideal`, known to be null at n=133,
+so **no A/B was run**.
+
+**The cause of death is not "it does not fire".** Redrawn from the candidate table:
+
+| | skip 60 | skip 0 |
+|---|---|---|
+| candidates where it fired | 23.0% | 20.0% |
+| positions where some candidate fired | 45.0% | 41.1% |
+| fired on every candidate (cannot move the ranking) | 0.2% | 0.2% |
+| positions split between candidates | 44.8% | 41.0% |
+| **positions split inside the tie band** | **0.0%** | **0.0%** |
+
+The rule makes differences between candidates in over 40% of positions, and meets the "the current move can change it" condition too.
+Still **the candidates inside the band were not split in a single position** — it can only tell apart candidates other terms
+have already settled, and every candidate still in contention takes the same value.
+Another face of [the tie band really is indifferent](#settled-the-tie-band-really-is-indifferent-2026-08-19):
+**neither "a high firing rate" nor "splits between candidates" is a screen. What to look at is whether it splits inside the band.**
 
 ### Measured and dropped: making a bury with type gap 1 cheaper (2026-08-23)
 
