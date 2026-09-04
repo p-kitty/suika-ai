@@ -39,7 +39,8 @@ HELD_TOP = 8
 # Setting it back to 32 keeps 96.2% of moves the same while the cost drops from 3.6 → 2.6x.
 NEXT_CANDIDATE_STEP = 16.0
 # Uniform spacing of held candidates. Coarser puts the spot directly above a dangerous pile among the candidates, so do not raise it
-# (test_avoids_dangerous_tall_stack failed at 20). Speed is earned on the lookahead side.
+# (test_avoids_dangerous_tall_stack failed at 20). The per-move budget is put on the lookahead side
+# (`HELD_TOP`), so this is not the place to cut for speed.
 # The finer side is closed too. The window for rolling into a same-type fruit can be only 1-3px,
 # and lowering to 3.0 catches it, but score did not move against 248 → 540ms per move
 # (NOTES 'Candidate spacing and the merge window').
