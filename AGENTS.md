@@ -215,6 +215,16 @@ and "did a new pathology appear".
   adds equally to all of them and does not change the ranking. No matter how much you multiply the weight.
   Look at the shape the dropped fruit itself creates
   (→[Properties that cannot be changed](NOTES.md#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21))
+- **Look at "how much it differs", not "whether it differs per candidate".** Looking only at the fraction of positions
+  where values tie misreads physics jitter as traction. Continuous quantities always differ in
+  the last digits between candidates, so the tie rate can come out arbitrarily low. **Report the median candidate range with units
+  (px and so on) and confirm it is large enough to call a choice before deciding a weight**
+  (→[Continuous corner and height terms](NOTES.md#measured-and-dropped-continuous-corner-and-height-terms-2026-09-05))
+- **When penalizing a quantity that merging always worsens, the merge score caps the weight.**
+  A quantity like the stack height that "always rises when you merge" rejects the merge itself once the weight
+  is high enough to split the band. If those two conditions do not overlap, the quantity cannot be a penalty.
+  Narrow the firing condition (only just before the death line, and so on) to push it into a region that does not reject merges
+  (→[Continuous corner and height terms](NOTES.md#measured-and-dropped-continuous-corner-and-height-terms-2026-09-05))
 - **One rule per term. Split by the number of weights, not by the complexity of the condition.**
   Something like the corner pocket that looks at "wall-anchored + outside + below + depth" is fine as one rule.
   **If it needs two weights there are two rules**, so split the function, or at least make the weights
