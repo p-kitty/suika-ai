@@ -7,6 +7,7 @@
 - [Open tasks](#open-tasks)
 - [New term: pit](#measured-when-adding-a-new-term-pit-2026-08-23) ← most recent addition
 - [How to measure](#how-to-measure-traps-we-keep-stepping-in) ← read before reporting numbers
+- [Adopted: widen the lookahead to 8/16](#adopted-widen-the-lookahead-to-816-2026-09-05) ← widened the search
 - [Settled: the tie band really is indifferent](#settled-the-tie-band-really-is-indifferent-2026-08-19) ← the dead end of weight tuning
 - [Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22) ← a case where candidate generation, not weights, was the cause
 - [In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)
@@ -441,9 +442,17 @@ nothing.** The tie-break of the time (the third decimal of bumpiness) was doing 
 [retired](#retired-bumpiness-height-variance-2026-08-21). What decides the order inside the band now is
 `center_tiebreak`, but **given this result, do not look for meaning in that ordering.**
 
-**The framing "the plateau is a defect" was wrong.** The candidates in the band really do lead to
-equally good futures. The policy correctly recognized "these moves are equivalent";
-it was not failing to choose.
+**The framing "the plateau is a defect" was wrong.** **Reordering** the band candidates **by the first-ply eval**
+changes nothing. However the weights are tuned, ranking inside the band means nothing.
+
+**But "the band candidates are equivalent" cannot be claimed (updated 2026-09-05).** What was measured here is
+**a random reordering**, not the absence of a better one. In fact,
+widening `HELD_TOP` from 2 → 8 and **ranking the candidates in the band with the next lookahead**
+gave score +9.0% (n=250)
+(→[Adopted: widen the lookahead to 8/16](#adopted-widen-the-lookahead-to-816-2026-09-05)).
+**The band cannot be split by the first-ply eval, but it can be split by a deeper search.**
+What this section closes is only "the road of splitting the band by tuning weights",
+not the road of putting an order into the band itself.
 
 ### What the band actually looks like
 
@@ -1357,7 +1366,8 @@ is not overriding size order and trapping. The basis is
 - Do not add UTs for concrete procedures. When something breaks, look at accident prevention or the observation side
 - `CANDIDATE_STEP` stays at 12.0. Coarser puts the spot directly above a dangerous pile on the grid
   (`test_avoids_dangerous_tall_stack` failed at 20), and the finer side was measured down to 3.0 and
-  reverted →[Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22). Speed is earned on the lookahead side
+  reverted →[Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22).
+  The per-move budget is put on the lookahead side (`HELD_TOP`)
 - Cutting `SLEEP_FRAMES` does not work. A single `choose_x` gets faster, but the board settles differently and
   later moves get heavier, so the whole episode is actually slower (measured at 25). The physics fidelity
   (shared with `SimEnv`) also drops
@@ -1428,19 +1438,58 @@ for 4.43ms, and reading `_all_quiet` from the back and similar changes gave 3.86
   one substep, a merge shifts and every later trajectory changes, so it is a sensitive check
 - Little headroom remains (physics ~62% / quiet gate 18.5% / scan 10.8% / setup 5.9%)
 
-**Search width 8/16 was remeasured and not adopted.** Agreement screening on 210 positions gave
-75.2% agreement (1 move in 4 differs), so it went to an A/B. At n=100 (2.4 hours, 0 truncated)
-score 2105.7 → 2185.3 (**+79.6 / +3.8%**, t=1.68, CI [-14.3, +173.5]). **Not significant**, but
-**all 9 metrics lean toward B**, and only `cascades` +6.6% is significant (t=2.36).
-Seed head-to-head win 59 / loss 41. Significance would need n≈136.
+**Search width 8/16 was measured and shelved at n=100 on 2026-08-17, and remeasured at n=250 on 2026-09-05
+and adopted** →[Adopted: widen the lookahead to 8/16](#adopted-widen-the-lookahead-to-816-2026-09-05).
+The numbers then were score +3.8% (t=1.68, not significant), `cascades` +6.6% (t=2.36),
+type10 reached 12/100 → 20/100, and **the reason for shelving was "not significant and 3.68x the cost"**.
+It was folded without running to the required n≈136 that had been written down.
 
-- The point estimate of +3.8% **nearly matches, in an independent measurement,** the old record of "−3.4% for 2/32"
-- A direct quantile comparison shows it **lifts the bottom and trims the top** (min 1148→1499,
-  median 2076→2179, max 3489→3215). But type10 reached rose from 12→20 runs
-- **Reason for not adopting**: 233ms → 856ms per move (**3.68x**) for +3.8%.
-  Teacher collection (`train_sim.py`) becomes 3.68x more expensive across the board. **It is not a refuted idea**, so
-  it is worth reconsidering if a cheaper lookahead can be written
 - **Follow this order (minutes of screening → hours of A/B) from now on too**
+
+### Adopted: widen the lookahead to 8/16 (2026-09-05)
+
+`HELD_TOP` 2 → 8, `NEXT_CANDIDATE_STEP` 32 → 16. **224ms → 823ms per move (3.6x)**
+(measured single-process on 2 seeds, 40 moves each after 40 warm-up moves).
+
+**A/B** (`compare_policy.py`, `--max-steps 400`, random seeds, **0/500 truncated**).
+n=150 and n=100 were run **twice on different seed bands** and pooled:
+
+| Metric | A (2/32) | B (8/16) | Δ | t | 95% CI |
+|---|---|---|---|---|---|
+| score | 2327.43 | 2537.68 | **+9.0%** | 5.31 | [+132.3, +288.2] |
+| steps | 235.8 | 252.2 | +7.0% | 5.06 | [+10.0, +22.8] |
+| merges | 214.3 | 231.5 | +8.1% | 5.26 | [+10.8, +23.7] |
+| cascades | 21.99 | 24.68 | +12.3% | 6.41 | [+1.9, +3.5] |
+| max_type | 9.28 | 9.46 | +2.0% | 3.88 | [+0.1, +0.3] |
+| max_wm | 0.32 | 0.48 | **+46.9%** | 3.46 | [+0.1, +0.2] |
+
+win/loss 164/86. **Watermelons reached: 81/250 → 119/250.**
+The two runs were score +10.5% (n=150, t=4.63) and **+6.8% (n=100, t=2.68)**, so
+**the sign and significance reproduce on different seeds**. The point estimate is smaller in the second run
+
+- **It is not just survival that grows.** Per move, score/move +2.0% (t=4.35),
+  cascades/move +4.9% (t=3.66). The quantiles rise wholesale too, median 2237 → 2620
+  (unlike the "lift the bottom, trim the top" shape of 2026-08-17)
+- **It also reproduces 2026-08-17.** Then +3.8% with type10 reached +67%, now +9.0% with
+  watermelons reached +47%. **The score point estimates differ, but the increase in watermelons reached is close.**
+  The decision then was not refuted; **n was simply not enough**
+- **What works is `HELD_TOP`.** Comparing chosen moves on 160 positions,
+  2/16, with only `NEXT_CANDIDATE_STEP` at 16, **matches the old 2/32 97.5%**,
+  doing almost nothing by itself. 8/32, with only `HELD_TOP` at 8,
+  **matches 8/16 96.2%** at a cost of 3.6 → 2.6x. **8/16 is what went through the A/B, so
+  that is what was added**, but if the cost becomes a problem 8/32 is the first thing to cut
+  (whether the remaining 3.8% of moves are harmless is unmeasured. The difference between 8/16 and 2/32 also comes from 12.5% of moves)
+- **The cost carries straight over to training.** Teacher collection (`train_sim.py` /
+  `collect_value.py`) is also 3.6x. For collection alone, running with `HELD_TOP` lowered
+  is a reasonable call
+- **Why it works reinterprets the tie band.**
+  [The inside of the band is indifferent](#settled-the-tie-band-really-is-indifferent-2026-08-19) is
+  a measurement that **"randomly reordering the band as seen by the first-ply eval changes nothing"**, and
+  does not mean "the candidates in the band are truly equivalent". With `HELD_TOP` at 2, of the candidates lined up in the band
+  **only 2 went through the next lookahead**. Widening to 8 lets the band be ranked
+  by the result of next. **The band cannot be split by the first-ply eval, but it can be split by a deeper search**
+- **The n=8 preview came out with the opposite sign** (−10.5%). The SD of the difference is 626, so the SE at n=8 is 221.
+  **Divide out the required n before running** (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
 
 ## Training
 

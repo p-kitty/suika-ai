@@ -106,6 +106,9 @@ Ask everything in one go. Include the options and a recommendation, and keep doi
   `Python310\Scripts`, so the bare names work even with the venv active
 - `main.py` grabs the real game screen and input. Agents do not launch it on their own.
   Check behavior on the sim side under `scripts/`
+- **Scripts that run the sim became several times slower with the 2026-09-05 lookahead widening**
+  (the cost of one `choose_x` move carries straight over →[Adopted](NOTES.md#adopted-widen-the-lookahead-to-816-2026-09-05)).
+  Do not estimate from remembered run times
 
 ## Common commands
 
@@ -174,6 +177,14 @@ and many changes actually fail here.
    run only B from then on with `scripts/compare_b_only.py --baseline <that json>`.
    It halves the compute. Discard the baseline when the policy itself changes
    (a warning appears when `baseline_commit` in the JSON differs from HEAD)
+
+   **Dropping at the screen is not the same as "no effect".** Discarding a change that is not significant at the default n
+   is a promise that "effects too small to measure at that n are not wanted",
+   not a measured refutation. **When every metric leans the same way but is not significant**,
+   look at the required n that `compare_policy` prints, and **decide on the spot whether to run that far,
+   and write the decision down**. Folding without deciding lets "shelved" be passed on as "refuted"
+   (this actually happened with search width 8/16: the required n was written down but not run,
+   and running it later turned out significant →[Adopted](NOTES.md#adopted-widen-the-lookahead-to-816-2026-09-05))
 5. **Make it permanent.** Revert the variant in `_apply_variant`, and **leave no ON/OFF toggle
    in the code**. To compare with another commit, see the worktree item under [git](#git)
 6. **Fix NOTES.md in the same diff.** If you added or removed a rule or changed a weight, update
