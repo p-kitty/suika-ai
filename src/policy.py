@@ -30,12 +30,14 @@ from .vision.state import Fruit
 # Discount for the next move.
 NEXT_DISCOUNT = 0.55
 # Search coarseness. The physics (simulate_drop) dominates, and this nearly decides the run time.
-# The idea of widening (8/16) was shelved at score +3.8% for 3.68x the cost
-# (NOTES 'Run cost: faster physics and search width').
-# Number of held candidates that get the next lookahead. The physics is heavy, so only the top.
-HELD_TOP = 2
+# Widened from 2/32. The per-move cost goes up 3.6x, but score, moves survived and watermelons reached
+# all grow together (NOTES 'Adopted: widen the lookahead to 8/16').
+# Number of held candidates that get the next lookahead. This is the part that works; left at 2,
+# only 2 of the candidates lined up in the tie band could be compared by next.
+HELD_TOP = 8
 # Candidate spacing of the next lookahead. Coarser than held (CANDIDATE_STEP).
-NEXT_CANDIDATE_STEP = 32.0
+# Setting it back to 32 keeps 96.2% of moves the same while the cost drops from 3.6 → 2.6x.
+NEXT_CANDIDATE_STEP = 16.0
 # Uniform spacing of held candidates. Coarser puts the spot directly above a dangerous pile among the candidates, so do not raise it
 # (test_avoids_dangerous_tall_stack failed at 20). Speed is earned on the lookahead side.
 # The finer side is closed too. The window for rolling into a same-type fruit can be only 1-3px,
