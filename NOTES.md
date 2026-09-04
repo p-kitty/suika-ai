@@ -819,6 +819,59 @@ the orange side was already correct and only dekopon (diameter 59.6) was off.
 
 ## Rules tried and reverted or retired
 
+### Measured and dropped: continuous corner and height terms (2026-09-05)
+
+Clears three terms' worth of the homework left by [the measurement of V's features](#measured-v-predicts-the-next-100-moves-n100-2026-08-30):
+"corner geometry dies as a binary but lives as a continuous quantity".
+**The conclusion is the opposite: continuous quantities do not split the band either.** The "fraction of positions where all candidates tie" used as the basis
+cannot be used as a measure of traction.
+
+What was measured is `x0.0` with the term added to `board_penalties`
+(`band_escape.py`, 6 seeds × 240 moves, `--skip 60`, 485-498 positions).
+
+| Term | Definition | candidate range (px) median | Escapes the band | When the weight is tuned |
+|---|---|---|---|---|
+| `big_floor` | gap between the bottom of the biggest fruit (tier 8+) and the floor | **0.12** | 2.8% | 8.6% even at x50 |
+| `big_wall` | same, gap to the big-side wall | **0.11** | 1.2% | 4.4% even at x50 |
+| `crown_height` | height from the crown to the floor | 27.7 | 1.9% | **16.7% at x20** |
+
+- **`big_floor` / `big_wall` fix the constant-value problem but have nothing to move.** The binary
+  [`_corner_lift_penalty`](#ideas-that-did-not-work-dropped-at-screening) had a candidate range > 0 in
+  1.8% of positions and changed 0/489 moves. As continuous quantities the range is nonzero in 99.8% of positions, and moves
+  change 20.1%. **But the median gap difference is 0.12px**, and it exceeds 1px in only 29.7% (floor) /
+  20.9% (wall) of positions. **The biggest fruit barely moves whichever candidate is dropped**, so
+  the difference between candidates is physics jitter, not a choice. Even tuning up to x50 (effectively 7.5/px, 45.8% of moves change)
+  it does not leave the [null zone](#screen-on-does-it-escape-the-band)
+- **Do not read "the fraction of positions where all candidates tie" as traction.** In V's feature table,
+  `big_wall_gap` 0.4% / `big_floor_gap` 3.3% were counting this 0.1px jitter.
+  **The "median range" column of the same table shows 0.001**, so the number to read was
+  there from the start. When creating a term, always read the tie rate together with the size of the range
+- **`crown_height` (the absolute height of the crown) has something to move.** Median range 27.7px, over 1px in
+  92.6% of positions, over 20px in 63.9%. At x20 (1.0/px) it reaches **16.7%** outside the band,
+  the same level as `bury` 17.2% and `perch` 27.7%
+- **Still it cannot be added. A weight that splits the band rejects merges.** At x20,
+  `tests/test_policy.py::test_prefers_same_type_over_empty_low_column` fails.
+  **A merge always raises the crown** (two cherries → straw gives +13px), so a 13-point penalty
+  overturns the 1-point merge score of cherry→straw. Lowering to a weight that does not overturn merge scores (w < 0.036)
+  leaves under 2% outside the band. **The two conditions do not overlap.**
+  The homework left when [the slope was replaced with a filter](#replaced-the-dangerous-height-slope-with-a-filter-2026-08-20),
+  "no term looks at absolute height any more", **cannot be filled by an unconditional height penalty**
+- **The version limited to just before the death line (`crown_danger`) stopped at the edge of the null zone.**
+  Depth below `CROWN_DANGER_Y` 70.9 of the crown × 2.0/px. It is 0 on low boards, so
+  **it does not reject merges** (every existing test passes at this weight). Over 467 positions the candidate range is > 0
+  **in only 22.3% of positions** (only late-game boards differ), but **where it applies, it works** —
+  moves change 9.2% and **7.9%** escape the band, the same shape as `perch` and `bury`:
+  "if it changes, it leaves the band". Raising the weight does not add more (2.1% at x2, 5.1% at x10)
+- **Even so it was not put through an A/B.** 7.9% sits right on top of
+  [`drop_ideal` 6.3% and bumpiness x4 7.0%](#interventions-that-tried-to-split-the-band-and-failed),
+  levels that were both null at n=133. It is unlikely to clear the default n=50 screen (±7%).
+  **If run, n=150 would be needed**; judge from the numbers above with that premise
+- All three implementations are reverted. **The hole of `_corner_pocket_penalty` looking only outside remains**, and
+  no term yet stops [the path that loses the corner floor through cascade recoil](#the-floor-is-lost-on-cascade-moves) (11 of 1751 moves = 0.6%).
+  **At that frequency it shows up neither in band escape nor in an A/B**, so if added it would be treated like
+  [`_pit_penalty`](#measured-when-adding-a-new-term-pit-2026-08-23), as
+  "a per-position defect fix"
+
 ### Measured and dropped: landing walled off from the partner (2026-08-30)
 
 **Motivation**: in [the fossil measurement](#measuring-fruits-that-never-merge-fossils-2026-08-20), fruits staying 50+ moves
@@ -1502,13 +1555,18 @@ did.
 (→[Properties that cannot be changed](#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21)).
 `units` is a quantity conserved by merges, so it is **exactly equal for every candidate in the same position** (measured 100.0%),
 yet without detrend it gets the largest coefficient. `sign` 100% / `watermelon_count` 99.8% /
-`melon_count` 99.5% / `max_type` 97.7% are the same. What decides the ranking is
+`melon_count` 99.5% / `max_type` 97.7% are the same. What decides the ranking on the fit side is
 the continuous quantities: `size_order_pair` (all candidates tie 3.2%), `size_order_ideal` 0.0%, `big_wall_gap` 0.4%,
-the continuous quantities `big_floor_gap` 3.3%, `crown_margin` 3.2%, `mean_height` 3.2%.
+`big_floor_gap` 3.3%, `crown_margin` 3.2%, `mean_height` 3.2%
+(**of these, `big_wall_gap` and `big_floor_gap` do not move when rewritten as penalties**; see the note above).
 
 **`big_cornered` (touching both wall and floor) has all candidates tie in 80.8%** —
-the same constant collapse as the failed `_corner_lift_penalty`. **Corner geometry dies as a binary
-but lives as a continuous quantity.** When writing the next term that looks at corners, use this form.
+the same constant collapse as the failed `_corner_lift_penalty`. **But "the fraction where all candidates tie" alone
+cannot measure traction.** `big_wall_gap` 0.4% / `big_floor_gap` 3.3% listed above
+have low tie rates, but **a median range of only 0.001** (= 0.4px / 0.5px), and rewritten
+as penalties they could not split the band
+(→[Measured and dropped: continuous corner and height terms](#measured-and-dropped-continuous-corner-and-height-terms-2026-09-05)).
+**Always read the tie rate together with the size of the range.**
 
 ### Settled: how a game ends cannot be predicted; the cheap screens are exhausted (2026-08-30)
 
