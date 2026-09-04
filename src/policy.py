@@ -30,12 +30,14 @@ from .vision.state import Fruit
 # next 手の割引。
 NEXT_DISCOUNT = 0.55
 # 探索の粗さ。物理 (simulate_drop) が支配的で、ここが実行時間をほぼ決める。
-# 広げる案 (8/16) は score +3.8% に対しコスト 3.68 倍で見送った
-# (NOTES「実行コスト: 物理の高速化と探索幅」)。
-# next 先読みを回す held 候補の本数。物理が重いので上位だけ。
-HELD_TOP = 2
+# 2/32 から広げた形。1 手のコストは 3.6 倍になるが、score・生存手数・スイカ到達が
+# そろって伸びる (NOTES「採用: 先読みを 8/16 へ広げた」)。
+# next 先読みを回す held 候補の本数。ここが効いている側で、2 のままだと
+# 同点帯に並んだ候補のうち 2 本しか next で比べられない。
+HELD_TOP = 8
 # next 先読みの候補刻み。held (CANDIDATE_STEP) より粗い。
-NEXT_CANDIDATE_STEP = 32.0
+# ここを 32 に戻すと手の 96.2% は同じままコストが 3.6 → 2.6 倍に落ちる。
+NEXT_CANDIDATE_STEP = 16.0
 # held 候補の均等刻み。粗くすると危険な山の真上が候補に乗るので下げない
 # (20 で test_avoids_dangerous_tall_stack が落ちた)。速度は先読み側で稼ぐ。
 # 細かくする側も打ち止め。転がって同種に届く窓は 1〜3px しか無いことがあり、
