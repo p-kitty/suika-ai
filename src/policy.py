@@ -122,12 +122,19 @@ def choose_x(
         return ranked[0][1]
 
     # next 先読みは held の eval 上位だけ (物理が重い)。候補は held より粗い刻み。
+    # 上位ぶんの盤をまとめて渡す。1 枚ずつ回すとプールに投げる単位が盤ごとに
+    # 切れて、最後の波でワーカーが遊ぶ。
+    top = ranked[:HELD_TOP]
+    next_scores = _best_next_scores(
+        [after for _eval, _x, after, _score in top],
+        obs.next_type,
+        step=NEXT_CANDIDATE_STEP,
+        pool=pool,
+    )
     best_x = ranked[0][1]
     best_score = -math.inf
-    for held_eval, x, after, _score in ranked[:HELD_TOP]:
-        value = held_eval + NEXT_DISCOUNT * _best_next_score(
-            after, obs.next_type, step=NEXT_CANDIDATE_STEP, pool=pool
-        )
+    for (held_eval, x, _after, _score), next_score in zip(top, next_scores):
+        value = held_eval + NEXT_DISCOUNT * next_score
         if value > best_score:
             best_score = value
             best_x = x
@@ -235,6 +242,54 @@ def _next_eval_job(fruits: list[Fruit], next_type: int, next_r: float, nx: float
     return score - penalties
 
 
+def _best_next_scores(
+    boards: list[list[Fruit]],
+    next_type: int,
+    *,
+    step: float | None = None,
+    pool: Executor | None = None,
+) -> list[float]:
+    """盤ごとに、next を最善列に落としたときの eval。盤をまとめて受ける。
+
+    盤 1 枚ずつ pool.map を呼ぶと、投げる単位が盤ごとに切れて最後の波で
+    ワーカーが遊ぶ。`HELD_TOP` 枚ぶんの候補を 1 回の map に流すと埋まる。
+    候補どうしは独立で max を取るだけなので、1 枚ずつ回した結果と同じ。
+    """
+    next_r = fruit_radius(next_type)
+    per_board = [
+        [clamp_drop_x(nx, next_type) for nx in _candidates(board, next_type, next_r, step=step)]
+        for board in boards
+    ]
+    job_boards: list[list[Fruit]] = []
+    job_xs: list[float] = []
+    for board, xs in zip(boards, per_board):
+        job_boards.extend(board for _ in xs)
+        job_xs.extend(xs)
+    if not job_xs:
+        return [0.0] * len(boards)
+    if pool is None:
+        flat = [
+            _next_eval_job(board, next_type, next_r, nx)
+            for board, nx in zip(job_boards, job_xs)
+        ]
+    else:
+        flat = list(
+            pool.map(
+                _next_eval_job,
+                job_boards,
+                itertools.repeat(next_type),
+                itertools.repeat(next_r),
+                job_xs,
+            )
+        )
+    scores: list[float] = []
+    at = 0
+    for xs in per_board:
+        scores.append(max(flat[at : at + len(xs)]) if xs else 0.0)
+        at += len(xs)
+    return scores
+
+
 def _best_next_score(
     fruits: list[Fruit],
     next_type: int,
@@ -242,24 +297,8 @@ def _best_next_score(
     step: float | None = None,
     pool: Executor | None = None,
 ) -> float:
-    """next を最善列に落としたときの eval。"""
-    next_r = fruit_radius(next_type)
-    xs = [clamp_drop_x(nx, next_type) for nx in _candidates(fruits, next_type, next_r, step=step)]
-    if not xs:
-        return 0.0
-    if pool is None:
-        scores = [_next_eval_job(fruits, next_type, next_r, nx) for nx in xs]
-    else:
-        scores = list(
-            pool.map(
-                _next_eval_job,
-                itertools.repeat(fruits),
-                itertools.repeat(next_type),
-                itertools.repeat(next_r),
-                xs,
-            )
-        )
-    return max(scores)
+    """next を最善列に落としたときの eval。1 枚ぶん (`_score` と test 用)。"""
+    return _best_next_scores([fruits], next_type, step=step, pool=pool)[0]
 
 
 def _evaluate_drop(
