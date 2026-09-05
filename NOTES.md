@@ -1479,6 +1479,21 @@ The two runs were score +10.5% (n=150, t=4.63) and **+6.8% (n=100, t=2.68)**, so
   **matches 8/16 96.2%** at a cost of 3.6 → 2.6x. **8/16 is what went through the A/B, so
   that is what was added**, but if the cost becomes a problem 8/32 is the first thing to cut
   (whether the remaining 3.8% of moves are harmless is unmeasured. The difference between 8/16 and 2/32 also comes from 12.5% of moves)
+- **The line of widening further is closed.** On the same 160 positions, moves of even wider settings were
+  compared with 8/16:
+
+  | Setting | agreement with 8/16 | cost ratio per move |
+  |---|---|---|
+  | 12/16 | 98.8% | 1.6 |
+  | 8/8 | 98.1% | 1.6 |
+  | 16/16 | 97.5% | 2.0 |
+  | 16/8 | **95.0%** | **3.1** |
+
+  **The calibration point is this section's own A/B**: 8/16 agrees with the old 2/32 87.5% (12.5% of moves
+  change for +9.0%). Even the widest, 16/8, changes **only 5.0% of moves**,
+  for a linearly scaled expectation of about +3.6%. Just moving that difference's CI away from 0 needs n≈180,
+  and with power taken into account n≈360. At 207s/game for A and 663s/game for B that is **a 10-hour run**.
+  **The order of magnitude does not match the headroom, so it is not run**
 - **The cost carries straight over to training.** Teacher collection (`train_sim.py` /
   `collect_value.py`) is also 3.6x. For collection alone, running with `HELD_TOP` lowered
   is a reasonable call
