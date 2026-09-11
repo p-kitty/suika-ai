@@ -8,6 +8,7 @@
 - [New term: pit](#measured-when-adding-a-new-term-pit-2026-08-23) ← most recent addition
 - [How to measure](#how-to-measure-traps-we-keep-stepping-in) ← read before reporting numbers
 - [Adopted: widen the lookahead to 8/16](#adopted-widen-the-lookahead-to-816-2026-09-05) ← widened the search
+- [Measured and dropped: third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11) ← a deeper search only reshuffles inside the band
 - [Settled: the tie band really is indifferent](#settled-the-tie-band-really-is-indifferent-2026-08-19) ← the dead end of weight tuning
 - [Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22) ← a case where candidate generation, not weights, was the cause
 - [In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)
@@ -351,9 +352,6 @@ What to look at is the path that loses the corner floor through cascade recoil, 
 
 **Vision**
 - `10.png`: similar-color mask fusion + a strawberry outside the frame. Needs a redesign of the cropping; worse value for effort than policy / held
-
-**Physics simulation**
-- Friction between fruits seems low: fruits slide in far more than in the real game.
 
 ## How to measure (traps we keep stepping in)
 
@@ -871,10 +869,26 @@ What was measured is `x0.0` with the term added to `board_penalties`
   **in only 22.3% of positions** (only late-game boards differ), but **where it applies, it works** —
   moves change 9.2% and **7.9%** escape the band, the same shape as `perch` and `bury`:
   "if it changes, it leaves the band". Raising the weight does not add more (2.1% at x2, 5.1% at x10)
-- **Even so it was not put through an A/B.** 7.9% sits right on top of
-  [`drop_ideal` 6.3% and bumpiness x4 7.0%](#interventions-that-tried-to-split-the-band-and-failed),
-  levels that were both null at n=133. It is unlikely to clear the default n=50 screen (±7%).
-  **If run, n=150 would be needed**; judge from the numbers above with that premise
+- **Refuted by an A/B on 2026-09-11 (w=4.0/px, n=250).** The 7.9% above was measured on the first-ply band;
+  applied to the current policy, which ranks by two plies, the late-game escape from the band is
+  **12.4%** (7.8 / 9.0 / 12.4 / 14.0% at w=1/2/4/8, eps 0.1 on the two-ply value,
+  → the same 442 positions as [third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11)).
+  Every existing test passes up to w=8. Score still did not move:
+
+  | Metric | A | B | Δ | t |
+  |---|---|---|---|---|
+  | score | 2537.68 | 2522.85 | −0.6% | −0.51 |
+  | steps | 252.2 | 251.4 | −0.3% | −0.37 |
+  | cascades | 24.68 | 24.50 | −0.8% | −0.63 |
+  | max_type | 9.46 | 9.45 | −0.2% | −0.50 |
+
+  score CI [−71.9, +42.3], win/loss 124/122/tie 4, watermelons reached 119 → 116.
+  **Even on the upper side there is no effect above +1.7%.** The first n=50 gave +2.9% (t=1.11) with every metric
+  positive, so the remaining 200 were run and gave −1.4%. **Signs lining up at n=50 is no
+  substitute for significance**. The baseline reused the 250 B-side episodes from the 8/16 adoption (below)
+- **Escaping the band is only a necessary condition.** 12.4% late is on par with `bury` (17.2%),
+  and still null. Just before the death line, moves that lower the crown are also moves that reject merges, and the two seem to cancel
+  out (not measured)
 - All three implementations are reverted. **The hole of `_corner_pocket_penalty` looking only outside remains**, and
   no term yet stops [the path that loses the corner floor through cascade recoil](#the-floor-is-lost-on-cascade-moves) (11 of 1751 moves = 0.6%).
   **At that frequency it shows up neither in band escape nor in an A/B**, so if added it would be treated like
@@ -1505,6 +1519,54 @@ The two runs were score +10.5% (n=150, t=4.63) and **+6.8% (n=100, t=2.68)**, so
   by the result of next. **The band cannot be split by the first-ply eval, but it can be split by a deeper search**
 - **The n=8 preview came out with the opposite sign** (−10.5%). The SD of the difference is 626, so the SE at n=8 is 221.
   **Divide out the required n before running** (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
+- **The estimate above of "linearly scaling by the move change rate" is unreliable.** The third-ply expectation
+  changed 17.4% of moves for score ±0 (→[third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11)).
+  The conclusion not to run 16/8 stands, but read its basis from "outside the two-ply band" below, not from the change rate
+
+### Measured and dropped: third-ply expectation (2026-09-11)
+
+The top K by two-ply value (held eval + `NEXT_DISCOUNT` × best next) were reordered including the expectation
+of the best eval on the **third move** (after next; the unknown draw is taken as uniform over spawn 0-4).
+Third-move candidates are spacing 32 + nearby fruits, dying candidates are excluded if living ones exist,
+and 1000 is subtracted for types where every candidate dies. The discount is a further 0.55 on top of next.
+
+442 positions (seeds 910000-5 played through on HEAD, every third move, early game included):
+
+| K | moves change | out of the two-ply band (eps 0.1) | cost ratio per move |
+|---|---|---|---|
+| 2 | 12.2% | 1.1% | 1.75 |
+| 4 | 17.4% | 2.5% | 2.5 |
+| 8 | 21.9% | 4.5% | 4.0 |
+
+**The A/B is null** (K=4, n=50, `compare_b_only`, 0 truncated):
+
+| Metric | A | B | Δ | t |
+|---|---|---|---|---|
+| score | 2383.12 | 2385.10 | +0.1% | 0.02 |
+| steps | 238.1 | 238.9 | +0.4% | 0.11 |
+| cascades | 23.62 | 23.94 | +1.4% | 0.31 |
+| max_type | 9.28 | 9.30 | +0.2% | 0.18 |
+| early_crown | 350.1 | 347.9 | −0.6% | −1.38 |
+
+win/loss 22/27/tie 1, score CI [−180.0, +184.0]. The signs do not line up, so n is not increased.
+B side alone took 94 minutes on 16 workers.
+
+- **86% of the changed moves were swaps inside the two-ply band.** Candidates within 0.1 on the two-ply value
+  number a median 4 of the top 8 held, and the third move only reorders those.
+  The same shape as [the first-ply band is indifferent](#settled-the-tie-band-really-is-indifferent-2026-08-19) appears at two plies
+- **8/16 worked because it applied the known next to more candidates.** The third draw is unknown,
+  and averaged over the expectation of 5 types no difference big enough to split the band remains
+- **Screen search changes on "does it leave the two-ply band" too.** Not the move change rate.
+  `band_escape.py`, which looks at the first-ply band, does not see the band of the current policy that ranks by two plies.
+  But it is a necessary condition: `crown_danger`, which left the two-ply band 12.4%, was also null at n=250
+  (→[continuous corner and height terms](#measured-and-dropped-continuous-corner-and-height-terms-2026-09-05))
+- **The baseline for the current policy is `artifacts/baseline_816_n250.json`.** The B side of the 8/16 adoption A/B,
+  250 episodes (seeds 322399-322498 / 368518-368667, cap 400), set as side A.
+  4 seeds were run on HEAD and steps / score / merges / cascades / max_type matched.
+  It can be passed straight to `compare_b_only.py --baseline` (discard it when the policy changes)
+- The implementation is reverted. On the same position set `NEXT_DISCOUNT` 0.3 / 1.0 were also measured, leaving the two-ply band
+  2.5% / 2.7% (moves changed 4.5% / 5.7%), and were not put through an A/B. Excluding candidates that die on the next move
+  from next's best changes only 0.2% of moves
 
 ## Training
 
@@ -1661,9 +1723,8 @@ can be predicted, but "games that end with a high score" cannot.**
   happened to be going well". It cannot be separated for the same reason that
   [the value of a single move cannot be measured with rollouts](#how-to-measure-traps-we-keep-stepping-in)
 
-**All that remains is the A/B, with less than even odds.** With the cross-game r not reaching 0.15,
-it is unlikely to clear the ±7% screen at n=50. If run, run it knowing it is "to confirm the refutation".
-**There is no new cheap screening left.**
+The continuation (plugging into `choose_x` and the A/B) is tracked in
+[issue #2](https://github.com/p-kitty/suika-ai/issues/2).
 
 ## Planned: RL (REINFORCE)
 
