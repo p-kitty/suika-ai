@@ -187,6 +187,15 @@ and many changes actually fail here.
    and running it later turned out significant →[Adopted](NOTES.md#adopted-widen-the-lookahead-to-816-2026-09-05))
 5. **Make it permanent.** Revert the variant in `_apply_variant`, and **leave no ON/OFF toggle
    in the code**. To compare with another commit, see the worktree item under [git](#git)
+
+   **Before adding it, confirm the policy the A/B measured and the committed policy play the same moves.**
+   `_apply_variant` rewrites module attributes at run time, so what the A/B measured is
+   "the original commit + a run-time rewrite", while what gets committed is "the constant written directly".
+   Even if reasoning says they are the same, unless measured you cannot know the A/B numbers belong to the committed code.
+   Check out the original commit with `git worktree add`, apply the variant at run time, trace a few hundred moves
+   on the same seeds as the committed side and **compare byte for byte** (record the same quantities as
+   [verifying the faster physics](NOTES.md#run-cost-faster-physics-and-search-width-2026-08-17)).
+   If they do not match, the commit differs from the A/B, so do not add it; find the cause
 6. **Fix NOTES.md in the same diff.** If you added or removed a rule or changed a weight, update
    [Current penalty rules](NOTES.md#current-penalty-rules).
    **Keep attempts that had no effect too** — the content, n, conclusion and the fact it was reverted.
