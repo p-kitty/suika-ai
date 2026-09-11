@@ -872,10 +872,26 @@ What was measured is `x0.0` with the term added to `board_penalties`
   **in only 22.3% of positions** (only late-game boards differ), but **where it applies, it works** —
   moves change 9.2% and **7.9%** escape the band, the same shape as `perch` and `bury`:
   "if it changes, it leaves the band". Raising the weight does not add more (2.1% at x2, 5.1% at x10)
-- **Even so it was not put through an A/B.** 7.9% sits right on top of
-  [`drop_ideal` 6.3% and bumpiness x4 7.0%](#interventions-that-tried-to-split-the-band-and-failed),
-  levels that were both null at n=133. It is unlikely to clear the default n=50 screen (±7%).
-  **If run, n=150 would be needed**; judge from the numbers above with that premise
+- **Refuted by an A/B on 2026-09-11 (w=4.0/px, n=250).** The 7.9% above was measured on the first-ply band;
+  applied to the current policy, which ranks by two plies, the late-game escape from the band is
+  **12.4%** (7.8 / 9.0 / 12.4 / 14.0% at w=1/2/4/8, eps 0.1 on the two-ply value,
+  → the same 442 positions as [third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11)).
+  Every existing test passes up to w=8. Score still did not move:
+
+  | Metric | A | B | Δ | t |
+  |---|---|---|---|---|
+  | score | 2537.68 | 2522.85 | −0.6% | −0.51 |
+  | steps | 252.2 | 251.4 | −0.3% | −0.37 |
+  | cascades | 24.68 | 24.50 | −0.8% | −0.63 |
+  | max_type | 9.46 | 9.45 | −0.2% | −0.50 |
+
+  score CI [−71.9, +42.3], win/loss 124/122/tie 4, watermelons reached 119 → 116.
+  **Even on the upper side there is no effect above +1.7%.** The first n=50 gave +2.9% (t=1.11) with every metric
+  positive, so the remaining 200 were run and gave −1.4%. **Signs lining up at n=50 is no
+  substitute for significance**. The baseline reused the 250 B-side episodes from the 8/16 adoption (below)
+- **Escaping the band is only a necessary condition.** 12.4% late is on par with `bury` (17.2%),
+  and still null. Just before the death line, moves that lower the crown are also moves that reject merges, and the two seem to cancel
+  out (not measured)
 - All three implementations are reverted. **The hole of `_corner_pocket_penalty` looking only outside remains**, and
   no term yet stops [the path that loses the corner floor through cascade recoil](#the-floor-is-lost-on-cascade-moves) (11 of 1751 moves = 0.6%).
   **At that frequency it shows up neither in band escape nor in an A/B**, so if added it would be treated like
@@ -1544,7 +1560,13 @@ B side alone took 94 minutes on 16 workers.
 - **8/16 worked because it applied the known next to more candidates.** The third draw is unknown,
   and averaged over the expectation of 5 types no difference big enough to split the band remains
 - **Screen search changes on "does it leave the two-ply band" too.** Not the move change rate.
-  `band_escape.py`, which looks at the first-ply band, does not see the band of the current policy that ranks by two plies
+  `band_escape.py`, which looks at the first-ply band, does not see the band of the current policy that ranks by two plies.
+  But it is a necessary condition: `crown_danger`, which left the two-ply band 12.4%, was also null at n=250
+  (→[continuous corner and height terms](#measured-and-dropped-continuous-corner-and-height-terms-2026-09-05))
+- **The baseline for the current policy is `artifacts/baseline_816_n250.json`.** The B side of the 8/16 adoption A/B,
+  250 episodes (seeds 322399-322498 / 368518-368667, cap 400), set as side A.
+  4 seeds were run on HEAD and steps / score / merges / cascades / max_type matched.
+  It can be passed straight to `compare_b_only.py --baseline` (discard it when the policy changes)
 - The implementation is reverted. On the same position set `NEXT_DISCOUNT` 0.3 / 1.0 were also measured, leaving the two-ply band
   2.5% / 2.7% (moves changed 4.5% / 5.7%), and were not put through an A/B. Excluding candidates that die on the next move
   from next's best changes only 0.2% of moves
