@@ -353,9 +353,6 @@ What to look at is the path that loses the corner floor through cascade recoil, 
 **Vision**
 - `10.png`: similar-color mask fusion + a strawberry outside the frame. Needs a redesign of the cropping; worse value for effort than policy / held
 
-**Physics simulation**
-- Friction between fruits seems low: fruits slide in far more than in the real game.
-
 ## How to measure (traps we keep stepping in)
 
 **Score noise is very large.** This is the biggest wall for improving the policy, and every attempt below
@@ -1726,9 +1723,8 @@ can be predicted, but "games that end with a high score" cannot.**
   happened to be going well". It cannot be separated for the same reason that
   [the value of a single move cannot be measured with rollouts](#how-to-measure-traps-we-keep-stepping-in)
 
-**All that remains is the A/B, with less than even odds.** With the cross-game r not reaching 0.15,
-it is unlikely to clear the ±7% screen at n=50. If run, run it knowing it is "to confirm the refutation".
-**There is no new cheap screening left.**
+The continuation (plugging into `choose_x` and the A/B) is tracked in
+[issue #2](https://github.com/p-kitty/suika-ai/issues/2).
 
 ## Planned: RL (REINFORCE)
 
