@@ -36,6 +36,7 @@ if __package__ in (None, ""):
 
 from scripts._bootstrap import ROOT
 
+from src.training import value
 from src.training.features import FEATURE_NAMES
 
 # Band width. Matches the band_escape default.
@@ -275,6 +276,13 @@ def main() -> None:
         action="store_true",
         help="only measure whether it carries across games (fix the move number, compare games)",
     )
+    parser.add_argument(
+        "--save",
+        type=Path,
+        default=None,
+        metavar="NPZ",
+        help="save the fitted V (this is the file plugged into choose_x)",
+    )
     args = parser.parse_args()
 
     data = np.load(args.data)
@@ -370,6 +378,16 @@ def main() -> None:
     mean, std = _standardize(feats[~is_test])
     x = ((feats - mean) / std)[:, use]
     w = _ridge(x[~is_test], label[~is_test], args.alpha)
+
+    if args.save is not None:
+        args.save.parent.mkdir(parents=True, exist_ok=True)
+        value.save(
+            value.LinearValue(
+                mean=mean, std=std, use=np.asarray(use), coef=w[:-1], bias=float(w[-1])
+            ),
+            args.save,
+        )
+        print(f"saved V: {args.save}")
 
     train_pred = _predict(x[~is_test], w)
     test_pred = _predict(x[is_test], w)

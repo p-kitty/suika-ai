@@ -15,6 +15,7 @@ from __future__ import annotations
 import itertools
 import math
 from concurrent.futures import Executor
+from typing import TYPE_CHECKING
 
 from . import penalties as pen
 from .observe import Observation, clamp_drop_x
@@ -25,6 +26,9 @@ from .vision.classify import fruit_radius
 from .vision.colors import SPAWN_MAX_TYPE
 from .vision.normalized import NORMALIZED_WIDTH
 from .vision.state import Fruit
+
+if TYPE_CHECKING:
+    from .training.value import LinearValue
 
 # --- Lookahead and candidate coarseness ---
 # Discount for the next move.
@@ -45,6 +49,16 @@ NEXT_CANDIDATE_STEP = 16.0
 # and lowering to 3.0 catches it, but score did not move against 248 → 540ms per move
 # (NOTES 'Candidate spacing and the merge window').
 CANDIDATE_STEP = 12.0
+
+# --- Learned value function (experimental; disabled by default) ---
+# Weight for adding V(post-drop board) to the two-ply value. While 0.0, no features are computed.
+# The model is the npz written by `scripts/train_value.py --save`, loaded with
+# `src.training.value.load`; an A/B plugs it in by rewriting these two attributes
+# from `compare_policy._apply_variant`.
+# The scale is set by the ratio of λ×(V range between candidates) to the eval band width (0.1)
+# (→scripts/value_escape.py).
+VALUE_WEIGHT = 0.0
+VALUE_MODEL: "LinearValue | None" = None
 
 
 def _held_eval_job(
@@ -118,27 +132,41 @@ def choose_x(
     alive = [row for row in ranked if not is_lost(row[2])]
     if alive:
         ranked = alive
-    if obs.next_type is None:
-        return ranked[0][1]
 
     # The next lookahead covers only the top held eval (the physics is heavy). Candidates are coarser than held.
     # Pass the top boards all at once. Running one board at a time splits the units sent to the pool per board,
     # and workers sit idle in the last wave.
     top = ranked[:HELD_TOP]
-    next_scores = _best_next_scores(
-        [after for _eval, _x, after, _score in top],
-        obs.next_type,
-        step=NEXT_CANDIDATE_STEP,
-        pool=pool,
-    )
+    boards = [after for _eval, _x, after, _score in top]
+    if obs.next_type is None:
+        next_scores = [0.0] * len(top)
+    else:
+        next_scores = _best_next_scores(
+            boards, obs.next_type, step=NEXT_CANDIDATE_STEP, pool=pool
+        )
+    bonus = _value_bonus(boards, obs.fruits)
     best_x = ranked[0][1]
     best_score = -math.inf
-    for (held_eval, x, _after, _score), next_score in zip(top, next_scores):
-        value = held_eval + NEXT_DISCOUNT * next_score
+    for (held_eval, x, _after, _score), next_score, v in zip(top, next_scores, bonus):
+        value = held_eval + NEXT_DISCOUNT * next_score + v
         if value > best_score:
             best_score = value
             best_x = x
     return best_x
+
+
+def _value_bonus(
+    boards: list[list[Fruit]], before: tuple[Fruit, ...] | list[Fruit]
+) -> list[float]:
+    """λ·V(post-drop board) per candidate. All 0 if there is no `VALUE_MODEL`.
+
+    Pass sign as the direction of the board **before the drop**. The collection side (`training/collect.py`)
+    builds features with the pre-drop sign, so recomputing it from the post-drop board would disagree with training.
+    """
+    if VALUE_MODEL is None or VALUE_WEIGHT == 0.0:
+        return [0.0] * len(boards)
+    values = VALUE_MODEL.boards(boards, sign=_order_sign(before))
+    return [VALUE_WEIGHT * float(v) for v in values]
 
 
 def _candidates(
