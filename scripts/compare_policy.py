@@ -71,6 +71,9 @@ def _apply_variant(enabled: bool) -> None:
     Example:
         from src import penalties
         penalties.BURY_WEIGHT = 30.0 if enabled else 20.0
+
+    To plug in a learned value function, use VALUE_MODEL / VALUE_WEIGHT of `src.policy`.
+    The λ scale comes from `scripts/value_escape.py` (the fraction escaping the band).
     """
 
 

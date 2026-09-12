@@ -7,8 +7,10 @@ The fall physics itself is in tests/test_sim_physics.py.
 
 import math
 
+import numpy as np
 import pytest
 
+from src import policy as pol
 from src.observe import Observation, clamp_drop_x
 from src.penalties import (
     FOREIGN_AIM_CENTER_FRAC,
@@ -19,6 +21,8 @@ from src.penalties import (
     ideal_x,
 )
 from src.policy import _candidates, _score, choose_x
+from src.training.features import FEATURE_DIM, FEATURE_NAMES, board_features
+from src.training.value import LinearValue
 from src.reward import is_lost, merge_points
 from src.sim.sim_physics import landed_xy, preview_land, simulate_drop, simulate_drop_held
 from src.vision.classify import fruit_radius
@@ -862,3 +866,90 @@ def test_reaches_a_same_type_partner_under_a_roof() -> None:
     assert held_merged
     # The buried partner is cleared along with it (two cherries -> strawberry -> grape).
     assert not [f for f in after if f.type == 0]
+
+
+# --- The plug-in point for a learned value function ---
+# How good V itself is is not checked here (that is the A/B's job). What is checked is
+# **that it is disabled by default** and **that, when plugged in, it can move the two-ply ranking**.
+
+
+def _one_feature_value(name: str, coef: float):
+    """An artificial V looking at a single feature. Standardization is the identity."""
+    return LinearValue(
+        mean=np.zeros(FEATURE_DIM),
+        std=np.ones(FEATURE_DIM),
+        use=np.array([FEATURE_NAMES.index(name)]),
+        coef=np.array([coef]),
+        bias=0.0,
+    )
+
+
+@pytest.fixture
+def value_hook():
+    """Rewrite the V attributes of `policy`, and always restore them after the test."""
+    saved = (pol.VALUE_MODEL, pol.VALUE_WEIGHT)
+
+    def install(model, weight: float) -> None:
+        pol.VALUE_MODEL = model
+        pol.VALUE_WEIGHT = weight
+
+    yield install
+    pol.VALUE_MODEL, pol.VALUE_WEIGHT = saved
+
+
+def _crown_margin(fruits, drop_type: int, x: float) -> float:
+    after, _merges, _types, _held_merged, _held = simulate_drop_held(fruits, drop_type, x)
+    sign = pol._order_sign(list(fruits))
+    return float(board_features(after, sign=sign)[FEATURE_NAMES.index("crown_margin")])
+
+
+def test_value_model_is_off_by_default() -> None:
+    """Do not commit with the experiment toggle left on."""
+    assert pol.VALUE_MODEL is None
+    assert pol.VALUE_WEIGHT == 0.0
+
+
+def test_value_model_reorders_the_two_ply_band(value_hook) -> None:
+    """With V weighted heavily, the ranking of the top candidates ordered by two-ply value moves.
+
+    So the direction is visible, it plugs in the reverse of 'we want to **lower** the crown' (a V that dislikes lower boards).
+    Moving toward a side the unmodified policy would not choose shows that the path is live.
+    """
+    cherry_r = fruit_radius(0)
+    fruits = (
+        Fruit(type=0, x=180.0, y=NORMALIZED_HEIGHT - cherry_r, radius=cherry_r, confidence=90),
+        Fruit(
+            type=3,
+            x=320.0,
+            y=NORMALIZED_HEIGHT - fruit_radius(3),
+            radius=fruit_radius(3),
+            confidence=90,
+        ),
+    )
+    obs = _obs(held_type=0, fruits=fruits, next_type=1)
+    base_x = choose_x(obs)
+
+    value_hook(_one_feature_value("crown_margin", -1.0), 1e4)
+    x = choose_x(obs)
+    assert x != base_x
+    assert _crown_margin(fruits, 0, x) < _crown_margin(fruits, 0, base_x)
+
+
+def test_value_weight_zero_changes_nothing(value_hook) -> None:
+    """Even with a model loaded, a weight of 0 gives the same move as the unmodified policy."""
+    cherry_r = fruit_radius(0)
+    fruits = (
+        Fruit(type=0, x=180.0, y=NORMALIZED_HEIGHT - cherry_r, radius=cherry_r, confidence=90),
+        Fruit(
+            type=3,
+            x=320.0,
+            y=NORMALIZED_HEIGHT - fruit_radius(3),
+            radius=fruit_radius(3),
+            confidence=90,
+        ),
+    )
+    obs = _obs(held_type=0, fruits=fruits, next_type=1)
+    base_x = choose_x(obs)
+
+    value_hook(_one_feature_value("crown_margin", -1.0), 0.0)
+    assert choose_x(obs) == base_x

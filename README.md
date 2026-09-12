@@ -57,6 +57,10 @@ python scripts/collect_value.py --episodes 20
 # Fit a value function on it and screen whether it orders the tied band
 python scripts/train_value.py --sweep
 python scripts/train_value.py --horizon 100 --detrend --drop-dead
+python scripts/train_value.py --horizon 100 --detrend --drop-dead --save artifacts/value_h100.npz
+
+# Screen that value function against the band the policy actually decides in
+python scripts/value_escape.py --model artifacts/value_h100.npz
 
 # Run detection on saved images → debug/check/
 python scripts/check_detection.py
@@ -97,7 +101,7 @@ src/
   vision/               # board, fruit, held / next detection
   game/                 # live game I/O: capture, control, settle, tracker, env
   sim/                  # headless sim: sim_physics (pymunk), sim_env
-  training/             # agent, encodings, BC + REINFORCE, value dataset
+  training/             # agent, encodings, BC + REINFORCE, value dataset + V
   viz/                  # drawing helpers, overlay preview, debug frame dump
   util/                 # config, image I/O, worker count, A/B statistics
 scripts/
@@ -109,6 +113,7 @@ scripts/
   compare_policy.py     # A/B two policy variants on the same seeds
   analyze_ab.py         # pick a proxy metric from a compare_policy dump
   band_escape.py        # pre-A/B screen: does a weight change escape the tied band?
+  value_escape.py       # pre-A/B screen for a learned V, against the two-ply band
   measure_fall_speed.py # calibrate the sim's GRAVITY against the real game
   fossils.py            # diagnosis: which fruits never merge, and what covers them
   view_sim.py           # watch the sim board (mouse to drop, g for auto-play)
