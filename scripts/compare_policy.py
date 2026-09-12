@@ -58,8 +58,17 @@ def _head() -> str:
         return ""
 
 
+# The issue #2 experiment. Remove once it is decided whether to make it permanent or discard it.
+_VALUE_MODEL = None
+
+
 def _apply_variant(enabled: bool) -> None:
-    """Switch the change to compare here (side B is enabled=True).
+    """B: add V(post-drop board) to the two-ply value (issue #2, lambda=1.0).
+
+    The screen is `scripts/value_escape.py`. The lambda chosen escapes the two-ply band 18.9% over 434 positions
+    (12.7% in the late game only).
+
+    Original description:
 
     Called in each worker process before running episodes. Leaving toggles for permanent rules
     adds dead branches, so empty the body once the experiment is over.
@@ -72,6 +81,18 @@ def _apply_variant(enabled: bool) -> None:
         from src import penalties
         penalties.BURY_WEIGHT = 30.0 if enabled else 20.0
     """
+    from pathlib import Path as _Path
+
+    from src import policy
+    from src.training import value
+
+    global _VALUE_MODEL
+    if enabled and _VALUE_MODEL is None:
+        _VALUE_MODEL = value.load(
+            _Path(__file__).resolve().parents[1] / "artifacts" / "value_h100.npz"
+        )
+    policy.VALUE_MODEL = _VALUE_MODEL if enabled else None
+    policy.VALUE_WEIGHT = 1.0 if enabled else 0.0
 
 
 def _episode(

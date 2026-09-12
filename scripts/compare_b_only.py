@@ -16,6 +16,7 @@ Plug the change into `_apply_variant` in `compare_policy.py`. Only side B calls 
 Usage:
   python scripts/compare_policy.py --episodes 50 --out artifacts/base.json
   python scripts/compare_b_only.py --baseline artifacts/base.json --episodes 50
+  python scripts/compare_b_only.py --baseline artifacts/base.json --offset 50 --episodes 100
 """
 
 from __future__ import annotations
@@ -49,6 +50,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--episodes", type=int, default=100)
+    parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="number of baseline episodes to skip from the start (rerun the same variant on another seed band)",
+    )
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
@@ -56,11 +63,14 @@ def main() -> None:
     data = json.loads(args.baseline.read_text(encoding="utf-8"))
     base_all = data["a"]
     max_steps = data["max_steps"]
-    if args.episodes > len(base_all):
+    if args.offset + args.episodes > len(base_all):
         raise SystemExit(
-            f"the baseline has only {len(base_all)} episodes: lower --episodes"
+            f"the baseline has only {len(base_all)} episodes: "
+            "lower --episodes or --offset"
         )
-    base = sorted(base_all, key=lambda r: r["seed"])[: args.episodes]
+    base = sorted(base_all, key=lambda r: r["seed"])[
+        args.offset : args.offset + args.episodes
+    ]
     seeds = [int(r["seed"]) for r in base]
 
     stamp = data.get("baseline_commit")
@@ -86,6 +96,7 @@ def main() -> None:
                 {
                     "baseline": str(args.baseline),
                     "episodes": args.episodes,
+                    "offset": args.offset,
                     "max_steps": max_steps,
                     "variant": (_apply_variant.__doc__ or "").strip().splitlines()[:1],
                     "a": base,
@@ -99,7 +110,10 @@ def main() -> None:
 
     print(f"\nepisodes={args.episodes} max_steps={max_steps} "
           f"workers={args.workers} baseline={args.baseline.name}")
-    print(f"  A = saved baseline (first {args.episodes} of {len(base_all)})")
+    print(
+        f"  A = saved baseline (of {len(base_all)} episodes, "
+        f"{args.episodes} starting at episode {args.offset})"
+    )
     for key, digits in METRICS:
         print(_line(key, base, rows, digits=digits))
     print("  (* = 95% CI does not cross 0)")

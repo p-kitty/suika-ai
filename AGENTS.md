@@ -163,10 +163,16 @@ and many changes actually fail here.
    Score noise is large; a rise or fall in the mean alone says nothing
 2. **Check in view_sim that no obvious blunders remain.** If they do, do not go to the A/B;
    fix them first (→[Do not run an A/B while obvious blunders remain](#do-not-run-an-ab-while-obvious-blunders-remain))
-3. **Screen with `python scripts/band_escape.py`.** Inside the tie band the choice is indifferent, so
+3. **Screen on whether moves escape the band.** Inside the tie band the choice is indifferent
    ([measured](NOTES.md#settled-the-tie-band-really-is-indifferent-2026-08-19)), so "what fraction of moves change"
    is not a screen. Look at **the fraction that escapes the band**. If that is a few %, running the A/B
-   score does not move
+   will not move score. **The tool depends on which band you look at**:
+   - Tuning existing weights → `python scripts/band_escape.py` (the band of the first-ply eval)
+   - Adding or replacing the board scoring itself (such as a learned V) →
+     `python scripts/value_escape.py` (the band of the two-ply value). The current policy
+     ranks `HELD_TOP` candidates by held eval + `NEXT_DISCOUNT` × best next, so
+     `band_escape.py`, which looks at the first-ply band, cannot see that ranking
+     (→[Third-ply expectation](NOTES.md#measured-and-dropped-third-ply-expectation-2026-09-11))
 4. **Run the A/B** (it takes `--workers`, so ask first →
    [When in doubt, ask before touching anything](#when-in-doubt-ask-before-touching-anything)). Plug the change into
    `_apply_variant` in `scripts/compare_policy.py`. The default is
