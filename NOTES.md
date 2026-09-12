@@ -19,6 +19,7 @@
 - [When to move](#when-to-move)
 - [Policy (bootstrap) design](#policy-bootstrap-design)
 - [Training](#training)
+- [Adding V to choose_x does not move score](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12) ← the dead end of the learned value function
 - [Planned: RL (REINFORCE)](#planned-rl-reinforce)
 
 ## Current approach: fixed-point observation of seed 642746 (2026-08-19)
@@ -1723,8 +1724,93 @@ can be predicted, but "games that end with a high score" cannot.**
   happened to be going well". It cannot be separated for the same reason that
   [the value of a single move cannot be measured with rollouts](#how-to-measure-traps-we-keep-stepping-in)
 
-The continuation (plugging into `choose_x` and the A/B) is tracked in
-[issue #2](https://github.com/p-kitty/suika-ai/issues/2).
+The continuation (plugging into `choose_x` and the A/B) is below:
+[Adding V to choose_x does not move score](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12).
+
+### Measured: adding V to choose_x does not move score (n=150, 2026-09-12)
+
+With `policy.VALUE_MODEL` / `VALUE_WEIGHT`, λ·V (post-drop board) is added to the two-ply value (held eval + `NEXT_DISCOUNT` ×
+best next) and the `HELD_TOP` candidates are reordered. V is
+`--horizon 100 --detrend --drop-dead` fitted on `value_100ep.npz` (test R² 0.151).
+
+**The screen is `scripts/value_escape.py`.** `band_escape.py`, which cuts the band on the first-ply eval,
+cannot see the band of the current policy that ranks by two plies. On 434 positions (seeds 910000-5, every third move,
+early game included), the two-ply band (eps=0.1) holds a median 4/8 candidates, and **all 8 are inside the band in 26.7% of positions**:
+
+| λ | median range of λ×V | moves change | escapes the band | of which late (step≥60) |
+|---|---|---|---|---|
+| 0.03 | 0.15 | 16.8% | 2.5% | 0.0% |
+| 0.1 | 0.49 | 31.6% | 5.5% | 1.6% |
+| 0.3 | 1.46 | 44.5% | 11.5% | 3.8% |
+| 1.0 | 4.87 | 58.5% | **18.9%** | 12.7% |
+| 3.0 | 14.6 | 70.3% | 30.4% | 23.9% |
+| ∞ | — | 81.1% | 44.0% | 40.4% |
+
+**The fraction escaping the band caps at 44.0% even as λ→∞.** In 26.7% of positions every candidate is inside the band, so
+no scoring function can escape. Escaping more in the early game (35.0% early / 12.7% late at λ=1.0) is
+for the same reason as [terms divided by an average](#terms-divided-by-an-average-thin-out-as-the-board-fills-2026-08-21).
+
+**The A/B is null** (λ=1.0, n=150, `compare_b_only`, side A = `artifacts/baseline_816_n250.json`,
+0/150 truncated). Run **twice on different seed bands** and pooled:
+
+| Metric | A | B | Δ | t | 95% CI |
+|---|---|---|---|---|---|
+| score | 2509.55 | 2496.82 | −0.5% | −0.25 | [−114.2, +88.7] |
+| steps | 249.6 | 249.3 | −0.1% | −0.08 | |
+| cascades | 24.36 | 23.83 | −2.2% | −0.91 | |
+| max_type | 9.43 | 9.35 | −0.8% | −1.26 | |
+| max_wm | 0.44 | 0.39 | −10.6% | −0.84 | |
+| early_score | 247.33 | 238.48 | −3.6% | **−4.38** | [−12.8, −4.9] |
+| early_crown | 350.0 | 345.3 | −1.3% | **−2.39** | [−8.6, −0.8] |
+
+win/loss 77/73. **The n needed to speak to ±100 points is 152, so this n already resolves ±100 points
+(≈4%). Every metric is on the negative side, so n is not increased** (→[How to measure](#how-to-measure-traps-we-keep-stepping-in)).
+
+- **The first run at n=50 came out significant at +7.2%** (t=2.09, CI [+6.6, +336.7], win/loss 33/17,
+  watermelons reached 14/50 → 26/50 at t=2.87). **On a different seed band at n=100 it was −4.1%** (t=−1.65,
+  win/loss 44/56, max_type −2.2% significantly negative), the sign flipped, and pooled it is null as above.
+  **Being significant once at the default n=50 is not enough to add it.**
+  This is why [8/16 was run twice on different seeds](#adopted-widen-the-lookahead-to-816-2026-09-05)
+- **Only `early_*` is significant.** That the variant fires is certain. r(score) is
+  −0.03 / +0.03, so they are not proxies
+- **The side A baseline is valid.** `compare_b_only` warns when the baseline commit and HEAD
+  differ, but `git diff 7f37b441 master` touches only NOTES.md
+  (zero code difference). In addition, with V off, 690 moves on seeds 910000-2 were
+  compared byte for byte with master and matched
+
+**Why it does not work. This is the real point.** Within the candidates, V moves only 5 continuous quantities.
+The median contribution range within the top 8, and the fraction of moves that change when that term is zeroed:
+
+| Feature | median contribution range | coefficient | moves change when zeroed |
+|---|---|---|---|
+| size_order_ideal | 0.472 | +6.2 | 11.1% |
+| crown_margin | 0.245 | +45.2 | **22.1%** |
+| mean_height | 0.171 | +36.5 | 11.3% |
+| big_floor_gap | 0.080 | −27.1 | 17.1% |
+| big_wall_gap | 0.033 | +24.2 | 10.6% |
+
+**The remaining 10 have a median contribution range of 0.000.** `size_order_pair`,
+−78.7, `excess_same` −48.7 and `max_type` +52.0, the large coefficients in the fit, **do not move even once among
+the 8 candidates the policy chooses from** (→[Properties that cannot be changed](#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21)).
+`r(two-ply value, V)` within candidates has a median of −0.001 (50.0% negative); V is **orthogonal** to eval inside the band.
+
+- **The order V puts into the band is nearly a linear combination of quantities already measured and dropped individually.**
+  The continuous corner and height terms (`big_wall_gap` / `big_floor_gap` →[measured and dropped](#measured-and-dropped-continuous-corner-and-height-terms-2026-09-05)) and
+  crown height (`crown_margin` / `mean_height`; `crown_danger` is null at n=250).
+  **Combined linearly they split the band (18.9%) but score does not move.**
+  "They cannot split the band alone, but a combination of weights should" is refuted here
+- **Before going nonlinear, adding features that move within candidates comes first.** It is not a capacity problem.
+  The terms supporting the fit are **constants at decision time**, so a thicker model would only
+  twist the same 5 continuous quantities again. **Fit (R², correlation) guarantees nothing
+  about traction between candidates** — on the learning side too, [properties that cannot be changed](#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21)
+  apply as they are
+- **The V fit and its collected data can stay as they are.** `value_100ep.npz` was collected **before** the 8/16 adoption
+  (100 games with the 2/32 teacher), but as above the bottleneck is the features, so
+  there is no reason to spend 3.6x recollecting
+- **The plug-in point (`policy.VALUE_MODEL` / `VALUE_WEIGHT`) and `value_escape.py` were kept.**
+  Disabled by default (`VALUE_WEIGHT = 0.0` computes no features), and play with it off was confirmed
+  byte-identical to master. Removing it means that the next time features moving within candidates are added,
+  the same plug-in point has to be rewritten and play invariance confirmed again from scratch
 
 ## Planned: RL (REINFORCE)
 
