@@ -68,6 +68,9 @@ python scripts/check_detection.py
 # Screen a weight change before spending hours on an A/B
 python scripts/band_escape.py
 
+# List moves whose dropped fruit breaks the size order, and the term that decided each
+python scripts/order_breaks.py --seeds 4 --min-gap 3
+
 # Trace one game and count the fruits that never merge
 python scripts/fossils.py --seed 642746
 
@@ -116,6 +119,7 @@ scripts/
   value_escape.py       # pre-A/B screen for a learned V, against the two-ply band
   measure_fall_speed.py # calibrate the sim's GRAVITY against the real game
   fossils.py            # diagnosis: which fruits never merge, and what covers them
+  order_breaks.py       # diagnosis: size-order breaks sorted into ties and term-decided moves
   view_sim.py           # watch the sim board (mouse to drop, g for auto-play)
 tests/                  # mirrors src/ (game/, sim/, training/, util/, vision/)
 ```
