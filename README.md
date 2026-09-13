@@ -67,6 +67,8 @@ python scripts/check_detection.py
 
 # Screen a weight change before spending hours on an A/B
 python scripts/band_escape.py
+# The same, through the two-ply decision the current policy makes
+python scripts/weight_escape.py
 
 # Trace one game and count the fruits that never merge
 python scripts/fossils.py --seed 642746
@@ -114,6 +116,7 @@ scripts/
   analyze_ab.py         # pick a proxy metric from a compare_policy dump
   band_escape.py        # pre-A/B screen: does a weight change escape the tied band?
   value_escape.py       # pre-A/B screen for a learned V, against the two-ply band
+  weight_escape.py      # pre-A/B screen: does a weight change escape the two-ply band?
   measure_fall_speed.py # calibrate the sim's GRAVITY against the real game
   fossils.py            # diagnosis: which fruits never merge, and what covers them
   view_sim.py           # watch the sim board (mouse to drop, g for auto-play)
