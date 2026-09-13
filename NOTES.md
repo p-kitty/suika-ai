@@ -20,6 +20,7 @@
 - [Policy (bootstrap) design](#policy-bootstrap-design)
 - [Training](#training)
 - [Adding V to choose_x does not move score](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12) ← the dead end of the learned value function
+- [The two-ply band mostly holds a single board](#measured-the-two-ply-band-mostly-holds-a-single-board-2026-09-13) ← why board features cannot order the band
 - [Planned: RL (REINFORCE)](#planned-rl-reinforce)
 
 ## Current approach: fixed-point observation of seed 642746 (2026-08-19)
@@ -1774,7 +1775,7 @@ win/loss 77/73. **The n needed to speak to ±100 points is 152, so this n alread
 - **Only `early_*` is significant.** That the variant fires is certain. r(score) is
   −0.03 / +0.03, so they are not proxies
 - **The side A baseline is valid.** `compare_b_only` warns when the baseline commit and HEAD
-  differ, but `git diff 7f37b441 master` touches only NOTES.md
+  differ, but `git diff dcc3ecf3 master` touches only NOTES.md
   (zero code difference). In addition, with V off, 690 moves on seeds 910000-2 were
   compared byte for byte with master and matched
 
@@ -1799,11 +1800,13 @@ the 8 candidates the policy chooses from** (→[Properties that cannot be change
   crown height (`crown_margin` / `mean_height`; `crown_danger` is null at n=250).
   **Combined linearly they split the band (18.9%) but score does not move.**
   "They cannot split the band alone, but a combination of weights should" is refuted here
-- **Before going nonlinear, adding features that move within candidates comes first.** It is not a capacity problem.
+- **A nonlinear model would not help.** It is not a capacity problem.
   The terms supporting the fit are **constants at decision time**, so a thicker model would only
   twist the same 5 continuous quantities again. **Fit (R², correlation) guarantees nothing
   about traction between candidates** — on the learning side too, [properties that cannot be changed](#do-not-penalize-board-properties-the-current-move-cannot-change-2026-08-21)
   apply as they are
+- **Adding features that vary between candidates does not help either** — see the next section:
+  most of the two-ply band is one board
 - **The V fit and its collected data can stay as they are.** `value_100ep.npz` was collected **before** the 8/16 adoption
   (100 games with the 2/32 teacher), but as above the bottleneck is the features, so
   there is no reason to spend 3.6x recollecting
@@ -1811,6 +1814,34 @@ the 8 candidates the policy chooses from** (→[Properties that cannot be change
   Disabled by default (`VALUE_WEIGHT = 0.0` computes no features), and play with it off was confirmed
   byte-identical to master. Removing it means that the next time features moving within candidates are added,
   the same plug-in point has to be rewritten and play invariance confirmed again from scratch
+
+### Measured: the two-ply band mostly holds a single board (2026-09-13)
+
+Before adding features, `scripts/value_escape.py` checked whether the candidates tied in the two-ply band
+(eps 0.1) leave different boards at all. Same 434 positions (seeds 910000-5, every third move, early game included).
+Two boards count as the same when every fruit matches by type within 2px; the biggest fruit moves 0.12px between
+candidates at the median, which is physics jitter ([continuous corner and height terms](#measured-and-dropped-continuous-corner-and-height-terms-2026-09-05)).
+
+| of the 351 positions with 2+ candidates in the band | |
+|---|---|
+| collapse to a single board | **70.9%** |
+| hold 5 or more boards | 7.1% |
+| the merge outcome differs | **0.0%** |
+| max shift between boards that do differ, median | 15.6px |
+
+Per feature, inside the band: every count feature splits in 0.0% of positions. The continuous ones
+(`crown_margin` 72.1%, `size_order_ideal` 69.8%, `big_wall_gap` 49.9%, `big_floor_gap` 51.6%, `mean_height` 44.2%)
+split by a median of about 0.0005 in normalized units, roughly 0.2px. Only `size_order_pair` (2.0%),
+`corner_pocket` (10.3%) and `big_cornered` (1.1%) split by a real amount, and rarely.
+
+- **In 7 of 10 positions there is nothing to order.** Any board score, learned or hand-written, can only
+  pick among physically identical outcomes there. This bounds every "add a feature that varies between candidates"
+  idea, which is why it was not built
+- **Where boards do differ, it is one fruit placed about 15px elsewhere with the same merges.** Telling those apart
+  would need to know how the next draws land, which is search, not a static board feature. The one change that ever
+  moved score here was search ([8/16](#adopted-widen-the-lookahead-to-816-2026-09-05))
+- **The learned value route is closed** for this policy. Reopen it only with something that changes which candidates
+  reach the band, not how the band is ordered
 
 ## Planned: RL (REINFORCE)
 
