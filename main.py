@@ -71,17 +71,26 @@ def main() -> None:
     )
 
     learned_policy: LinearPolicy | None = None
+    load_error = ""
     if args.checkpoint.is_file():
-        learned_policy = LinearPolicy()
-        learned_policy.load(args.checkpoint)
-        print(f"loaded {args.checkpoint}")
+        # A checkpoint trained before an encode.py change no longer fits OBS_DIM. It must not
+        # stop bootstrap play, which needs no weights; learned is just unavailable then.
+        try:
+            candidate = LinearPolicy()
+            candidate.load(args.checkpoint)
+        except ValueError as exc:
+            load_error = str(exc)
+            print(f"ignoring {args.checkpoint}: {exc}")
+        else:
+            learned_policy = candidate
+            print(f"loaded {args.checkpoint}")
 
     if args.policy is None:
         policy_name = "learned" if learned_policy is not None else "bootstrap"
     else:
         policy_name = args.policy
     if policy_name == "learned" and learned_policy is None:
-        raise SystemExit(f"no weights for learned: {args.checkpoint}")
+        raise SystemExit(f"no weights for learned: {args.checkpoint} {load_error}".rstrip())
 
     def choose(obs_in: Observation) -> float:
         if policy_name == "learned":
