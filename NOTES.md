@@ -10,6 +10,7 @@
 - [Adopted: widen the lookahead to 8/16](#adopted-widen-the-lookahead-to-816-2026-09-05) ← widened the search
 - [Measured and dropped: third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11) ← a deeper search only reshuffles inside the band
 - [Settled: the tie band really is indifferent](#settled-the-tie-band-really-is-indifferent-2026-08-19) ← the dead end of weight tuning
+- [What decides size-order breaks](#measured-what-decides-size-order-breaks-2026-09-14) ← big filters, not ties, break the order; screened candidates await an A/B
 - [Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22) ← a case where candidate generation, not weights, was the cause
 - [In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)
 - [Investigated: how the board collapses](#investigated-how-the-board-collapses-2026-08-18)
@@ -685,6 +686,55 @@ At the time of measurement that role was played by bumpiness (range inside the b
 basis it was [retired](#retired-bumpiness-height-variance-2026-08-21). Now `center_tiebreak`
 by definition always takes a different value per candidate, so it carries the role explicitly.
 **When adding a new continuous term, check that it has not fallen into this position.**
+
+## Measured: what decides size-order breaks (2026-09-14)
+
+`python scripts/order_breaks.py --seeds 4 --min-gap 3` (seeds 910000-3, full games, HEAD policy). On each move where held
+does not merge, the inversions **the landed fruit itself** creates are counted (summed type gap, same pair and valley
+rules as `_size_order_penalty`), and the chosen move is compared on the two-ply value with the best candidate that stays under 3.
+
+437 non-merging moves, **141 break the order by 3 or more**:
+
+| | count | |
+|---|---|---|
+| no candidate stays under 3 | 75 (53%) | the board was already broken; the cause is earlier |
+| decided by one term | 59 (42%) | next 13 / foreign_aim 11 / perch 11 / bury_lone 9 / bury 9 / size_order 3 / pit 2 / score 1 |
+| tie (gap <= 0.1) | 7 (5%) | |
+
+- **Order breaks are not ties.** Unlike [the 2026-08-18 blunder](#vertical-size-order-stage-gate-trapped-fruit-penalty-2026-08-18-reverted)
+  (lost by 0.07), 95% of the avoidable breaks lose by a real margin; median gap foreign_aim 87.6, next 38.8, perch 37.8.
+  So they can be moved, and the big fixed filters (foreign_aim 100, perch 16x) are what push fruit onto the wrong side
+- **`_valley_flanks` ignores y (unresolved).** It takes the nearest bigger fruit left and right by x alone, so a fruit
+  dropped near the top becomes a valley wall, or the "partner in the same valley", of a fruit 300px below
+  (seed 910000 move 174: a grape at y=110 exempts the grape at y=414 from size order and moves the penalty by 28).
+  The same helper feeds `_size_order_exempt`, `_pit_penalty`, `valley_grow_bonus` and `_is_rung`.
+  The y-aware fix (a wall must overlap the fruit vertically, a partner must share both walls) passes pytest,
+  but see the screen below: it breaks **more** order, so it was not adopted
+
+**Screens** (428 positions, seeds 910000-5, every third move, early game included; single thread; escapes = the
+variant picks a move below the current two-ply band, eps 0.1; inversion = what the chosen fruit creates):
+
+| Variant | moves change | escapes | inversion, all moves | inversion, changed moves | pytest |
+|---|---|---|---|---|---|
+| `SIZE_ORDER_PAIR_WEIGHT` 1.5 → 6.0 | 13.6% | **11.7%** | 1.78 → **1.05** | 7.53 → 2.14 | fails the rung test |
+| size_order pair + ideal x4 | 18.0% | 11.7% | 1.78 → 1.05 | 5.75 → 1.73 | fails the rung test |
+| size_order pair + ideal x2 | 8.4% | 4.4% | 1.78 → 1.50 | 4.14 → 0.81 | fails the rung test |
+| `PERCH_WEIGHT` 16 → 4 | 8.4% | 6.5% | 1.78 → 1.61 | 4.39 → 2.33 | passes |
+| `FOREIGN_AIM_WEIGHT` 100 → 0 | 31.8% | 29.7% | 1.78 → 1.83 | 2.65 → 2.79 | fails 2 foreign_aim tests |
+| y-aware valleys | 20.1% | 17.8% | 1.78 → 2.30 | 3.85 → 6.45 | passes |
+
+- **Raising size order gives up little merging.** Pair x4 gives up a merge in 2 of 58 changed moves (merge points
+  228 → 174 summed over them). The cap from ["a quantity merging always worsens"](AGENTS.md#how-to-write-a-rule)
+  does not bind, because held-merging moves are exempt from size order
+- **But even x2 reintroduces a fixed blunder**: `test_uses_the_next_rung_instead_of_roofing_a_small_fruit` roofs the
+  strawberry again. The grape in the rung hollow is inverted against the dekopon one tier up, the roof makes both
+  grapes "partners in a valley" and exempt. Skipping touching one-tier pairs in size order was tried to spare the rung;
+  it breaks `test_inversion_costs_more_than_the_correct_order` and `test_drop_does_not_exempt_the_inversion_it_creates`
+  and still roofs at x4, so it was reverted
+- Inversion is a home-made structural metric; fewer inversions is not evidence of score
+  ([How to measure](#how-to-measure-traps-we-keep-stepping-in)). **None of these has been A/B'd yet.**
+  They are plugged into `_apply_variant` on the unmerged branch `ab-order-candidates` (`AB_VARIANT=so4|perch4|fa0|yvalley`).
+  Side A `artifacts/baseline_816_n250.json` still replays on HEAD (seeds 322399-400 match on all 5 metrics)
 
 ## Candidate spacing and the merge window (2026-08-22)
 
