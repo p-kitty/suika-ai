@@ -639,6 +639,32 @@ an evaluator that sees differences the current features cannot (a learned value 
 This matches how [Policy (bootstrap) design](#policy-bootstrap-design) has positioned it from the start:
 "a thin policy before RL".
 
+### Remeasured through the two-ply decision (2026-09-14)
+
+The table above cuts the band on the first-ply eval and was taken while only 2 held candidates got the next lookahead.
+Since [8/16](#adopted-widen-the-lookahead-to-816-2026-09-05) a weight acts on both plies, so it was retaken with
+`python scripts/weight_escape.py` (428 positions, seeds 910000-5, every third move, early game included,
+two-ply band eps 0.1, median band size 4). Multiplier applied to both plies:
+
+| Term | x0.0 | x0.25 | x0.5 | x2.0 | x4.0 |
+|---|---|---|---|---|---|
+| foreign_aim | **29.9%** | 2.3% | 0.7% | 0.0% | 0.0% |
+| size_order | **24.3%** | 11.7% | 7.7% | 5.1% | **12.6%** |
+| merge_big_side | 15.9% | 2.8% | 0.2% | 0.0% | 0.0% |
+| pit | 14.7% | 8.9% | 5.6% | 5.8% | **12.4%** |
+| perch | 11.9% | 7.0% | 4.0% | 5.1% | 8.6% |
+| bury | 10.3% | 5.8% | 3.7% | 5.4% | 9.3% |
+| bury_lone | 8.2% | 2.8% | 2.1% | 4.2% | 7.9% |
+| score | 4.2% | 1.6% | 1.2% | 1.4% | 2.6% |
+| excess_same / corner_pocket / valley_grow | ≤1.9% | | | | ≤2.3% |
+
+- **Under two plies the continuous-ish terms do get leverage.** The first-ply table topped out at 6.1% for x0.5-x2.0;
+  here size_order and pit reach 12% at x4 (still 5-8% at x2 / x0.5). The discounted reply adds the same term a second
+  time on a different board, so a scaled term reorders more than it did on one ply
+- **foreign_aim and merge_big_side are still pure filters**: cutting them moves 30% / 16%, any nonzero weight
+  moves almost nothing. Tuning their level is pointless; only their definition or removal can matter
+- Escaping the band is a necessary condition only (the learned V escaped 18.9% and was null). None of these was A/B'd yet
+
 ### Split composite terms into sub-terms (2026-08-21)
 
 Of the 7 terms in the table above, `size_order` and `big_layout` are **sums of two rules of different nature**,
