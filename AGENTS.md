@@ -292,6 +292,8 @@ All git operations are collected in this section. Do not scatter them into other
 
 **merge**
 
+- **Do not merge into `master` unless the user tells you to.** Even a finished, tested branch
+  waits. "Finish the branches" means get them ready to merge (tests, NOTES, a clean history), not merge them
 - **Do not fast-forward.** When merging into `master`, always use
   `git merge --no-ff <topic>`. Create a merge commit even if the branches have not diverged
 - Why: it shows afterwards where one piece of work began and ended. Squashing with ff
