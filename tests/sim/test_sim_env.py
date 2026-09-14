@@ -2,6 +2,7 @@
 
 from src.policy import choose_x
 from src.reward import CLEAR_SCORE, WATERMELON
+from src.sim import sim_env
 from src.sim.sim_env import SimEnv
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT
@@ -26,6 +27,27 @@ def test_seed_is_concrete_and_replayable() -> None:
     replay = SimEnv(seed=env.seed)
     again = [replay.reset().held_type] + [replay.step(200.0).observation.held_type for _ in range(4)]
     assert again == drawn
+
+
+def test_aim_noise_keeps_the_draws_and_moves_the_drop(monkeypatch) -> None:
+    """The aim error lands within its half-width and does not reshuffle the fruit sequence of the seed,
+    so an A/B with the error on stays paired on the same draws."""
+    exact = SimEnv(seed=11)
+    exact.reset()
+    exact_draws = [exact.step(200.0).observation.held_type for _ in range(6)]
+
+    monkeypatch.setattr(sim_env, "AIM_NOISE_PX", 8.0)
+    noisy = SimEnv(seed=11)
+    noisy.reset()
+    noisy.held_type = 0
+    first = noisy.step(200.0)
+    landed = first.observation.fruits[0].x
+    assert 192.0 - 1.0 <= landed <= 208.0 + 1.0
+    assert landed != 200.0
+
+    noisy = SimEnv(seed=11)
+    noisy.reset()
+    assert [noisy.step(200.0).observation.held_type for _ in range(6)] == exact_draws
 
 
 def test_explicit_seed_is_kept() -> None:

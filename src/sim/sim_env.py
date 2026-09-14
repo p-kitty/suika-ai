@@ -14,6 +14,12 @@ from ..vision.colors import SPAWN_MAX_TYPE
 from ..vision.normalized import NORMALIZED_WIDTH
 from ..vision.state import Fruit
 
+# Half-width (board px) of the uniform error between the chosen column and where the fruit is released.
+# The sim drops exactly where choose_x aims, while the real game stops aiming anywhere inside
+# control.LOOK_TOLERANCE (4px), up to CROSS_STOP (10px) after overshooting, and EDGE_TOLERANCE (18px)
+# near the walls. 0 keeps the sim exact; A/B scripts rewrite it to measure how much that error costs.
+AIM_NOISE_PX = 0.0
+
 
 @dataclass
 class SimStep:
@@ -35,6 +41,9 @@ class SimEnv:
         # The way random seeds are drawn matches compare_policy.py.
         self.seed = secrets.randbelow(1_000_000) if seed is None else seed
         self.rng = np.random.default_rng(self.seed)
+        # A separate stream, so turning the aim error on does not change the draws of the same seed
+        # (A and B stay paired on the same fruit sequence).
+        self._aim_rng = np.random.default_rng([self.seed, 1])
         self.fruits: list[Fruit] = []
         self.held_type: int | None = None
         self.next_type: int | None = None
@@ -50,6 +59,8 @@ class SimEnv:
             raise RuntimeError("reset has not been called")
 
         before = self._obs()
+        if AIM_NOISE_PX > 0.0:
+            x += float(self._aim_rng.uniform(-AIM_NOISE_PX, AIM_NOISE_PX))
         target = clamp_drop_x(x, self.held_type)
         score, _penalties, _eval, after_fruits, merges = drop_scores(
             self.fruits, self.held_type, target
