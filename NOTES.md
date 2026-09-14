@@ -722,6 +722,8 @@ variant picks a move below the current two-ply band, eps 0.1; inversion = what t
 | `PERCH_WEIGHT` 16 → 4 | 8.4% | 6.5% | 1.78 → 1.61 | 4.39 → 2.33 | passes |
 | `FOREIGN_AIM_WEIGHT` 100 → 0 | 31.8% | 29.7% | 1.78 → 1.83 | 2.65 → 2.79 | fails 2 foreign_aim tests |
 | y-aware valleys | 20.1% | 17.8% | 1.78 → 2.30 | 3.85 → 6.45 | passes |
+| **y-aware valleys + pair 6.0** | 23.1% | **20.3%** | 1.78 → **1.33** | 5.40 → 3.47 | **passes** |
+| y-aware valleys + pair 3.0 | 20.6% | 18.0% | 1.78 → 1.83 | 4.88 → 5.15 | passes |
 
 - **Raising size order gives up little merging.** Pair x4 gives up a merge in 2 of 58 changed moves (merge points
   228 → 174 summed over them). The cap from ["a quantity merging always worsens"](AGENTS.md#how-to-write-a-rule)
@@ -731,9 +733,15 @@ variant picks a move below the current two-ply band, eps 0.1; inversion = what t
   grapes "partners in a valley" and exempt. Skipping touching one-tier pairs in size order was tried to spare the rung;
   it breaks `test_inversion_costs_more_than_the_correct_order` and `test_drop_does_not_exempt_the_inversion_it_creates`
   and still roofs at x4, so it was reverted
+- **The roof wins through the same x-only valley bug.** The roofing grape sits 114px above the orange, yet by x it is
+  "in the valley" of the dekopon and orange with the other grape as its partner, so both grapes go exempt. With the
+  y-aware valleys the rung test passes at pair 3.0 and 6.0. Each change alone is bad in its own way (y-aware alone breaks
+  more order, pair x4 alone brings the roof back); together they pass every test, cut the inversion 25%, and on the
+  changed moves take more merge points, not fewer (635 → 685, a merge given up in 2 of 99). **This is the first candidate to A/B**
+  (`AB_VARIANT=yv_so6`)
 - Inversion is a home-made structural metric; fewer inversions is not evidence of score
   ([How to measure](#how-to-measure-traps-we-keep-stepping-in)). **None of these has been A/B'd yet.**
-  They are plugged into `_apply_variant` on the unmerged branch `ab-order-candidates` (`AB_VARIANT=so4|perch4|fa0|yvalley`).
+  They are plugged into `_apply_variant` on the unmerged branch `ab-order-candidates` (`AB_VARIANT=yv_so6|yv_so3|so4|perch4|fa0|yvalley`).
   Side A `artifacts/baseline_816_n250.json` still replays on HEAD (seeds 322399-400 match on all 5 metrics)
 
 ## Candidate spacing and the merge window (2026-08-22)
