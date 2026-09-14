@@ -120,13 +120,21 @@ def aim(
     best_error: float | None = None
     stall_moves = 0
     no_improve = 0
+    moves = 0
+    held: float | None = None
+
+    def finish(ok: bool, reason: str) -> bool:
+        # Every exit is printed: "ok" alone cannot tell a reached target from giving up at a stall.
+        where = "none" if held is None else f"{held:.0f}"
+        print(f"aim {reason}: target={target_x:.0f} held={where} moves={moves}")
+        return ok
 
     while time.monotonic() < deadline:
         if abort is not None and abort():
-            return False
+            return finish(False, "abort")
         obs, _corners = read()
         if obs.blocked:
-            return False
+            return finish(False, "blocked")
         if obs.held_x is None:
             time.sleep(LOOK_PAUSE_SEC)
             continue
@@ -135,16 +143,16 @@ def aim(
         error = target_x - held
         abs_error = abs(error)
         if abs_error <= tolerance:
-            return True
+            return finish(True, "reached")
         # Right edge / left edge: once at the wall, do not swing the view for the remaining error.
         if _edge_close_enough(target_x, held, tolerance):
-            return True
+            return finish(True, "edge")
 
         # held does not move = stopped by a wall or similar. Advancing only the view is useless.
         if previous_held is not None and abs(held - previous_held) < 0.5:
             stall_moves += 1
             if stall_moves >= STALL_MOVES:
-                return True
+                return finish(True, "stall")
         else:
             stall_moves = 0
 
@@ -155,12 +163,12 @@ def aim(
         else:
             no_improve += 1
             if no_improve >= 3:
-                return True
+                return finish(True, "no_improve")
 
         # Crossed the target. If close, accept without correcting back. Only when far, go back gently.
         crossed = previous_error is not None and error * previous_error < 0
         if crossed and abs_error <= max(tolerance, CROSS_STOP):
-            return True
+            return finish(True, "crossed")
 
         # Pull short at 0.8. The closer, the smaller the step. At the edges the step is reduced further.
         scale = 0.3 if crossed else 0.8
@@ -173,11 +181,12 @@ def aim(
         step = magnitude if raw > 0 else -magnitude
 
         move_by(step, 0)
+        moves += 1
         previous_error = error
         previous_held = held
         time.sleep(LOOK_PAUSE_SEC)
 
-    return False
+    return finish(False, "timeout")
 
 
 def _near_edge(x: float) -> bool:
