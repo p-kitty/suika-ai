@@ -766,8 +766,8 @@ variant picks a move below the current two-ply band, eps 0.1; inversion = what t
   changed moves take more merge points, not fewer (635 → 685, a merge given up in 2 of 99)
 - Inversion is a home-made structural metric; fewer inversions is not evidence of score
   ([How to measure](#how-to-measure-traps-we-keep-stepping-in)). Only the combination was A/B'd; the other rows were not.
-  They stay plugged into `_apply_variant` on the unmerged branch `ab-order-candidates` (`AB_VARIANT=so4|perch4|fa0|...`),
-  but that branch's side A is the pre-adoption policy, so rebase them before reusing
+  To A/B one of them, plug it into `_apply_variant` on the current policy (the experiment branch was deleted:
+  its side A was the pre-adoption policy)
 
 ### Adopted: y-aware valleys + `SIZE_ORDER_PAIR_WEIGHT` 6.0 (2026-09-14)
 
