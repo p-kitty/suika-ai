@@ -10,7 +10,7 @@
 - [Adopted: widen the lookahead to 8/16](#adopted-widen-the-lookahead-to-816-2026-09-05) ← widened the search
 - [Measured and dropped: third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11) ← a deeper search only reshuffles inside the band
 - [Settled: the tie band really is indifferent](#settled-the-tie-band-really-is-indifferent-2026-08-19) ← the dead end of weight tuning
-- [What decides size-order breaks](#measured-what-decides-size-order-breaks-2026-09-14) ← big filters, not ties, break the order; screened candidates await an A/B
+- [What decides size-order breaks](#measured-what-decides-size-order-breaks-2026-09-14) ← big filters, not ties, break the order; **adopted y-aware valleys + size order 6.0 (+6.3%)**
 - [Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22) ← a case where candidate generation, not weights, was the cause
 - [In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)
 - [Investigated: how the board collapses](#investigated-how-the-board-collapses-2026-08-18)
@@ -730,12 +730,12 @@ rules as `_size_order_penalty`), and the chosen move is compared on the two-ply 
 - **Order breaks are not ties.** Unlike [the 2026-08-18 blunder](#vertical-size-order-stage-gate-trapped-fruit-penalty-2026-08-18-reverted)
   (lost by 0.07), 95% of the avoidable breaks lose by a real margin; median gap foreign_aim 87.6, next 38.8, perch 37.8.
   So they can be moved, and the big fixed filters (foreign_aim 100, perch 16x) are what push fruit onto the wrong side
-- **`_valley_flanks` ignores y (unresolved).** It takes the nearest bigger fruit left and right by x alone, so a fruit
-  dropped near the top becomes a valley wall, or the "partner in the same valley", of a fruit 300px below
+- **`_valley_flanks` ignored y (fixed, adopted below).** It took the nearest bigger fruit left and right by x alone, so a fruit
+  dropped near the top became a valley wall, or the "partner in the same valley", of a fruit 300px below
   (seed 910000 move 174: a grape at y=110 exempts the grape at y=414 from size order and moves the penalty by 28).
   The same helper feeds `_size_order_exempt`, `_pit_penalty`, `valley_grow_bonus` and `_is_rung`.
-  The y-aware fix (a wall must overlap the fruit vertically, a partner must share both walls) passes pytest,
-  but see the screen below: it breaks **more** order, so it was not adopted
+  The y-aware fix (a wall must overlap the fruit vertically, a partner must share both walls) **alone** breaks
+  more order (screen below); it only works together with a higher size-order weight
 
 **Screens** (428 positions, seeds 910000-5, every third move, early game included; single thread; escapes = the
 variant picks a move below the current two-ply band, eps 0.1; inversion = what the chosen fruit creates):
@@ -763,12 +763,39 @@ variant picks a move below the current two-ply band, eps 0.1; inversion = what t
   "in the valley" of the dekopon and orange with the other grape as its partner, so both grapes go exempt. With the
   y-aware valleys the rung test passes at pair 3.0 and 6.0. Each change alone is bad in its own way (y-aware alone breaks
   more order, pair x4 alone brings the roof back); together they pass every test, cut the inversion 25%, and on the
-  changed moves take more merge points, not fewer (635 → 685, a merge given up in 2 of 99). **This is the first candidate to A/B**
-  (`AB_VARIANT=yv_so6`)
+  changed moves take more merge points, not fewer (635 → 685, a merge given up in 2 of 99)
 - Inversion is a home-made structural metric; fewer inversions is not evidence of score
-  ([How to measure](#how-to-measure-traps-we-keep-stepping-in)). **None of these has been A/B'd yet.**
-  They are plugged into `_apply_variant` on the unmerged branch `ab-order-candidates` (`AB_VARIANT=yv_so6|yv_so3|so4|perch4|fa0|yvalley`).
-  Side A `artifacts/baseline_816_n250.json` still replays on HEAD (seeds 322399-400 match on all 5 metrics)
+  ([How to measure](#how-to-measure-traps-we-keep-stepping-in)). Only the combination was A/B'd; the other rows were not.
+  They stay plugged into `_apply_variant` on the unmerged branch `ab-order-candidates` (`AB_VARIANT=so4|perch4|fa0|...`),
+  but that branch's side A is the pre-adoption policy, so rebase them before reusing
+
+### Adopted: y-aware valleys + `SIZE_ORDER_PAIR_WEIGHT` 6.0 (2026-09-14)
+
+`compare_b_only.py`, side A = `artifacts/baseline_816_n250.json` (replayed on HEAD first: seeds 322399-400 match on all 5
+metrics), cap 400, 0 truncated. **Two seed bands of n=50**, pooled:
+
+| Metric | band 1 (offset 0) | band 2 (offset 50) | pooled n=100 | t | 95% CI |
+|---|---|---|---|---|---|
+| score | +10.2% (t=2.81) | +2.6% (t=0.66) | 2465.8 → 2620.1 **+6.3%** | 2.33 | [+24.3, +284.4] |
+| steps | +8.7% | +2.5% | +5.5% | 2.46 | |
+| merges | +9.1% | +2.8% | +5.8% | 2.35 | |
+| cascades | +11.9% | +8.8% (t=1.95) | **+10.3%** | 3.32 | [+1.0, +3.9] |
+| max_type | +3.4% | ±0 | +1.7% | 2.22 | |
+| max_wm | | | +43.6% | 2.55 | |
+
+win/loss 58/42. **Watermelons reached 39/100 → 56/100.** early_score +0.3% (t=0.67): the early game is unchanged,
+the gain comes from surviving longer and cascading more.
+
+- **Band 2 alone is not significant**, unlike [8/16](#adopted-widen-the-lookahead-to-816-2026-09-05) where both bands were.
+  Every metric leans the same way in both bands (the learned V flipped sign), and the pooled n=100 is significant, so it was
+  adopted on that. Band 2 was run *because* band 1 was significant, so the pooled +6.3% is likely biased up; +3-6% is a
+  fairer reading. A third band (offset 100) was offered and not run
+- **The committed code plays the A/B'd moves.** `_apply_variant` on c088f05 vs the committed constants and helpers:
+  seeds 910100-2 × 120 moves, x / score / merges / every fruit repr compared byte for byte, identical
+- One-ply cost is unchanged (1.81 vs 1.90 s on two late positions); `_has_partner_in_valley` recomputes flanks per
+  partner, which is cheap next to the physics
+- **Side A for the new policy**: `artifacts/baseline_yvso6_n100.json` is the B side of these two bands (seeds are the
+  first 100 of `baseline_816_n250.json`). `baseline_816_n250.json` is now stale
 
 ## Candidate spacing and the merge window (2026-08-22)
 
@@ -1501,7 +1528,7 @@ the real game's score is not broken.
 | perch | `_perch_penalty` | small fruits inside the footprint of a big fruit (from the biggest down to `PERCH_BIG_SPAN` 1 tier below) with their bottom above that big fruit's center. Counts the amount by which the type gap exceeds `PERCH_MIN_GAP` 5 (up to orange on a pineapple's shoulder is 0, dekopon 1 / grape 2 / strawberry 3 / cherry 4). Contact is not required, so shapes sitting on the pile with one tier in between are caught too. But if it fits **in a hollow whose type gap to the wall is `PERCH_RUNG_MAX_GAP` 1 or less**, it counts as the next rung and is exempt (`_is_rung`) | `PERCH_WEIGHT` 16.0x |
 | pit | `_pit_penalty` | a fruit stuck in a valley of fruits `PIT_MIN_GAP` 2 or more tiers bigger than itself, **with no same-type partner in the same valley** (judged the same as `_size_order_exempt`). The walls are too high to merge sideways, and a partner can only come through the narrow gap directly above. A type gap of 1 tier is the next rung and not counted. Where `_perch_penalty` looks "above" a big fruit, this looks "between" | `PIT_WEIGHT` 8.0x |
 | excess same type | `_excess_same_penalty` | 3 or more of the same type (up to 2 are allowed as waiting to merge) | 20.0 per excess fruit |
-| size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left in the same valley** are exempt = `_size_order_exempt`. A partner outside the valley is blocked by the big wall fruits, so it does not exempt). **Exempt on moves where held merged** (that hole is closed by `merge_big_side_bonus` above) | pair difference×1.5 + ideal_x deviation×0.004 |
+| size-order inversion | `_size_order_penalty` | pairs whose size order is inverted left to right (only fruits stuck in a valley of bigger fruits **and with a same-type partner left in the same valley** are exempt = `_size_order_exempt`. A partner outside the valley is blocked by the big wall fruits, so it does not exempt). **Valleys look at y**: a wall must overlap the fruit vertically and a partner must share both walls (`_valley_flanks`, `_has_partner_in_valley`). **Exempt on moves where held merged** (that hole is closed by `merge_big_side_bonus` above) | pair difference×**6.0** + ideal_x deviation×0.004 |
 | corner pocket | `_corner_pocket_penalty` | the biggest fruit is on the big-side wall, yet there is a small fruit outside and below it (a fruit that gets behind L cannot meet its partner) | 50.0×(1+0.05×type gap)+depth×0.15 |
 
 **Not a penalty: the lethal-move filter (`choose_x`)**
@@ -1646,7 +1673,7 @@ B side alone took 94 minutes on 16 workers.
   `band_escape.py`, which looks at the first-ply band, does not see the band of the current policy that ranks by two plies.
   But it is a necessary condition: `crown_danger`, which left the two-ply band 12.4%, was also null at n=250
   (→[continuous corner and height terms](#measured-and-dropped-continuous-corner-and-height-terms-2026-09-05))
-- **The baseline for the current policy is `artifacts/baseline_816_n250.json`.** The B side of the 8/16 adoption A/B,
+- **The baseline for the 8/16 policy was `artifacts/baseline_816_n250.json`** (stale since [y-aware valleys](#adopted-y-aware-valleys--size_order_pair_weight-60-2026-09-14)). The B side of the 8/16 adoption A/B,
   250 episodes (seeds 322399-322498 / 368518-368667, cap 400), set as side A.
   4 seeds were run on HEAD and steps / score / merges / cascades / max_type matched.
   It can be passed straight to `compare_b_only.py --baseline` (discard it when the policy changes)

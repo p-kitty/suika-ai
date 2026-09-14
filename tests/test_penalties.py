@@ -84,6 +84,32 @@ def test_valley_fruit_is_not_exempt_by_a_partner_outside_the_valley() -> None:
     assert not _size_order_exempt(grape, outside)
 
 
+def test_a_fruit_high_above_is_not_a_valley_wall() -> None:
+    """A wall has to be beside the fruit, not anywhere in its column range.
+
+    Move 174 of seed=910000: a fruit resting near the top of the board was taken as the wall of a valley
+    hundreds of px below it, by x alone.
+    """
+    pear = _on_floor(PEAR, 70.0)
+    grape = _on_floor(GRAPE, 170.0)
+    dekopon = _on_floor(DEKOPON, 230.0)
+    high = Fruit(type=DEKOPON, x=230.0, y=150.0, radius=dekopon.radius, confidence=90)
+
+    assert _is_nestled(grape, [pear, grape, dekopon])
+    assert not _is_nestled(grape, [pear, grape, high])
+
+
+def test_same_type_fruit_high_above_is_not_a_partner_in_the_valley() -> None:
+    """A partner has to sit between the same two walls. One resting on top of the board cannot meet the fruit."""
+    pear = _on_floor(PEAR, 70.0)
+    grape = _on_floor(GRAPE, 170.0)
+    dekopon = _on_floor(DEKOPON, 230.0)
+    high = Fruit(type=GRAPE, x=200.0, y=150.0, radius=grape.radius, confidence=90)
+
+    assert _is_nestled(grape, [pear, grape, high, dekopon])
+    assert not _size_order_exempt(grape, [pear, grape, high, dekopon])
+
+
 def test_inversion_costs_more_than_the_correct_order() -> None:
     """With the same 3 fruits, an inverted board must cost more than a correctly ordered one.
 

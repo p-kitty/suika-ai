@@ -82,8 +82,10 @@ PIT_MIN_GAP = 2
 PIT_WEIGHT = 8.0
 # Per fruit from the third of a type onward.
 EXCESS_SAME_WEIGHT = 20.0
-# Per tier of left-right size inversion.
-SIZE_ORDER_PAIR_WEIGHT = 1.5
+# Per tier of left-right size inversion. At 1.5 the big fixed filters (foreign_aim, perch, bury) decided most
+# avoidable order breaks by tens of points; higher weights only work together with valleys that look at y,
+# otherwise a roof over a small fruit turns exempt and wins (NOTES 'What decides size-order breaks').
+SIZE_ORDER_PAIR_WEIGHT = 6.0
 # Multiplies the mean deviation from ideal_x.
 SIZE_ORDER_IDEAL_WEIGHT = 0.004
 
@@ -144,24 +146,30 @@ def _straight_fall_contact(
 
 def _valley_flanks(
     fruits: list[Fruit] | tuple[Fruit, ...],
-    x: float,
-    drop_type: int,
+    fruit: Fruit,
 ) -> tuple[Fruit, Fruit] | None:
-    """Left and right when x is in a narrow valley between fruits bigger than drop_type."""
+    """Left and right walls when fruit sits in a narrow valley between fruits bigger than itself.
+
+    **A wall must overlap the fruit vertically.** Taking the nearest bigger fruit by x alone made a fruit dropped near
+    the top of the board the wall of a valley 300px below it (move 174 of seed=910000: a grape at y=110 exempted
+    the grape at y=414 from size order and moved the penalty by 28).
+    """
     left_big: Fruit | None = None
     right_big: Fruit | None = None
-    for fruit in fruits:
-        if fruit.type <= drop_type:
+    for other in fruits:
+        if other.type <= fruit.type:
             continue
-        if fruit.x < x:
-            if left_big is None or fruit.x > left_big.x:
-                left_big = fruit
-        elif fruit.x > x:
-            if right_big is None or fruit.x < right_big.x:
-                right_big = fruit
+        if abs(other.y - fruit.y) >= other.radius + fruit.radius:
+            continue
+        if other.x < fruit.x:
+            if left_big is None or other.x > left_big.x:
+                left_big = other
+        elif other.x > fruit.x:
+            if right_big is None or other.x < right_big.x:
+                right_big = other
     if left_big is None or right_big is None:
         return None
-    held_r = fruit_radius(drop_type)
+    held_r = fruit_radius(fruit.type)
     sep = right_big.x - left_big.x
     touch = left_big.radius + right_big.radius
     if sep > touch + held_r * 2.8 + MERGE_SLACK:
@@ -174,7 +182,23 @@ def _is_nestled(
     fruits: list[Fruit] | tuple[Fruit, ...],
 ) -> bool:
     """Whether it sits in a valley between bigger fruits."""
-    return _valley_flanks(fruits, fruit.x, fruit.type) is not None
+    return _valley_flanks(fruits, fruit) is not None
+
+
+def _has_partner_in_valley(
+    fruit: Fruit,
+    fruits: list[Fruit] | tuple[Fruit, ...],
+    flanks: tuple[Fruit, Fruit],
+) -> bool:
+    """Whether another fruit of the same type sits between the same two walls.
+
+    Being between the walls by x is not enough: a same-type fruit resting on top of the board counted as a partner
+    of one on the floor, and roofing a small fruit then made both exempt (`test_uses_the_next_rung_instead_of_roofing_a_small_fruit`).
+    """
+    return any(
+        f.type == fruit.type and f is not fruit and _valley_flanks(fruits, f) == flanks
+        for f in fruits
+    )
 
 
 def _size_order_exempt(
@@ -199,14 +223,8 @@ def _size_order_exempt(
     Valleys of held's type cannot be seen from here, but those are picked up by the per-move `valley_grow_bonus`,
     so it does not crush growing.
     """
-    flanks = _valley_flanks(fruits, fruit.x, fruit.type)
-    if flanks is None:
-        return False
-    left, right = flanks
-    return any(
-        f.type == fruit.type and f is not fruit and left.x < f.x < right.x
-        for f in fruits
-    )
+    flanks = _valley_flanks(fruits, fruit)
+    return flanks is not None and _has_partner_in_valley(fruit, fruits, flanks)
 
 
 def valley_grow_bonus(
@@ -238,7 +256,7 @@ def valley_grow_bonus(
             continue
         # The valley is taken with the target fruit as the reference. With held as the reference, the target fruit itself
         # ends up on the wall side as 'a bigger fruit' (the grape in a valley seen from a strawberry).
-        flanks = _valley_flanks(fruits, fruit.x, fruit.type)
+        flanks = _valley_flanks(fruits, fruit)
         if flanks is None:
             continue
         left, right = flanks
@@ -470,17 +488,14 @@ def _pit_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
     """
     penalty = 0.0
     for fruit in fruits:
-        flanks = _valley_flanks(fruits, fruit.x, fruit.type)
+        flanks = _valley_flanks(fruits, fruit)
         if flanks is None:
             continue
         left, right = flanks
         gap = min(left.type, right.type) - fruit.type
         if gap < PIT_MIN_GAP:
             continue
-        if any(
-            f.type == fruit.type and f is not fruit and left.x < f.x < right.x
-            for f in fruits
-        ):
+        if _has_partner_in_valley(fruit, fruits, flanks):
             continue
         penalty += float(gap - PIT_MIN_GAP + 1)
     return penalty
@@ -500,7 +515,7 @@ def _is_rung(fruit: Fruit, fruits: list[Fruit] | tuple[Fruit, ...]) -> bool:
     **the type gap to the wall**: with a wall one tier up (`PERCH_RUNG_MAX_GAP`), once a partner comes
     it merges and catches up with the wall.
     """
-    flanks = _valley_flanks(fruits, fruit.x, fruit.type)
+    flanks = _valley_flanks(fruits, fruit)
     if flanks is None:
         return False
     left, right = flanks
