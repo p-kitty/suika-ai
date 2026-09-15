@@ -838,7 +838,12 @@ draws stay paired) measures what that costs.
 | early_score | 246.6 | 226.4 | −8.2% | −4.32 |
 
 win/loss 9/41. **Bigger than any policy change ever measured here**, and in the direction live play pays.
-±4px (the plain tolerance) was not measured; it brackets the lower end.
+
+**Even ±4px (the plain tolerance) costs 10.8% on the adopted `AIM_SPREAD` 7 policy** (side A
+`baseline_spread7_n50.json`, n=50): score 2663.1 → 2375.8 (t=−3.06, CI [−476, −99]), steps −9.1% (t=−3.18),
+cascades −10.2%, win/loss 19/31; early_score −1.1% (t=−0.66), so the cost builds up over the game. A few px
+of release error change which way fruit rolls and what merges, so **the sim's exact-aim numbers overstate
+live play by 10-20% even after the spread**. The error-free policy under ±4 was not run.
 
 **Adopted: `AIM_SPREAD` 7.0.** Held eval is the mean over x−7, x, x+7 (equal weights on ±7 match the variance of the
 ±10 error); the board, real-game score and lethal check stay those of x, and the next reply stays exact.
