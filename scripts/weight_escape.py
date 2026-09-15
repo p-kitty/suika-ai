@@ -32,7 +32,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts._bootstrap import ROOT
-from scripts.band_escape import SWEEP_KEYS, _components
+from scripts.band_escape import SWEEP_KEYS, _components, _held_components
 from src import policy as pol
 from src.observe import Observation, clamp_drop_x
 from src.policy import choose_x
@@ -74,7 +74,7 @@ def _position(obs: Observation, seed: int, step: int) -> Position | None:
     replies: list[list[tuple[float, Parts]] | None] = []
     all_dead = all(is_lost(after) for _e, _x, after, _s in ranked)
     for held_eval, hx, after, _score in ranked:
-        parts, total = _components(before, obs.held_type, hx, held_r, obs.next_type)
+        parts, total = _held_components(before, obs.held_type, hx, held_r, obs.next_type)
         # Aggregating while the breakdown is off breaks the definition of the band, so stop.
         if abs(total - held_eval) > 1e-6:
             raise SystemExit(f"held breakdown does not match eval: {total} != {held_eval}")

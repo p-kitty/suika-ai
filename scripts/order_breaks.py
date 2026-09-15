@@ -36,7 +36,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.band_escape import _components
+from scripts.band_escape import _held_components
 from src import penalties as pen
 from src import policy as pol
 from src.observe import Observation
@@ -96,7 +96,7 @@ def _drop_inversion(before: list[Fruit], drop_type: int, x: float, sign: int) ->
 
 def _two_ply(obs: Observation, x: float, held_r: float) -> tuple[float, float]:
     """(two-ply value, discounted best reply) of one held column, as choose_x scores it."""
-    after, held_eval, _score = pol._held_eval(obs, x, held_r)
+    held_eval, _x, after, _score = pol._held_eval_job(obs, held_r, x)
     reply = 0.0
     if obs.next_type is not None:
         reply = pol._best_next_scores([after], obs.next_type, step=pol.NEXT_CANDIDATE_STEP)[0]
@@ -131,8 +131,8 @@ def _inspect(obs: Observation, x: float, min_gap: float, eps: float) -> _Break |
     if gap <= eps:
         return _Break(inv, "tie", gap, clean_x=clean_x)
 
-    chosen_parts, _ = _components(before, obs.held_type, x, held_r, obs.next_type)
-    clean_parts, _ = _components(before, obs.held_type, clean_x, held_r, obs.next_type)
+    chosen_parts, _ = _held_components(before, obs.held_type, x, held_r, obs.next_type)
+    clean_parts, _ = _held_components(before, obs.held_type, clean_x, held_r, obs.next_type)
     diffs = {k: chosen_parts[k] - clean_parts[k] for k in chosen_parts}
     diffs["next"] = chosen_reply - clean_reply
     term = max(diffs, key=lambda k: diffs[k])

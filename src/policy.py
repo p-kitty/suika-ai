@@ -49,6 +49,13 @@ NEXT_CANDIDATE_STEP = 16.0
 # and lowering to 3.0 catches it, but score did not move against 248 → 540ms per move
 # (NOTES 'Candidate spacing and the merge window').
 CANDIDATE_STEP = 12.0
+# Each held candidate is scored as the mean eval of dropping at x - AIM_SPREAD, x and x + AIM_SPREAD.
+# The real game releases a few px off the aim (control.LOOK_TOLERANCE 4, CROSS_STOP 10, EDGE_TOLERANCE 18), and in
+# the sim a uniform ±10px release error costs 20% of score; a move that only works dead on the column is a gamble there.
+# Equal weights on ±7 match the variance of that ±10 error. It recovers part of the loss under the error and costs
+# nothing measurable without it (NOTES 'Measured: aim error costs a fifth of the score').
+# Only the move actually played is spread; the next reply is hypothetical and stays exact.
+AIM_SPREAD = 7.0
 
 # --- Learned value function (experimental; disabled by default) ---
 # Weight for adding V(post-drop board) to the two-ply value. While 0.0, no features are computed.
@@ -69,8 +76,17 @@ def _held_eval_job(
     The real-game score is returned separately from eval because value-function training ranks candidates
     as Q = real-game score + V(after) (`training/collect.py`). eval is score - penalties, so
     it cannot be recovered from that.
+
+    eval is the mean over the `AIM_SPREAD` columns; the board, the real-game score and the lethal check stay those
+    of x itself, so the next lookahead reads the board the aim intends.
     """
     after, held_eval, score = _held_eval(obs, x, held_r)
+    if AIM_SPREAD > 0.0:
+        assert obs.held_type is not None
+        total = held_eval
+        for offset in (-AIM_SPREAD, AIM_SPREAD):
+            total += _held_eval(obs, clamp_drop_x(x + offset, obs.held_type), held_r)[1]
+        held_eval = total / 3
     return held_eval, x, after, score
 
 
