@@ -860,10 +860,12 @@ Cost 1.00 → 1.26 s per move (6 late positions, one process).
   significant, the same shape as [y-aware valleys](#adopted-y-aware-valleys--size_order_pair_weight-60-2026-09-14), so
   read +4-8%. The early game loses a little in the exact sim: precision merges that only work dead on the column are given up
 - **It was not screened by band escape.** The screens cut the band in the exact sim, and the claim is about a different arena
-- **Two tests assumed a dead-on aim** and now pin `AIM_SPREAD = 0` with the reason: the gap one dekopon wide
-  (`test_leaves_room_for_missing_rung_between_neighbours`) and the rung hollow 7px from a foreign center
-  (`test_uses_the_next_rung_instead_of_roofing_a_small_fruit`; with the spread the roof, which lands the same over
-  309-372px, wins). They still pin what the board terms want
+- **The whole test suite runs with an exact aim** (the autouse fixture in `tests/conftest.py`). Positions built to pin
+  one decision get blurred by the spread: a gap one dekopon wide also scores the drops that close it
+  (`test_leaves_room_for_missing_rung_between_neighbours`), and the rung hollow sits 7px from a foreign center, so the
+  roof, which lands the same over 309-372px, wins (`test_uses_the_next_rung_instead_of_roofing_a_small_fruit`).
+  The tests pin what the board terms want; that the shipped `AIM_SPREAD` is nonzero is pinned separately
+  (`test_aim_spread_is_on_by_default`), since the fixture hides the module value
 - `foreign_aim` is a penalty on the aimed column, not on the landing, so the mean also prices "within 7px of a foreign
   center". Nothing was measured about whether that part helps or hurts
 - **The committed code plays the A/B'd moves**: 223bfd4 with the runtime rewrite vs the committed constant, seeds
@@ -871,10 +873,11 @@ Cost 1.00 → 1.26 s per move (6 late positions, one process).
 - **Side A for the new policy in the exact sim**: `artifacts/baseline_spread7_n50.json` (the B side of the exact run, 50 seeds).
   `baseline_yvso6_n100.json` is stale. Under the error there is no baseline for the new policy yet
 
-**Open decisions** (not done, they change what every later A/B measures):
-- **Should the A/B arena have the error on by default?** Every weight in this file was tuned in an exact sim that live play
-  never gets. The error distribution of real play has not been measured (only the tolerances are known), so ±10 is a guess
-- Whether a wider or edge-dependent spread (18px at the walls) does better was not measured
+**Settled: the sim arena stays exact** (`AIM_NOISE_PX` default 0, 2026-09-15). Every earlier weight was tuned there, and
+the error distribution of real play is unmeasured (only the tolerances are known), so ±10 is a guess and not a yardstick to
+switch to. The knob stays for remeasuring: set `sim_env.AIM_NOISE_PX` from `_apply_variant` on both sides, as the runs above did.
+
+Not measured: whether a wider spread, or one that widens at the walls (`EDGE_TOLERANCE` 18px), does better.
 
 ## Candidate spacing and the merge window (2026-08-22)
 

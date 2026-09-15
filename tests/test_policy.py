@@ -28,6 +28,7 @@ from src.sim.sim_physics import landed_xy, preview_land, simulate_drop, simulate
 from src.vision.classify import fruit_radius
 from src.vision.normalized import NORMALIZED_HEIGHT, NORMALIZED_WIDTH
 from src.vision.state import Fruit
+from tests.conftest import DEFAULT_AIM_SPREAD
 
 
 def _obs(*, held_type: int, fruits: tuple[Fruit, ...] = (), next_type: int | None = None) -> Observation:
@@ -582,16 +583,16 @@ def test_avoids_under_max_center_on_outer_edge() -> None:
     assert not (land_x < peach.x and land_y > peach.y)
 
 
-def test_leaves_room_for_missing_rung_between_neighbours(monkeypatch) -> None:
+def test_leaves_room_for_missing_rung_between_neighbours() -> None:
     """Pairs with a missing type in between are placed leaving that much gap.
 
     Pulling a grape right beside an opening orange leaves no place when a dekopon comes next,
     and it goes outside the grape, giving the order 4-2-3 (measured).
 
-    Pinned with an exact aim: the gap is one dekopon wide, so ±`AIM_SPREAD` around it also scores the drops
-    that close it, and the spread policy gives the gap up. What is pinned is that the board terms want the gap.
+    The gap is one dekopon wide, so ±`AIM_SPREAD` around it also scores the drops that close it and the
+    shipped policy gives the gap up. Like the rest of the suite this runs with an exact aim (tests/conftest.py);
+    what is pinned is that the board terms want the gap.
     """
-    monkeypatch.setattr(pol, "AIM_SPREAD", 0.0)
     orange_r = fruit_radius(4)
     dekopon_r = fruit_radius(3)
     grape_r = fruit_radius(2)
@@ -779,18 +780,17 @@ def test_prefers_a_big_shoulder_over_roofing_a_lone_fruit() -> None:
     assert orange.x < cherry.x - cherry.radius
 
 
-def test_uses_the_next_rung_instead_of_roofing_a_small_fruit(monkeypatch) -> None:
+def test_uses_the_next_rung_instead_of_roofing_a_small_fruit() -> None:
     """If the escape route is a rung's hollow, place it there instead of roofing a small fruit.
 
     Move 72 of seed=890270. The board is full of big fruits, and seen from the grape
     the pineapple's shoulder is type gap 6 and the peach's 5. With no escape route, the roof (strawberry 15)
     is cheapest. The hollow of the peach and dekopon is a wall one tier up, so it is the next rung.
 
-    Pinned with an exact aim: 7px left of the hollow is the center of a different type (foreign_aim 100),
-    so with `AIM_SPREAD` the roof, which lands the same over 309-372, wins. What is pinned is that the
-    board terms rank the rung above the roof.
+    7px left of the hollow is the center of a different type (foreign_aim 100), so with `AIM_SPREAD` the roof,
+    which lands the same over 309-372, wins. Like the rest of the suite this runs with an exact aim
+    (tests/conftest.py); what is pinned is that the board terms rank the rung above the roof.
     """
-    monkeypatch.setattr(pol, "AIM_SPREAD", 0.0)
     fruits = tuple(
         Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90)
         for t, x, y in (
@@ -964,12 +964,18 @@ def test_value_weight_zero_changes_nothing(value_hook) -> None:
     assert choose_x(obs) == base_x
 
 
-def test_held_eval_is_the_mean_over_the_aim_spread() -> None:
+def test_aim_spread_is_on_by_default() -> None:
+    """The suite runs with an exact aim, so the shipped value is checked here rather than through behavior."""
+    assert DEFAULT_AIM_SPREAD > 0.0
+
+
+def test_held_eval_is_the_mean_over_the_aim_spread(monkeypatch) -> None:
     """A held candidate is scored over the columns the real game may release at, not only the aimed one.
 
     The board and real-game score stay those of the aimed column, so the lookahead and the lethal check read
-    the board the aim intends.
+    the board the aim intends. Turns the spread back on over the suite-wide exact aim.
     """
+    monkeypatch.setattr(pol, "AIM_SPREAD", DEFAULT_AIM_SPREAD)
     cherry_r = fruit_radius(0)
     fruits = (
         Fruit(type=0, x=150.0, y=NORMALIZED_HEIGHT - cherry_r, radius=cherry_r, confidence=90),
