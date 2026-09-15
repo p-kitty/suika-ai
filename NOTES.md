@@ -11,6 +11,7 @@
 - [Measured and dropped: third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11) ← a deeper search only reshuffles inside the band
 - [Settled: the tie band really is indifferent](#settled-the-tie-band-really-is-indifferent-2026-08-19) ← the dead end of weight tuning
 - [What decides size-order breaks](#measured-what-decides-size-order-breaks-2026-09-14) ← big filters, not ties, break the order; **adopted y-aware valleys + size order 6.0 (+6.3%)**
+- [Aim error costs a fifth of the score](#measured-aim-error-costs-a-fifth-of-the-score-2026-09-15) ← the error costs 20%; `AIM_SPREAD` wins part of it back but **stays off by decision** (play is exact)
 - [Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22) ← a case where candidate generation, not weights, was the cause
 - [In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)
 - [Investigated: how the board collapses](#investigated-how-the-board-collapses-2026-08-18)
@@ -666,6 +667,28 @@ two-ply band eps 0.1, median band size 4). Multiplier applied to both plies:
   moves almost nothing. Tuning their level is pointless; only their definition or removal can matter
 - Escaping the band is a necessary condition only (the learned V escaped 18.9% and was null). None of these was A/B'd yet
 
+**Retaken on the y-aware valleys + size order 6.0 policy (2026-09-15)**: `weight_escape.py --seeds 8 --ply both`,
+583 positions (seeds 910000-7), band median 4. `foreign_aim` is now split by whether the fruit below is bigger
+(`_up`) or smaller (`_down`), and `next` scales `NEXT_DISCOUNT`:
+
+| Term | x0.0 | x0.25 | x0.5 | x2.0 | x4.0 |
+|---|---|---|---|---|---|
+| foreign_aim_up | **30.2%** | 2.9% | 1.7% | 2.2% | 2.6% |
+| size_order | **29.3%** | 11.8% | 7.4% | 4.6% | 8.9% |
+| merge_big_side | 15.4% | 1.7% | 0.2% | 0.0% | 0.0% |
+| next (discount) | 13.7% | 4.1% | 2.4% | 3.4% | 7.0% |
+| pit | 9.4% | 5.5% | 3.8% | 3.6% | 9.1% |
+| perch | 8.7% | 4.6% | 2.9% | 2.2% | 5.8% |
+| bury / bury_lone | 7.0% / 6.2% | | | 3.9% / 2.6% | 7.0% / 5.3% |
+| foreign_aim_down | **1.5%** | 0.0% | 0.0% | 0.2% | 0.2% |
+| score / corner_pocket / excess_same / valley_grow | ≤3.4% | | | | ≤4.1% |
+
+- **All of `foreign_aim`'s work is the "bigger fruit below" half.** Aiming at a smaller fruit's center is already priced
+  by `bury`; cutting that half alone moves 1.5% and passes pytest, so it is dead weight but not worth an A/B.
+  (It was started as an A/B before this screen finished and stopped at 16/50)
+- **No nonzero multiplier reaches 12%** on the current policy; the adopted size order moved the ceiling down, not up.
+  Weight tuning stays closed. `BURY_LONE_WEIGHT` 7.5 and `NEXT_DISCOUNT` 0.8 also fail one policy test each
+
 ### Split composite terms into sub-terms (2026-08-21)
 
 Of the 7 terms in the table above, `size_order` and `big_layout` are **sums of two rules of different nature**,
@@ -796,6 +819,70 @@ the gain comes from surviving longer and cascading more.
   partner, which is cheap next to the physics
 - **Side A for the new policy**: `artifacts/baseline_yvso6_n100.json` is the B side of these two bands (seeds are the
   first 100 of `baseline_816_n250.json`). `baseline_816_n250.json` is now stale
+
+## Measured: aim error costs a fifth of the score (2026-09-15)
+
+`choose_x` scored every candidate as if the fruit left exactly on the aimed column. The real game stops aiming
+anywhere inside `LOOK_TOLERANCE` 4px, up to `CROSS_STOP` 10px after an overshoot and `EDGE_TOLERANCE` 18px at the
+walls, and detection adds its own error. `SimEnv.AIM_NOISE_PX` (uniform release error, its own RNG stream so the
+draws stay paired) measures what that costs.
+
+**±10px error on the y-aware valleys policy** (`compare_b_only`, side A `baseline_yvso6_n100.json` offset 0, n=50):
+
+| Metric | exact | ±10px | Δ | t |
+|---|---|---|---|---|
+| score | 2626.3 | 2086.9 | **−20.5%** | −6.21 |
+| steps | 258.7 | 214.3 | −17.2% | −6.09 |
+| cascades | 26.42 | 20.38 | −22.9% | −5.98 |
+| max_type | 9.60 | 9.04 | −5.8% | −6.15 |
+| early_score | 246.6 | 226.4 | −8.2% | −4.32 |
+
+win/loss 9/41. **Bigger than any policy change ever measured here**, and in the direction live play pays.
+
+**Even ±4px (the plain tolerance) costs 10.8% with `AIM_SPREAD` 7 on** (side A
+`baseline_spread7_n50.json`, n=50): score 2663.1 → 2375.8 (t=−3.06, CI [−476, −99]), steps −9.1% (t=−3.18),
+cascades −10.2%, win/loss 19/31; early_score −1.1% (t=−0.66), so the cost builds up over the game. A few px
+of release error change which way fruit rolls and what merges, so **the sim's exact-aim numbers overstate
+live play by 10-20% even after the spread**. The error-free policy under ±4 was not run.
+
+**`AIM_SPREAD` (kept, default 0.0).** Held eval is the mean over x−`AIM_SPREAD`, x, x+`AIM_SPREAD`. The numbers below are 7.0 (equal weights on ±7 match the variance of the
+±10 error); the board, real-game score and lethal check stay those of x, and the next reply stays exact.
+Cost 1.00 → 1.26 s per move (6 late positions, one process).
+
+| Arena | n | score | t | other |
+|---|---|---|---|---|
+| ±10px, band 1 (side A = the ±10 run above) | 50 | 2086.9 → 2307.7 **+10.6%** | 2.21 | win/loss 27/23 |
+| ±10px, band 2 (seed 231719, `compare_policy`) | 50 | 2173.2 → 2279.0 +4.9% | 1.20 | every metric leans +, win/loss 31/19 |
+| **±10px, pooled** | 100 | 2130.0 → 2293.3 **+7.7%** | **2.46** | CI [+31, +295]; steps +5.5% (2.15), merges +6.8% (2.39), max_type +2.0% (2.47), watermelons reached 18 → 30 |
+| exact (side A `baseline_yvso6_n100.json` offset 0) | 50 | 2626.3 → 2663.1 +1.4% | 0.38 | CI [−160, +233]; **early_score −3.4% (t=−2.37)**, early_crown −1.5% (t=−2.40) |
+
+- **It recovers about a third of the loss under the error and costs nothing measurable without it.** Band 2 alone is not
+  significant, the same shape as [y-aware valleys](#adopted-y-aware-valleys--size_order_pair_weight-60-2026-09-14), so
+  read +4-8%. The early game loses a little in the exact sim: precision merges that only work dead on the column are given up
+- **It is off by default (2026-09-15).** Live play takes the aim as exact, like the sim, so the gain above is not taken:
+  the win is measured against a ±10px error that live play has not been measured to have. With 0.0 the columns are not
+  computed and play is byte-identical to before it existed (seeds 910100-1 × 120 moves against 223bfd4). Turning it on
+  costs 1.00 → 1.26 s per move
+- **It was not screened by band escape.** The screens cut the band in the exact sim, and the claim is about a different arena
+- **Positions built to pin one decision get blurred by the spread**: a gap one dekopon wide also scores the drops that close it
+  (`test_leaves_room_for_missing_rung_between_neighbours`), and the rung hollow sits 7px from a foreign center, so the
+  roof, which lands the same over 309-372px, wins (`test_uses_the_next_rung_instead_of_roofing_a_small_fruit`).
+  The tests pin what the board terms want
+- `foreign_aim` is a penalty on the aimed column, not on the landing, so the mean also prices "within 7px of a foreign
+  center". Nothing was measured about whether that part helps or hurts
+- **The measured policy and the committed one were checked to match**: 223bfd4 with the A/B's runtime rewrite vs the
+  constant committed at 7.0, seeds 910100-2 × 120 moves byte for byte, identical (plain 223bfd4 differs from move 5 on)
+- **Baselines**: play is unchanged, so `artifacts/baseline_yvso6_n100.json` is still side A for the exact sim.
+  `artifacts/baseline_spread7_n50.json` is the spread-7 policy in the exact sim (50 seeds), and the B sides of the runs
+  above are in `artifacts/overnight0915/` for anyone remeasuring the error
+
+**Settled: everything stays exact-aim** (`sim_env.AIM_NOISE_PX` 0, `policy.AIM_SPREAD` 0, 2026-09-15). Every earlier weight
+was tuned in an exact sim, and the error distribution of real play is unmeasured (only the tolerances are known), so ±10 is a
+guess and not a yardstick to switch to. Both knobs stay for remeasuring: set them from `_apply_variant` (the error on both
+sides, the spread on side B only), as the runs above did. Tests are exact-aim too, and
+`test_aim_spread_is_off_by_default` fails if the toggle is committed on.
+
+Not measured: whether a wider spread, or one that widens at the walls (`EDGE_TOLERANCE` 18px), does better.
 
 ## Candidate spacing and the merge window (2026-08-22)
 
@@ -1491,6 +1578,8 @@ is not overriding size order and trapping. The basis is
   no place for the missing type when it is drawn, and the only option is to send it outside and break the order
 - Not included: push-in merges, restoring pushes, cascade gap opening, forced moves one tier up, hard-coded ladder firing
 - Do not add UTs for concrete procedures. When something breaks, look at accident prevention or the observation side
+- Held candidates are scored over the release error: the mean eval of x and x±`AIM_SPREAD`
+  (→[Aim error costs a fifth of the score](#measured-aim-error-costs-a-fifth-of-the-score-2026-09-15))
 - `CANDIDATE_STEP` stays at 12.0. Coarser puts the spot directly above a dangerous pile on the grid
   (`test_avoids_dangerous_tall_stack` failed at 20), and the finer side was measured down to 3.0 and
   reverted →[Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22).

@@ -52,7 +52,10 @@ SWEEP_KEYS = (
     "excess_same",
     "size_order",
     "corner_pocket",
-    "foreign_aim",
+    # Split by whether the fruit below is bigger or smaller than the dropped one. Aiming at a smaller fruit's
+    # center is also priced by `bury`, so the two halves may do different work (AGENTS 'One rule per term').
+    "foreign_aim_up",
+    "foreign_aim_down",
     "merge_big_side",
 )
 
@@ -80,16 +83,38 @@ def _components(
         "excess_same": -pen._excess_same_penalty(after),
         "size_order": 0.0 if held_merged else -pen._size_order_penalty(after, sign),
         "corner_pocket": -pen._corner_pocket_penalty(after, sign),
-        "foreign_aim": -pen.foreign_aim_penalty(before, x, drop_type, held_r),
+        "foreign_aim_up": 0.0,
+        "foreign_aim_down": 0.0,
         # A term only for breaking ties, but without it the sum does not match eval.
         "center": -pen.center_tiebreak(x),
         "valley_grow": 0.0,
         "merge_big_side": 0.0,
     }
+    foreign = pen.foreign_aim_penalty(before, x, drop_type, held_r)
+    if foreign:
+        under = pen._straight_fall_contact(before, x, held_r)
+        assert under is not None
+        parts["foreign_aim_up" if under.type > drop_type else "foreign_aim_down"] = -foreign
     if not held_merged:
         parts["valley_grow"] = pen.valley_grow_bonus(before, land_x, drop_type, next_type)
     else:
         parts["merge_big_side"] = pen.merge_big_side_bonus(x, held_fruit, held_r, sign)
+    return parts, sum(parts.values())
+
+
+def _held_components(
+    before: list, drop_type: int, x: float, held_r: float, next_type: int | None
+) -> tuple[dict[str, float], float]:
+    """The breakdown of a **held** candidate: the mean of `_components` over the `AIM_SPREAD` columns.
+
+    `policy._held_eval_job` scores the move actually played as that mean, so a breakdown of the aimed column alone
+    would not add up to the eval the band is cut on. Replies to next stay exact (`_components`).
+    """
+    columns = [x]
+    if pol.AIM_SPREAD > 0.0:
+        columns += [clamp_drop_x(x + d, drop_type) for d in (-pol.AIM_SPREAD, pol.AIM_SPREAD)]
+    rows = [_components(before, drop_type, c, held_r, next_type)[0] for c in columns]
+    parts = {key: sum(row[key] for row in rows) / len(rows) for key in rows[0]}
     return parts, sum(parts.values())
 
 
@@ -122,12 +147,12 @@ def _candidate_table(positions: list[Observation]) -> list[list[tuple[float, dic
             x = clamp_drop_x(x, obs.held_type)
             if first_x is None:
                 first_x = x
-            parts, total = _components(before, obs.held_type, x, held_r, obs.next_type)
+            parts, total = _held_components(before, obs.held_type, x, held_r, obs.next_type)
             rows.append((total, parts))
         # Check per position, on one candidate, that the breakdown matches the real eval.
         # Aggregating while it is off breaks the definition of the band itself, so do not proceed silently.
         if first_x is not None:
-            _after, ref, _score = pol._held_eval(obs, first_x, held_r)
+            ref = pol._held_eval_job(obs, held_r, first_x)[0]
             if abs(rows[0][0] - ref) > 1e-6:
                 raise SystemExit(f"breakdown does not match eval: {rows[0][0]} != {ref}")
         table.append(rows)

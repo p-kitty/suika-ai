@@ -587,6 +587,8 @@ def test_leaves_room_for_missing_rung_between_neighbours() -> None:
 
     Pulling a grape right beside an opening orange leaves no place when a dekopon comes next,
     and it goes outside the grape, giving the order 4-2-3 (measured).
+
+    The gap is one dekopon wide, so a nonzero `AIM_SPREAD` also scores the drops that close it and gives the gap up.
     """
     orange_r = fruit_radius(4)
     dekopon_r = fruit_radius(3)
@@ -781,6 +783,9 @@ def test_uses_the_next_rung_instead_of_roofing_a_small_fruit() -> None:
     Move 72 of seed=890270. The board is full of big fruits, and seen from the grape
     the pineapple's shoulder is type gap 6 and the peach's 5. With no escape route, the roof (strawberry 15)
     is cheapest. The hollow of the peach and dekopon is a wall one tier up, so it is the next rung.
+
+    7px left of the hollow is the center of a different type (foreign_aim 100), so with a nonzero `AIM_SPREAD`
+    the roof, which lands the same over 309-372, wins.
     """
     fruits = tuple(
         Fruit(type=t, x=x, y=y, radius=fruit_radius(t), confidence=90)
@@ -953,3 +958,29 @@ def test_value_weight_zero_changes_nothing(value_hook) -> None:
 
     value_hook(_one_feature_value("crown_margin", -1.0), 0.0)
     assert choose_x(obs) == base_x
+
+
+def test_aim_spread_is_off_by_default() -> None:
+    """Live play takes the aim as exact. Do not commit with the experiment toggle left on."""
+    assert pol.AIM_SPREAD == 0.0
+
+
+def test_held_eval_is_the_mean_over_the_aim_spread(monkeypatch) -> None:
+    """A held candidate is scored over the columns the real game may release at, not only the aimed one.
+
+    The board and real-game score stay those of the aimed column, so the lookahead and the lethal check read
+    the board the aim intends. Turns the spread on; it is off by default.
+    """
+    monkeypatch.setattr(pol, "AIM_SPREAD", 7.0)
+    cherry_r = fruit_radius(0)
+    fruits = (
+        Fruit(type=0, x=150.0, y=NORMALIZED_HEIGHT - cherry_r, radius=cherry_r, confidence=90),
+        Fruit(type=3, x=300.0, y=NORMALIZED_HEIGHT - fruit_radius(3), radius=fruit_radius(3), confidence=90),
+    )
+    obs = _obs(held_type=0, fruits=fruits, next_type=1)
+    x = 150.0 + cherry_r * 2.2
+    held_eval, _x, after, score = pol._held_eval_job(obs, cherry_r, x)
+    evals = [pol._held_eval(obs, clamp_drop_x(c, 0), cherry_r)[1] for c in (x, x - pol.AIM_SPREAD, x + pol.AIM_SPREAD)]
+    assert held_eval == pytest.approx(sum(evals) / 3)
+    exact_after, _eval, exact_score = pol._held_eval(obs, x, cherry_r)
+    assert (after, score) == (exact_after, exact_score)
