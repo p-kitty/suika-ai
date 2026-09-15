@@ -49,13 +49,14 @@ NEXT_CANDIDATE_STEP = 16.0
 # and lowering to 3.0 catches it, but score did not move against 248 → 540ms per move
 # (NOTES 'Candidate spacing and the merge window').
 CANDIDATE_STEP = 12.0
-# Each held candidate is scored as the mean eval of dropping at x - AIM_SPREAD, x and x + AIM_SPREAD.
-# The real game releases a few px off the aim (control.LOOK_TOLERANCE 4, CROSS_STOP 10, EDGE_TOLERANCE 18), and in
-# the sim a uniform ±10px release error costs 20% of score; a move that only works dead on the column is a gamble there.
-# Equal weights on ±7 match the variance of that ±10 error. It recovers part of the loss under the error and costs
-# nothing measurable without it (NOTES 'Measured: aim error costs a fifth of the score').
-# Only the move actually played is spread; the next reply is hypothetical and stays exact.
-AIM_SPREAD = 7.0
+# Half-width (px) of the release columns a held candidate is scored over: eval becomes the mean of dropping at
+# x - AIM_SPREAD, x and x + AIM_SPREAD. **0 by default = the aim is taken as exact**, which is what live play is
+# tuned for; the columns are only computed while it is nonzero.
+# It is kept because the error is real and was measured: the game stops aiming anywhere inside
+# control.LOOK_TOLERANCE (4px), up to CROSS_STOP (10px) after an overshoot and EDGE_TOLERANCE (18px) at the walls, and
+# in the sim a uniform +/-10px release error costs 20% of score, which 7.0 wins back part of
+# (NOTES 'Measured: aim error costs a fifth of the score'). Pair it with sim_env.AIM_NOISE_PX to remeasure.
+AIM_SPREAD = 0.0
 
 # --- Learned value function (experimental; disabled by default) ---
 # Weight for adding V(post-drop board) to the two-ply value. While 0.0, no features are computed.
@@ -77,8 +78,8 @@ def _held_eval_job(
     as Q = real-game score + V(after) (`training/collect.py`). eval is score - penalties, so
     it cannot be recovered from that.
 
-    eval is the mean over the `AIM_SPREAD` columns; the board, the real-game score and the lethal check stay those
-    of x itself, so the next lookahead reads the board the aim intends.
+    While `AIM_SPREAD` is nonzero, eval is the mean over those columns; the board, the real-game score and the
+    lethal check stay those of x itself, so the next lookahead reads the board the aim intends.
     """
     after, held_eval, score = _held_eval(obs, x, held_r)
     if AIM_SPREAD > 0.0:

@@ -11,7 +11,7 @@
 - [Measured and dropped: third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11) ← a deeper search only reshuffles inside the band
 - [Settled: the tie band really is indifferent](#settled-the-tie-band-really-is-indifferent-2026-08-19) ← the dead end of weight tuning
 - [What decides size-order breaks](#measured-what-decides-size-order-breaks-2026-09-14) ← big filters, not ties, break the order; **adopted y-aware valleys + size order 6.0 (+6.3%)**
-- [Aim error costs a fifth of the score](#measured-aim-error-costs-a-fifth-of-the-score-2026-09-15) ← **adopted `AIM_SPREAD` 7 (+7.7% under the error, ±0 without)**; the sim arena is still exact
+- [Aim error costs a fifth of the score](#measured-aim-error-costs-a-fifth-of-the-score-2026-09-15) ← the error costs 20%; `AIM_SPREAD` wins part of it back but **stays off by decision** (play is exact)
 - [Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22) ← a case where candidate generation, not weights, was the cause
 - [In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)
 - [Investigated: how the board collapses](#investigated-how-the-board-collapses-2026-08-18)
@@ -839,13 +839,13 @@ draws stay paired) measures what that costs.
 
 win/loss 9/41. **Bigger than any policy change ever measured here**, and in the direction live play pays.
 
-**Even ±4px (the plain tolerance) costs 10.8% on the adopted `AIM_SPREAD` 7 policy** (side A
+**Even ±4px (the plain tolerance) costs 10.8% with `AIM_SPREAD` 7 on** (side A
 `baseline_spread7_n50.json`, n=50): score 2663.1 → 2375.8 (t=−3.06, CI [−476, −99]), steps −9.1% (t=−3.18),
 cascades −10.2%, win/loss 19/31; early_score −1.1% (t=−0.66), so the cost builds up over the game. A few px
 of release error change which way fruit rolls and what merges, so **the sim's exact-aim numbers overstate
 live play by 10-20% even after the spread**. The error-free policy under ±4 was not run.
 
-**Adopted: `AIM_SPREAD` 7.0.** Held eval is the mean over x−7, x, x+7 (equal weights on ±7 match the variance of the
+**`AIM_SPREAD` (kept, default 0.0).** Held eval is the mean over x−`AIM_SPREAD`, x, x+`AIM_SPREAD`. The numbers below are 7.0 (equal weights on ±7 match the variance of the
 ±10 error); the board, real-game score and lethal check stay those of x, and the next reply stays exact.
 Cost 1.00 → 1.26 s per move (6 late positions, one process).
 
@@ -859,23 +859,28 @@ Cost 1.00 → 1.26 s per move (6 late positions, one process).
 - **It recovers about a third of the loss under the error and costs nothing measurable without it.** Band 2 alone is not
   significant, the same shape as [y-aware valleys](#adopted-y-aware-valleys--size_order_pair_weight-60-2026-09-14), so
   read +4-8%. The early game loses a little in the exact sim: precision merges that only work dead on the column are given up
+- **It is off by default (2026-09-15).** Live play takes the aim as exact, like the sim, so the gain above is not taken:
+  the win is measured against a ±10px error that live play has not been measured to have. With 0.0 the columns are not
+  computed and play is byte-identical to before it existed (seeds 910100-1 × 120 moves against 223bfd4). Turning it on
+  costs 1.00 → 1.26 s per move
 - **It was not screened by band escape.** The screens cut the band in the exact sim, and the claim is about a different arena
-- **The whole test suite runs with an exact aim** (the autouse fixture in `tests/conftest.py`). Positions built to pin
-  one decision get blurred by the spread: a gap one dekopon wide also scores the drops that close it
+- **Positions built to pin one decision get blurred by the spread**: a gap one dekopon wide also scores the drops that close it
   (`test_leaves_room_for_missing_rung_between_neighbours`), and the rung hollow sits 7px from a foreign center, so the
   roof, which lands the same over 309-372px, wins (`test_uses_the_next_rung_instead_of_roofing_a_small_fruit`).
-  The tests pin what the board terms want; that the shipped `AIM_SPREAD` is nonzero is pinned separately
-  (`test_aim_spread_is_on_by_default`), since the fixture hides the module value
+  The tests pin what the board terms want
 - `foreign_aim` is a penalty on the aimed column, not on the landing, so the mean also prices "within 7px of a foreign
   center". Nothing was measured about whether that part helps or hurts
-- **The committed code plays the A/B'd moves**: 223bfd4 with the runtime rewrite vs the committed constant, seeds
-  910100-2 × 120 moves byte for byte, identical (plain 223bfd4 differs from move 5 on)
-- **Side A for the new policy in the exact sim**: `artifacts/baseline_spread7_n50.json` (the B side of the exact run, 50 seeds).
-  `baseline_yvso6_n100.json` is stale. Under the error there is no baseline for the new policy yet
+- **The measured policy and the committed one were checked to match**: 223bfd4 with the A/B's runtime rewrite vs the
+  constant committed at 7.0, seeds 910100-2 × 120 moves byte for byte, identical (plain 223bfd4 differs from move 5 on)
+- **Baselines**: play is unchanged, so `artifacts/baseline_yvso6_n100.json` is still side A for the exact sim.
+  `artifacts/baseline_spread7_n50.json` is the spread-7 policy in the exact sim (50 seeds), and the B sides of the runs
+  above are in `artifacts/overnight0915/` for anyone remeasuring the error
 
-**Settled: the sim arena stays exact** (`AIM_NOISE_PX` default 0, 2026-09-15). Every earlier weight was tuned there, and
-the error distribution of real play is unmeasured (only the tolerances are known), so ±10 is a guess and not a yardstick to
-switch to. The knob stays for remeasuring: set `sim_env.AIM_NOISE_PX` from `_apply_variant` on both sides, as the runs above did.
+**Settled: everything stays exact-aim** (`sim_env.AIM_NOISE_PX` 0, `policy.AIM_SPREAD` 0, 2026-09-15). Every earlier weight
+was tuned in an exact sim, and the error distribution of real play is unmeasured (only the tolerances are known), so ±10 is a
+guess and not a yardstick to switch to. Both knobs stay for remeasuring: set them from `_apply_variant` (the error on both
+sides, the spread on side B only), as the runs above did. Tests are exact-aim too, and
+`test_aim_spread_is_off_by_default` fails if the toggle is committed on.
 
 Not measured: whether a wider spread, or one that widens at the walls (`EDGE_TOLERANCE` 18px), does better.
 
