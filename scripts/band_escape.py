@@ -52,7 +52,10 @@ SWEEP_KEYS = (
     "excess_same",
     "size_order",
     "corner_pocket",
-    "foreign_aim",
+    # Split by whether the fruit below is bigger or smaller than the dropped one. Aiming at a smaller fruit's
+    # center is also priced by `bury`, so the two halves may do different work (AGENTS 'One rule per term').
+    "foreign_aim_up",
+    "foreign_aim_down",
     "merge_big_side",
 )
 
@@ -80,12 +83,18 @@ def _components(
         "excess_same": -pen._excess_same_penalty(after),
         "size_order": 0.0 if held_merged else -pen._size_order_penalty(after, sign),
         "corner_pocket": -pen._corner_pocket_penalty(after, sign),
-        "foreign_aim": -pen.foreign_aim_penalty(before, x, drop_type, held_r),
+        "foreign_aim_up": 0.0,
+        "foreign_aim_down": 0.0,
         # A term only for breaking ties, but without it the sum does not match eval.
         "center": -pen.center_tiebreak(x),
         "valley_grow": 0.0,
         "merge_big_side": 0.0,
     }
+    foreign = pen.foreign_aim_penalty(before, x, drop_type, held_r)
+    if foreign:
+        under = pen._straight_fall_contact(before, x, held_r)
+        assert under is not None
+        parts["foreign_aim_up" if under.type > drop_type else "foreign_aim_down"] = -foreign
     if not held_merged:
         parts["valley_grow"] = pen.valley_grow_bonus(before, land_x, drop_type, next_type)
     else:

@@ -24,6 +24,7 @@ import argparse
 import pickle
 import statistics
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,7 +43,9 @@ from src.vision.classify import fruit_radius
 # Wider than band_escape: under two plies a term also has to outweigh the discounted reply,
 # so 0.5-2x may sit inside the band where 0.25 or 4x does not.
 MULTIPLIERS = (0.0, 0.25, 0.5, 2.0, 4.0)
-KEYS = ("score", *SWEEP_KEYS, "valley_grow")
+# `next` is not a term: it scales `NEXT_DISCOUNT`, the weight of the whole reply (13 of the avoidable
+# size-order breaks were decided by it; NOTES 'What decides size-order breaks'). Only `--ply both` applies.
+KEYS = ("score", *SWEEP_KEYS, "valley_grow", "next")
 LATE_STEP = 60
 
 Parts = dict[str, float]
@@ -107,9 +110,13 @@ def _position(obs: Observation, seed: int, step: int) -> Position | None:
 
 def _values(pos: Position, key: str, mult: float, ply: str) -> dict[int, float]:
     """Two-ply value of each candidate in the top, after scaling one term. The same rules as choose_x."""
+    discount = pol.NEXT_DISCOUNT
+    if key == "next":
+        discount *= mult
+        mult = 1.0
     held_mult = mult if ply in ("held", "both") else 1.0
     next_mult = mult if ply in ("next", "both") else 1.0
-    evals = [total + parts[key] * (held_mult - 1.0) for total, parts, _d in pos.held]
+    evals = [total + parts.get(key, 0.0) * (held_mult - 1.0) for total, parts, _d in pos.held]
     # rank_candidates sorts by eval with a stable sort; held is already in the unscaled order.
     order = sorted(range(len(evals)), key=lambda i: evals[i], reverse=True)
     alive = [i for i in order if not pos.held[i][2]]
@@ -122,8 +129,8 @@ def _values(pos: Position, key: str, mult: float, ply: str) -> dict[int, float]:
             if rows is None:
                 raise SystemExit("a dying candidate reached the top while living ones exist")
             if rows:
-                best = max(t + p[key] * (next_mult - 1.0) for t, p in rows)
-        values[i] = evals[i] + pol.NEXT_DISCOUNT * best
+                best = max(t + p.get(key, 0.0) * (next_mult - 1.0) for t, p in rows)
+        values[i] = evals[i] + discount * best
     return values
 
 
@@ -138,23 +145,36 @@ def _choose(pos: Position, key: str, mult: float, ply: str) -> int | None:
     return best_i
 
 
-def _collect(seeds: list[int], steps: int, skip: int, stride: int) -> list[Position]:
+def _collect_seed(seed: int, steps: int, skip: int, stride: int) -> list[Position]:
     table: list[Position] = []
-    for seed in seeds:
-        env = SimEnv(seed=seed)
-        obs = env.reset()
-        for step in range(steps):
-            if obs.held_type is None:
-                break
-            if step >= skip and step % stride == 0 and obs.fruits:
-                row = _position(obs, seed, step)
-                if row is not None:
-                    table.append(row)
-            result = env.step(choose_x(obs))
-            obs = result.observation
-            if result.done:
-                break
-        print(f"  seed {seed}: positions {len(table)}", flush=True)
+    env = SimEnv(seed=seed)
+    obs = env.reset()
+    for step in range(steps):
+        if obs.held_type is None:
+            break
+        if step >= skip and step % stride == 0 and obs.fruits:
+            row = _position(obs, seed, step)
+            if row is not None:
+                table.append(row)
+        result = env.step(choose_x(obs))
+        obs = result.observation
+        if result.done:
+            break
+    return table
+
+
+def _collect(
+    seeds: list[int], steps: int, skip: int, stride: int, workers: int
+) -> list[Position]:
+    """One process per seed. Seeds are independent games, so the table equals the serial one in seed order."""
+    table: list[Position] = []
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        for seed, rows in zip(
+            seeds,
+            pool.map(_collect_seed, seeds, *zip(*[(steps, skip, stride)] * len(seeds))),
+        ):
+            table.extend(rows)
+            print(f"  seed {seed}: positions {len(rows)}", flush=True)
     return table
 
 
@@ -168,6 +188,7 @@ def main() -> None:
     parser.add_argument("--stride", type=int, default=3)
     parser.add_argument("--eps", type=float, default=0.1, help="width of the tie band")
     parser.add_argument("--ply", choices=("both", "held", "next", "all"), default="all")
+    parser.add_argument("--workers", type=int, default=1, help="processes for collection, one seed each")
     parser.add_argument(
         "--positions",
         type=Path,
@@ -181,7 +202,7 @@ def main() -> None:
         print(f"reusing cache {args.positions}")
     else:
         seeds = [args.seed + i for i in range(args.seeds)]
-        table = _collect(seeds, args.steps, args.skip, args.stride)
+        table = _collect(seeds, args.steps, args.skip, args.stride, args.workers)
         args.positions.parent.mkdir(parents=True, exist_ok=True)
         args.positions.write_bytes(pickle.dumps(table))
         print(f"saved cache: {args.positions}")
@@ -196,9 +217,9 @@ def main() -> None:
     print(f"\n{n} positions ({late} late, step>={LATE_STEP})   two-ply band (eps={args.eps}) "
           f"median size {statistics.median(len(b) for b in bands):.0f}\n")
     plies = ("both", "held", "next") if args.ply == "all" else (args.ply,)
-    print("term           ply   mult   moves change   escapes the band   of which late")
+    print("term               ply   mult   moves change   escapes the band   of which late")
     for key in KEYS:
-        for ply in plies:
+        for ply in plies if key != "next" else ("both",):
             for mult in MULTIPLIERS:
                 changed = escaped = escaped_late = 0
                 for p, band in zip(table, bands):
@@ -209,7 +230,7 @@ def main() -> None:
                         escaped += 1
                         if p.step >= LATE_STEP:
                             escaped_late += 1
-                print(f"  {key:<13}{ply:<6}x{mult:<5.2f}{changed / n * 100:6.1f}%"
+                print(f"  {key:<17}{ply:<6}x{mult:<5.2f}{changed / n * 100:6.1f}%"
                       f"        {escaped / n * 100:6.1f}%          {escaped_late / max(1, late) * 100:5.1f}%")
     print("\nOnly the fraction escaping the band can move score (NOTES 'Settled: the tie band really is indifferent')."
           "\nA few % will not show in an A/B at n=50.")
