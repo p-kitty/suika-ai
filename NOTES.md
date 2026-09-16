@@ -15,6 +15,7 @@ by the route its own section names.
 | Order the band with a board score, learned or hand-written | **Closed.** 70.9% of banded positions hold a single board, and the merge outcome differs in 0.0% | [link](#measured-the-two-ply-band-mostly-holds-a-single-board-2026-09-13) |
 | Add a learned V to `choose_x` | **Null** at n=150 | [link](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12) |
 | Predict how a game ends | **Cannot.** The cheap screens are exhausted | [link](#settled-how-a-game-ends-cannot-be-predicted-the-cheap-screens-are-exhausted-2026-08-30) |
+| Tune an existing penalty weight (raise or cut a multiplier) | **Closed.** No nonzero multiplier escapes the band more than ~12%, and the four highest were A/B'd at n=50 with nothing significant and three leaning negative | [link](#remeasured-through-the-two-ply-decision-2026-09-14) |
 | Retire an existing term to simplify | **All of them earn their place.** Every term was cut and measured in turn | [link](#measured-one-night-of-ab-runs-2026-08-21) |
 | Continuous corner and height terms | **Dropped.** Candidates differ by fractions of a px | [link](#measured-and-dropped-continuous-corner-and-height-terms-2026-09-05) |
 | Penalize a landing walled off from the partner | **Dropped** | [link](#measured-and-dropped-landing-walled-off-from-the-partner-2026-08-30) |
@@ -725,6 +726,33 @@ two-ply band eps 0.1, median band size 4). Multiplier applied to both plies:
   (It was started as an A/B before this screen finished and stopped at 16/50)
 - **No nonzero multiplier reaches 12%** on the current policy; the adopted size order moved the ceiling down, not up.
   Weight tuning stays closed. `BURY_LONE_WEIGHT` 7.5 and `NEXT_DISCOUNT` 0.8 also fail one policy test each
+
+**Measured: four of the top rows were A/B'd and none moved score (2026-09-16).** The line above says weight
+tuning is closed on the screen; these are the A/Bs that make it a measurement. `compare_b_only.py`, side A
+`baseline_yvso6_n100.json` offset 0, n=50 each, cap 400, 0 truncated. The screen was retaken on HEAD first
+(425 positions, seeds 910000-5, band median 4) with `size_order` split into its `_pair` and `_ideal` halves, so
+each weight could be swept alone.
+
+| Variant | band escape | score | t | steps | cascades | max_type | win/loss |
+|---|---|---|---|---|---|---|---|
+| `PIT_WEIGHT` 8 -> 2 | 6.1% | 2626.3 -> 2625.1 (-0.0%) | -0.01 | -0.4% | -0.7% | -0.4% | 26/24 |
+| `SIZE_ORDER_PAIR_WEIGHT` 6.0 -> 24.0 | 9.2% | -> 2570.7 (-2.1%) | -0.60 | -1.7% | -3.8% | -1.2% | 22/28 |
+| `PIT_WEIGHT` 8 -> 32 | 8.9% | -> 2525.6 (-3.8%) | -0.96 | -2.8% | -4.5% | -1.5% | 24/26 |
+| `BURY_WEIGHT` 20 -> 80 | 6.6% | -> 2658.0 (+1.2%) | 0.36 | +1.0% | -0.2% | -0.4% | 28/22 |
+
+- **Nothing reached significance and three of the four lean negative.** The two with the highest band escape are
+  the two that lost the most, so the ceiling is not "the screen could not see it"
+- **`SIZE_ORDER_PAIR` x4 splits by phase**: `early_score` +0.7% (t=1.28) and `early_crown` +0.5% (t=1.30) against
+  `steps` -1.7%, `merges` -2.0%, `cascades` -3.8%. Raising size order tidies the early board and pays for it in
+  late survival, which is the same shape the rung position shows
+  (→[A failing pinned test is not a screen](#a-failing-pinned-test-is-not-a-screen-2026-09-16))
+- **`PIT` x4 vindicates the red test it fails.** Its first-ply breakdown on that position is identical to HEAD's,
+  so the board eval had nothing wrong with it and only the reply flipped the move; the score still came out the
+  worst of the four. A red pinned test is not a screen, but here it named the right variant
+- **`size_order_ideal` is not tunable at all**: x2 moves 2.8% of moves and 0.2% out of the band. The half that
+  does the work is `_pair`
+- The 2026-09-15 line "no nonzero multiplier reaches 12% on the current policy" was already the verdict. These
+  four runs cost about five hours and confirmed it. **Read the screen ceiling before spending a night on a weight**
 
 ### Split composite terms into sub-terms (2026-08-21)
 
