@@ -7,7 +7,7 @@ not work'), so only this local count is looked at.
 
 For each flagged move the best *clean* candidate is compared with the
 chosen move on the two-ply value `choose_x` ranks by, and the gap is split into two kinds, whose remedies
-differ completely (AGENTS 'Do not run an A/B while obvious blunders remain'):
+differ completely (CLAUDE.md 'Do not run an A/B while obvious blunders remain'):
 
 A move is *clean* when held merges or its landed fruit creates less than `--min-gap`.
 

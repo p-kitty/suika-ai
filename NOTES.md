@@ -1,5 +1,42 @@
 # Known issues and things to fix later
 
+## Do not redo these
+
+**Read this table before proposing anything.** One row per question that is closed. The linked section has the
+numbers; the row is there so nobody spends a night rediscovering a verdict. A row moves out of this table only
+by the route its own section names.
+
+| Question | Verdict | Where |
+|---|---|---|
+| Widen the search past 8/16 (16/8 and beyond) | **Won't do.** The moves it changes stay inside the two-ply band | [link](#wont-do-widen-the-search-further-168-and-beyond-2026-09-16) |
+| Expand a third ply | **Null** at n=50. 86% of its changed moves swap inside the band | [link](#measured-and-dropped-third-ply-expectation-2026-09-11) |
+| Deepen the lethal filter to two plies | **Won't do.** No dangerous position splits on it | [link](#wont-do-deepen-the-lethal-filter-to-two-plies-2026-08-20) |
+| Reorder candidates inside the tie band | **No effect** (n=133). The band is indifferent | [link](#settled-the-tie-band-really-is-indifferent-2026-08-19) |
+| Order the band with a board score, learned or hand-written | **Closed.** 70.9% of banded positions hold a single board, and the merge outcome differs in 0.0% | [link](#measured-the-two-ply-band-mostly-holds-a-single-board-2026-09-13) |
+| Put a learned board score at the leaves of the two-ply search | **Closed.** The BC ranker escapes the two-ply band 0.9% at lambda 1 and 7.8% at lambda 10, below the V that was already null | [link](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12) |
+| Add a learned V to `choose_x` | **Null** at n=150 | [link](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12) |
+| Predict how a game ends | **Cannot.** The cheap screens are exhausted | [link](#settled-how-a-game-ends-cannot-be-predicted-the-cheap-screens-are-exhausted-2026-08-30) |
+| Tune an existing penalty weight (raise or cut a multiplier) | **Closed.** No nonzero multiplier escapes the band more than ~12%, and the four highest were A/B'd at n=50 with nothing significant and three leaning negative | [link](#remeasured-through-the-two-ply-decision-2026-09-14) |
+| Retire an existing term to simplify | **All of them earn their place.** Every term was cut and measured in turn | [link](#measured-one-night-of-ab-runs-2026-08-21) |
+| Continuous corner and height terms | **Dropped.** Candidates differ by fractions of a px | [link](#measured-and-dropped-continuous-corner-and-height-terms-2026-09-05) |
+| Penalize a landing walled off from the partner | **Dropped** | [link](#measured-and-dropped-landing-walled-off-from-the-partner-2026-08-30) |
+| Make a bury with type gap 1 cheaper | **Dropped** | [link](#measured-and-dropped-making-a-bury-with-type-gap-1-cheaper-2026-08-23) |
+| Vertical size order / stage gate / trapped-fruit penalty | **Reverted** | [link](#vertical-size-order-stage-gate-trapped-fruit-penalty-2026-08-18-reverted) |
+| Decide perch acceptance by "orange or bigger" | **Rejected** | [link](#deciding-perch-acceptance-by-orange-or-bigger-2026-08-20-rejected) |
+| `bumpiness` / `big fruits not close enough` / `packed_small_side_penalty` / `bury_block` | **Retired**, each after its own A/B | [bump](#retired-bumpiness-height-variance-2026-08-21), [big](#retired-big-fruits-not-close-enough-2026-08-21), [packed](#retired-packed_small_side_penalty-2026-08-19), [block](#bury_block-was-retired-2026-08-18) |
+| Finer candidate spacing (`CANDIDATE_STEP` 12 -> 3) | **Reverted.** 2.2x the cost, unjudgeable at the n it was run | [link](#measured-and-reverted-candidate_step-12-3) |
+| Chase the 1-3px merge windows | **Stop.** Indistinguishable from overfitting to the sim, and a sim A/B cannot detect that | [link](#remaining-misses-the-1-3px-window-unresolved) |
+| Turn `AIM_SPREAD` on, or model the aim error | **Everything stays exact-aim** by decision; the error of live play is unmeasured | [link](#measured-aim-error-costs-a-fifth-of-the-score-2026-09-15) |
+
+**Traps in how things get measured** (these are about method, not about one rule):
+
+| Trap | What to do instead | Where |
+|---|---|---|
+| Reading a rise or fall in the mean as an effect | Score noise is huge; read the paired t and CI, and divide out the required n **before** running | [link](#how-to-measure-traps-we-keep-stepping-in) |
+| Screening on "what fraction of moves change" | Screen on **what fraction escapes the band** | [link](#screen-on-does-it-escape-the-band) |
+| Dropping a variant because a pinned test went red | A red test restates "the move changed". Read the per-candidate breakdown of that one position | [link](#a-failing-pinned-test-is-not-a-screen-2026-09-16) |
+| Choosing weights by a home-made structural metric | All 3 rules chosen that way screened well and were negative on every A/B metric | [link](#how-to-measure-traps-we-keep-stepping-in) |
+
 ## Contents
 
 - [Current approach: fixed-point observation of seed 642746](#current-approach-fixed-point-observation-of-seed-642746-2026-08-19)
@@ -9,12 +46,14 @@
 - [How to measure](#how-to-measure-traps-we-keep-stepping-in) ← read before reporting numbers
 - [Adopted: widen the lookahead to 8/16](#adopted-widen-the-lookahead-to-816-2026-09-05) ← widened the search
 - [Measured and dropped: third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11) ← a deeper search only reshuffles inside the band
+- [Won't do: widen the search further](#wont-do-widen-the-search-further-168-and-beyond-2026-09-16) ← **do not propose 16/8 again**; what would reopen it is written there
 - [Settled: the tie band really is indifferent](#settled-the-tie-band-really-is-indifferent-2026-08-19) ← the dead end of weight tuning
 - [What decides size-order breaks](#measured-what-decides-size-order-breaks-2026-09-14) ← big filters, not ties, break the order; **adopted y-aware valleys + size order 6.0 (+6.3%)**
 - [Aim error costs a fifth of the score](#measured-aim-error-costs-a-fifth-of-the-score-2026-09-15) ← the error costs 20%; `AIM_SPREAD` wins part of it back but **stays off by decision** (play is exact)
 - [Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22) ← a case where candidate generation, not weights, was the cause
 - [In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)
 - [Investigated: how the board collapses](#investigated-how-the-board-collapses-2026-08-18)
+- [A failing pinned test is not a screen](#a-failing-pinned-test-is-not-a-screen-2026-09-16) ← a red test restates "the move changed"; read why before dropping a variant
 - [Rules tried and reverted or retired](#rules-tried-and-reverted-or-retired)
 - [Investigated: sudden death from scattered low-tier fruits late in the game](#investigated-sudden-death-from-scattered-low-tier-fruits-late-in-the-game)
 - [Material arithmetic (distance to a double watermelon)](#material-arithmetic-distance-to-a-double-watermelon)
@@ -23,6 +62,7 @@
 - [Training](#training)
 - [Adding V to choose_x does not move score](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12) ← the dead end of the learned value function
 - [The two-ply band mostly holds a single board](#measured-the-two-ply-band-mostly-holds-a-single-board-2026-09-13) ← why board features cannot order the band
+- [Ranking candidates by their own post-drop features breaks the BC ceiling](#measured-ranking-candidates-by-their-own-post-drop-features-breaks-the-bc-ceiling-2026-09-16) ← **the one line that opened**; late game 4.4x control against the old student's 1.4x
 - [Planned: RL (REINFORCE)](#planned-rl-reinforce)
 
 ## Current approach: fixed-point observation of seed 642746 (2026-08-19)
@@ -36,7 +76,7 @@ The existing weights have no leverage, and no difference an A/B can pick up rema
 position, on the other hand, are deterministic quantities, so they are visible without going through score noise.
 
 The tracing procedure is in
-[AGENTS.md](AGENTS.md#do-not-run-an-ab-while-obvious-blunders-remain).
+[CLAUDE.md](CLAUDE.md#do-not-run-an-ab-while-obvious-blunders-remain).
 Only the symptoms found and their diagnoses are kept here.
 
 **Name moves by `move` in the `view_sim` footer (1-based).** Changing the policy makes play
@@ -173,7 +213,7 @@ and on the peach at moves 103-122).
 Splitting move 97 (board `appl@51 pine@78 oran@145 grap@209 peac@222 pear@290 oran@324 grap@372 cher@384`,
 held=cherry) by candidate, only the 4 that put it on the pineapple pile have eval 0.275 with every term near 0,
 and all the rest carry bury 20.0 and score −18.8 or lower. **It is not a tie band; a single term decides the order**
-(→[telling them apart in the tracing procedure](AGENTS.md#do-not-run-an-ab-while-obvious-blunders-remain)).
+(→[telling them apart in the tracing procedure](CLAUDE.md#do-not-run-an-ab-while-obvious-blunders-remain)).
 On a board where every placement buries something, only "putting it on top" was free.
 
 **What was added**: `_perch_penalty` (→[rule list](#current-penalty-rules)).
@@ -367,7 +407,7 @@ got buried here. Read this section before reporting numbers.
   It is faster to look for a proxy metric with lower variance than score
 - **At the default n=50 only changes of ±7% (±164 points) or more are visible** (the measured SD of the difference
   is 560-600). This is a screen accepted knowingly, and changes that do not reach it are not added
-  ([AGENTS.md](AGENTS.md#when-touching-the-policy-or-training)). Many 1-3% terms have been
+  ([CLAUDE.md](CLAUDE.md#when-touching-the-policy-or-training)). Many 1-3% terms have been
   measured so far, and not one became significant. **Rather than raising n to catch them,
   it is faster to look for terms that move moves out of the band** (→[screen](#screen-on-does-it-escape-the-band))
 - **Pairing barely helps (2026-08-21).** The score correlation between A and B on the same seed
@@ -418,8 +458,8 @@ got buried here. Read this section before reporting numbers.
 - Do not fix seeds (omitting `--seed` makes them random). Reusing fixed seeds makes a chance collapse
   easy to misread as "reproduced". Compare changes paired on the same seeds
 
-The measuring procedures themselves (how to plug in an A/B is in [AGENTS.md](AGENTS.md#when-touching-the-policy-or-training),
-comparisons that do not dirty the working tree are in [git in AGENTS.md](AGENTS.md#git)) live there.
+The measuring procedures themselves (how to plug in an A/B is in [CLAUDE.md](CLAUDE.md#when-touching-the-policy-or-training),
+comparisons that do not dirty the working tree are in [git in CLAUDE.md](CLAUDE.md#git)) live there.
 Only what can be trusted is written here.
 
 ## Settled: the tie band really is indifferent (2026-08-19)
@@ -689,6 +729,33 @@ two-ply band eps 0.1, median band size 4). Multiplier applied to both plies:
 - **No nonzero multiplier reaches 12%** on the current policy; the adopted size order moved the ceiling down, not up.
   Weight tuning stays closed. `BURY_LONE_WEIGHT` 7.5 and `NEXT_DISCOUNT` 0.8 also fail one policy test each
 
+**Measured: four of the top rows were A/B'd and none moved score (2026-09-16).** The line above says weight
+tuning is closed on the screen; these are the A/Bs that make it a measurement. `compare_b_only.py`, side A
+`baseline_yvso6_n100.json` offset 0, n=50 each, cap 400, 0 truncated. The screen was retaken on HEAD first
+(425 positions, seeds 910000-5, band median 4) with `size_order` split into its `_pair` and `_ideal` halves, so
+each weight could be swept alone.
+
+| Variant | band escape | score | t | steps | cascades | max_type | win/loss |
+|---|---|---|---|---|---|---|---|
+| `PIT_WEIGHT` 8 -> 2 | 6.1% | 2626.3 -> 2625.1 (-0.0%) | -0.01 | -0.4% | -0.7% | -0.4% | 26/24 |
+| `SIZE_ORDER_PAIR_WEIGHT` 6.0 -> 24.0 | 9.2% | -> 2570.7 (-2.1%) | -0.60 | -1.7% | -3.8% | -1.2% | 22/28 |
+| `PIT_WEIGHT` 8 -> 32 | 8.9% | -> 2525.6 (-3.8%) | -0.96 | -2.8% | -4.5% | -1.5% | 24/26 |
+| `BURY_WEIGHT` 20 -> 80 | 6.6% | -> 2658.0 (+1.2%) | 0.36 | +1.0% | -0.2% | -0.4% | 28/22 |
+
+- **Nothing reached significance and three of the four lean negative.** The two with the highest band escape are
+  the two that lost the most, so the ceiling is not "the screen could not see it"
+- **`SIZE_ORDER_PAIR` x4 splits by phase**: `early_score` +0.7% (t=1.28) and `early_crown` +0.5% (t=1.30) against
+  `steps` -1.7%, `merges` -2.0%, `cascades` -3.8%. Raising size order tidies the early board and pays for it in
+  late survival, which is the same shape the rung position shows
+  (→[A failing pinned test is not a screen](#a-failing-pinned-test-is-not-a-screen-2026-09-16))
+- **`PIT` x4 vindicates the red test it fails.** Its first-ply breakdown on that position is identical to HEAD's,
+  so the board eval had nothing wrong with it and only the reply flipped the move; the score still came out the
+  worst of the four. A red pinned test is not a screen, but here it named the right variant
+- **`size_order_ideal` is not tunable at all**: x2 moves 2.8% of moves and 0.2% out of the band. The half that
+  does the work is `_pair`
+- The 2026-09-15 line "no nonzero multiplier reaches 12% on the current policy" was already the verdict. These
+  four runs cost about five hours and confirmed it. **Read the screen ceiling before spending a night on a weight**
+
 ### Split composite terms into sub-terms (2026-08-21)
 
 Of the 7 terms in the table above, `size_order` and `big_layout` are **sums of two rules of different nature**,
@@ -775,7 +842,7 @@ variant picks a move below the current two-ply band, eps 0.1; inversion = what t
 | y-aware valleys + pair 3.0 | 20.6% | 18.0% | 1.78 → 1.83 | 4.88 → 5.15 | passes |
 
 - **Raising size order gives up little merging.** Pair x4 gives up a merge in 2 of 58 changed moves (merge points
-  228 → 174 summed over them). The cap from ["a quantity merging always worsens"](AGENTS.md#how-to-write-a-rule)
+  228 → 174 summed over them). The cap from ["a quantity merging always worsens"](CLAUDE.md#how-to-write-a-rule)
   does not bind, because held-merging moves are exempt from size order
 - **But even x2 reintroduces a fixed blunder**: `test_uses_the_next_rung_instead_of_roofing_a_small_fruit` roofs the
   strawberry again. The grape in the rung hollow is inverted against the dekopon one tier up, the roof makes both
@@ -1023,6 +1090,45 @@ the orange side was already correct and only dekopon (diameter 59.6) was off.
   **356/360 moves match (98.9%)**. Penalty firings went 1445 → 1219 (**−15.6%**)
 - **No A/B was run.** A 1.1% change in moves is buried in score noise at n=25.
   A change that fixes a wrong premise; it makes no claim of moving the score
+
+## A failing pinned test is not a screen (2026-09-16)
+
+**Dropping a variant because a test in `tests/test_policy.py` goes red is circular reasoning.** Escaping the
+band *means* the chosen move changes, so every variant strong enough to be worth an A/B changes a move
+somewhere, and some of those positions are pinned by tests. "It failed a test" restates "it changed a move".
+
+This has already cost measurements. The screen table in
+[What decides size-order breaks](#measured-what-decides-size-order-breaks-2026-09-14) dropped
+`size_order pair + ideal` x4 and x2 with "fails the rung test", and they were never A/B'd.
+
+**What the red test is worth**: it points at one position. Lay that position's candidates out with eval broken
+down per term (the procedure in
+[Do not run an A/B while obvious blunders remain](CLAUDE.md#do-not-run-an-ab-while-obvious-blunders-remain)) and the two
+cases separate cleanly.
+
+**Both x4 variants of the 2026-09-16 screen fail the same test**
+(`test_uses_the_next_rung_instead_of_roofing_a_small_fruit`, the grape roofing the strawberry at move 72 of
+seed 890270) **for different reasons**:
+
+| x | roofs | held eval | `bury_lone` | `size_order_pair` |
+|---|---|---|---|---|
+| 240.0 (the rung hollow) | no | **-71.21** | -15.00 | **-36.00** |
+| 300.0 (the roof) | yes | -74.26 | -30.00 | **-24.00** |
+
+- **`SIZE_ORDER_PAIR_WEIGHT` 6.0 -> 24.0 is a definition error.** The rule scores the rung hollow, which is the
+  move that keeps the board alive, as the *dirtier* of the two (-36 against the roof's -24). At 6.0 the
+  `bury_lone` difference of 15 still outweighs it; x4 opens the size-order gap to 48 and the roof wins. Raising
+  the weight amplifies a rule that has the sign backwards on this shape. Sparing the rung by skipping touching
+  one-tier pairs was tried and reverted (it breaks `test_inversion_costs_more_than_the_correct_order` and
+  `test_drop_does_not_exempt_the_inversion_it_creates`), so the fix is not that
+- **`PIT_WEIGHT` 8.0 -> 32.0 has nothing wrong on the board.** Its first-ply breakdown is *identical* to HEAD's
+  here — `pit` contributes 0.0 to every candidate, because `PIT_MIN_GAP` already exempts a wall one tier up —
+  and the board eval still prefers the rung by 3.05. The move flips through the reply evaluation alone. There
+  is no board-level reason to trust the test over the score, so it goes to the A/B
+
+**If a variant wins the A/B with the test still red, it still cannot be committed as is.** The test records an
+earlier judgment about that position and the score contradicts it. Decide which to keep, deliberately, and
+record the decision here.
 
 ## Rules tried and reverted or retired
 
@@ -1628,7 +1734,7 @@ as long as there is even one surviving candidate. It is not a penalty, so it is 
 
 Notes:
 - The rules above have no ON/OFF toggles (the policy is not to keep toggles for permanent rules.
-  The A/B procedure is in [AGENTS.md](AGENTS.md#when-touching-the-policy-or-training))
+  The A/B procedure is in [CLAUDE.md](CLAUDE.md#when-touching-the-policy-or-training))
 - Ladder detection (`src/ladder.py`) is currently unused by penalties (detection only)
 
 ### Run cost: faster physics and search width (2026-08-17)
@@ -1695,21 +1801,7 @@ The two runs were score +10.5% (n=150, t=4.63) and **+6.8% (n=100, t=2.68)**, so
   **matches 8/16 96.2%** at a cost of 3.6 → 2.6x. **8/16 is what went through the A/B, so
   that is what was added**, but if the cost becomes a problem 8/32 is the first thing to cut
   (whether the remaining 3.8% of moves are harmless is unmeasured. The difference between 8/16 and 2/32 also comes from 12.5% of moves)
-- **The line of widening further is closed.** On the same 160 positions, moves of even wider settings were
-  compared with 8/16:
-
-  | Setting | agreement with 8/16 | cost ratio per move |
-  |---|---|---|
-  | 12/16 | 98.8% | 1.6 |
-  | 8/8 | 98.1% | 1.6 |
-  | 16/16 | 97.5% | 2.0 |
-  | 16/8 | **95.0%** | **3.1** |
-
-  **The calibration point is this section's own A/B**: 8/16 agrees with the old 2/32 87.5% (12.5% of moves
-  change for +9.0%). Even the widest, 16/8, changes **only 5.0% of moves**,
-  for a linearly scaled expectation of about +3.6%. Just moving that difference's CI away from 0 needs n≈180,
-  and with power taken into account n≈360. At 207s/game for A and 663s/game for B that is **a 10-hour run**.
-  **The order of magnitude does not match the headroom, so it is not run**
+- **Widening further is closed** →[Won't do: widen the search further](#wont-do-widen-the-search-further-168-and-beyond-2026-09-16)
 - **The cost carries straight over to training.** Teacher collection (`train_sim.py` /
   `collect_value.py`) is also 3.6x. For collection alone, running with `HELD_TOP` lowered
   is a reasonable call
@@ -1721,9 +1813,45 @@ The two runs were score +10.5% (n=150, t=4.63) and **+6.8% (n=100, t=2.68)**, so
   by the result of next. **The band cannot be split by the first-ply eval, but it can be split by a deeper search**
 - **The n=8 preview came out with the opposite sign** (−10.5%). The SD of the difference is 626, so the SE at n=8 is 221.
   **Divide out the required n before running** (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
-- **The estimate above of "linearly scaling by the move change rate" is unreliable.** The third-ply expectation
-  changed 17.4% of moves for score ±0 (→[third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11)).
-  The conclusion not to run 16/8 stands, but read its basis from "outside the two-ply band" below, not from the change rate
+
+### Won't do: widen the search further (16/8 and beyond) (2026-09-16)
+
+**Do not propose widening the search again.** The proposal keeps coming back from reading the 8/16 story above as
+"a required n was written down and never run, so run it". **That precedent does not transfer.** 8/16 was shelved
+before anything deeper had been measured; since then two measurements closed the road:
+
+- [The third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11) was run and is **null**
+  (n=50, score +0.1%, t=0.02), and **86% of the moves it changed were swaps inside the two-ply band**
+- [The two-ply band mostly holds a single board](#measured-the-two-ply-band-mostly-holds-a-single-board-2026-09-13):
+  70.9% of banded positions collapse to one board and **the merge outcome differs in 0.0%**
+
+A wider search spends its extra candidates in that band, which is where nothing is left to order.
+
+On 160 positions, moves of even wider settings were compared with 8/16:
+
+| Setting | agreement with 8/16 | cost ratio per move |
+|---|---|---|
+| 12/16 | 98.8% | 1.6 |
+| 8/8 | 98.1% | 1.6 |
+| 16/16 | 97.5% | 2.0 |
+| 16/8 | **95.0%** | **3.1** |
+
+**The calibration point is the 8/16 A/B itself**: 8/16 agrees with the old 2/32 87.5% (12.5% of moves change for
++9.0%). Even the widest, 16/8, changes **only 5.0% of moves**, for a linearly scaled expectation of about +3.6%.
+Just moving that difference's CI away from 0 needs n≈180, and with power taken into account n≈360. At 207s/game
+for A and 663s/game for B that is **a 10-hour run**. The order of magnitude does not match the headroom.
+
+- **That linear scaling is itself unreliable**, and it is the optimistic side of the estimate: the third-ply
+  expectation changed 17.4% of moves for score ±0. Read the basis for not running 16/8 as "the changed moves stay
+  inside the two-ply band", not as the change rate
+- **The cheaper direction was already taken.** If search cost ever becomes the problem, 8/32 (`HELD_TOP` only)
+  matches 8/16 on 96.2% of moves at 2.6x instead of 3.6x — that is a cut, not a widening
+
+**What would reopen it**: a measurement that the moves 16/8 changes **leave the two-ply band** (eps 0.1, the way
+`weight_escape.py` and `value_escape.py` cut it), on positions from the current policy. Not a fraction of moves
+changed, and not a fresh power calculation on the numbers above. Bring that number, or leave this closed
+([CLAUDE.md](CLAUDE.md#when-in-doubt-ask-before-touching-anything): overturning a settled decision needs evidence
+and a confirmation first).
 
 ### Measured and dropped: third-ply expectation (2026-09-11)
 
@@ -1825,6 +1953,123 @@ it is **only 1.7x**. And the ratio to control goes from 2.4x early → **1.4x la
 **in the stretch where the board is decided, the student is nearly random**. The gate's scale was indeed too strict, but
 it is not at the level of "able to imitate the teacher".
 (Caveat: the checkpoint used is hidden=128, not the best of the sweep)
+
+### Measured: ranking candidates by their own post-drop features breaks the BC ceiling (2026-09-16)
+
+[BC does not reach 60-70% match](#investigated-bc-does-not-reach-60-70-match-2026-08-05) ends with
+"it will not get there unless the capacity or the feature design itself (including per-candidate landing results
+in the features) changes". That was never tried. The rows for it already existed: `collect_value.py` keeps a
+candidate table, and `artifacts/value_100ep.npz` holds **130236 candidate rows over 3096 positions** with the
+19 post-drop features of `src/training/features.py` per candidate, the teacher's eval, and which one it chose.
+
+Fit: ridge on the features **centred within each position** (the board-level offset is not what orders a
+position), target the teacher's eval, 80/20 split **by position**, lambda 0.1-100 all within 0.5 points.
+Scored by whether the ranker's top pick lands in the teacher's band (eps 0.1), against a random-candidate
+control on the same positions.
+
+| Phase | in the teacher's band | random control | ratio |
+|---|---|---|---|
+| early (move < 60) | 40.3% | 14.1% | 2.9x |
+| mid (60-150) | 59.4% | 16.1% | 3.7x |
+| **late (>= 150)** | **61.8%** | 14.2% | **4.4x** |
+| all | 55.8-57.3% | ~15% | ~3.7x |
+
+- **The phase profile is inverted against the old student.** Band agreement there was 33.6% overall against a
+  19.8% control (**1.7x**), falling to **1.4x late** -- "in the stretch where the board is decided, the student
+  is nearly random". Here late is the *strongest* phase. The bottleneck was the feature design, not capacity
+- **It is linear.** No MLP, no sweep of lr or epochs; 19 features and a closed-form ridge. The old sweep of
+  lr 0.05-1.0 x epoch 80-300 x hidden 128/256 never passed 30% exact match
+- **Top magnitudes**: `fruit_count`, `perch`, `excess_same`, `size_order_pair`, `mean_height`, all negative
+- **This ranker is not a speedup.** Its features are post-drop, so it needs `simulate_drop` per candidate just
+  as the teacher does. What it buys is a student that can actually imitate the teacher's ordering, which is the
+  gate [RL](#planned-rl-reinforce) was waiting on
+- **The teacher in this data is stale**: `value_100ep.npz` was collected 2026-08-30, before
+  [y-aware valleys + size order 6.0](#adopted-y-aware-valleys--size_order_pair_weight-60-2026-09-14). The
+  conclusion is about feature design, so it should survive, but recollect before building on the numbers
+- Not measured: what this scores in play, top-1 exact agreement beyond the 16.8% here (the band is the right
+  target since the teacher picks randomly inside it), and whether a nonlinear head adds anything
+
+**The ranker plays on its own at 77% of bootstrap and 11x faster (n=50, 2026-09-17).** Agreement is half the
+RL gate; the other half is "the student's score close to bootstrap", which needs it to actually pick moves.
+`scripts/eval_ranker.py` scores every candidate's post-drop board with the fitted weights and plays the best,
+**with no next lookahead at all**. Teacher data recollected on the current policy
+(`artifacts/value_0916_n100.npz`, 100 episodes, 25890 moves, **267268 candidate rows** at
+`--candidate-stride 4`, score mean 2625.7, 0/100 truncated, 121 min at `--workers 8`), weights in
+`artifacts/ranker_0916.npz`.
+
+| | ranker | bootstrap | ratio |
+|---|---|---|---|
+| score | 2029.0 (median 1842) | 2626.3 (median 2742) | **77.3%** |
+| steps | 204.1 | 258.7 | 78.9% |
+| merges | 186.7 | 237.6 | 78.6% |
+| max_type | 9.16 | 9.60 | |
+| max_wm | 0.32 | 0.62 | |
+| wall clock per game | **~58s** | ~660s | **11x faster** |
+
+- **The old student was ~50% of bootstrap** (~1040-1060 against ~2000-2150) and needed the full board encoding.
+  77% from a linear model over 19 post-drop features is the closest the BC line has come to the gate
+- **The speed is not the point but it is real.** The ranker replaces the whole second ply, so it costs one
+  `rank_candidates` per move. It is a one-ply policy that recovers three quarters of a two-ply teacher
+- **Where it loses is the long game**: steps and merges fall by the same ~21% as score, and `max_wm` halves.
+  It survives less long rather than playing worse per move
+- The fit reproduces on the fresh data: band agreement 38.1% early / 59.3% mid / **62.0% late** against a
+  ~15% random control, against 40.3 / 59.4 / 61.8 on the stale 2026-08-30 teacher
+
+**What the student is missing is the second ply, not fidelity (n=50, 2026-09-17).** Training the ranker on
+**which candidate the teacher chose** (a softmax over the candidates of one position) instead of regressing its
+first-ply eval is the better fit -- the labels come from the two-ply search, so regressing the one-ply eval was
+aiming at the wrong target:
+
+| Fit | top1 | in teacher band | train time |
+|---|---|---|---|
+| ridge on eval | 16.2% | 55.1% | instant |
+| **conditional logit, linear** | **20.0%** | **59.3%** | 3s |
+| logit + MLP h=32 | 20.3% | 57.8% | 67s |
+| logit + MLP h=64 | 20.8% | 57.1% | 123s |
+
+**A nonlinear head raises top1 and lowers band agreement**, so capacity is still not the bottleneck.
+
+**But the better fit does not play better.** Same 50 seeds, `eval_ranker.py`, all one-ply policies with no
+lookahead at all:
+
+| Policy | score | of bootstrap |
+|---|---|---|
+| bootstrap (two plies) | 2626.3 | 100% |
+| ranker, logit fit | 2035.0 | 77.5% |
+| ranker, ridge fit | 2029.0 | 77.3% |
+| **teacher's own eval, one ply** (`--scorer oneply`) | **1951.2** | 74.3% |
+
+- **+4.2 points of band agreement bought +6 points of score** (SE about 85). Agreement is not a proxy for score
+  here, the same trap as the home-made structural metrics in
+  [How to measure](#how-to-measure-traps-we-keep-stepping-in)
+- **The second ply alone is worth +34.6%** (1951.2 -> 2626.3). The whole spread between every fit above is 84
+  points against the lookahead's 675
+- **The ranker beats the one-ply teacher by 4.3%**, so the static post-drop features do carry some of what the
+  lookahead sees -- but only **12% of its value**
+- **So a one-ply student is capped near 77%** however well it imitates. Closing the rest means giving it the
+  search or letting [RL](#planned-rl-reinforce) find what the search finds. Do not spend more on the fit
+
+**Measured and dropped: the ranker as a leaf value in the two-ply search (2026-09-17).** If a one-ply student
+is capped by the missing lookahead, the other direction is to keep the teacher's search and put the ranker at
+the leaves -- it was trained on the two-ply choice, so it should carry lookahead information into the leaf.
+`value_escape.py --model artifacts/ranker_as_value.npz` (the logit weights rewritten in `LinearValue` form),
+434 positions:
+
+| lambda | median range of lambda*V | moves change | escapes the two-ply band |
+|---|---|---|---|
+| 1.0 | 0.71 | 19.1% | **0.9%** |
+| 3.0 | 2.12 | 34.1% | 2.5% |
+| 10.0 | 7.06 | 48.8% | 7.8% |
+
+- **Below the learned V that was already null.** That one escaped 18.9% and moved nothing at n=150
+  (→[adding V to choose_x](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12)). At lambda 10
+  the ranker has swamped the teacher's eval entirely (range 7.06 against a band of 0.1) and still escapes less
+- **The reason is the band, again**: the same 434 positions collapse to a single board 70.9% of the time
+  (→[the two-ply band mostly holds a single board](#measured-the-two-ply-band-mostly-holds-a-single-board-2026-09-13)).
+  A leaf score cannot order boards that are the same board
+- Caveat: the cached boards are from 2026-09-13, before
+  [y-aware valleys](#adopted-y-aware-valleys--size_order_pair_weight-60-2026-09-14). 0.9% is far enough below
+  any useful threshold that a policy shift does not change the call, but rebuild the cache before reopening
 
 ### Decided: learn value from realized returns, not the teacher's eval (2026-08-30)
 

@@ -409,7 +409,7 @@ def _bury_counts(fruits: list[Fruit] | tuple[Fruit, ...]) -> tuple[float, float]
     """Return the number of fruits buried by other types split into (with partner, without partner).
 
     It is a rule with two weights, so counting and weights are separated so that `band_escape.py`
-    can sweep them separately (AGENTS 'One rule per term').
+    can sweep them separately (CLAUDE.md 'One rule per term').
     """
     paired = lone = 0.0
     for under in fruits:
