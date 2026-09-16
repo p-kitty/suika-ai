@@ -1988,6 +1988,32 @@ control on the same positions.
 - Not measured: what this scores in play, top-1 exact agreement beyond the 16.8% here (the band is the right
   target since the teacher picks randomly inside it), and whether a nonlinear head adds anything
 
+**The ranker plays on its own at 77% of bootstrap and 11x faster (n=50, 2026-09-17).** Agreement is half the
+RL gate; the other half is "the student's score close to bootstrap", which needs it to actually pick moves.
+`scripts/eval_ranker.py` scores every candidate's post-drop board with the fitted weights and plays the best,
+**with no next lookahead at all**. Teacher data recollected on the current policy
+(`artifacts/value_0916_n100.npz`, 100 episodes, 25890 moves, **267268 candidate rows** at
+`--candidate-stride 4`, score mean 2625.7, 0/100 truncated, 121 min at `--workers 8`), weights in
+`artifacts/ranker_0916.npz`.
+
+| | ranker | bootstrap | ratio |
+|---|---|---|---|
+| score | 2029.0 (median 1842) | 2626.3 (median 2742) | **77.3%** |
+| steps | 204.1 | 258.7 | 78.9% |
+| merges | 186.7 | 237.6 | 78.6% |
+| max_type | 9.16 | 9.60 | |
+| max_wm | 0.32 | 0.62 | |
+| wall clock per game | **~58s** | ~660s | **11x faster** |
+
+- **The old student was ~50% of bootstrap** (~1040-1060 against ~2000-2150) and needed the full board encoding.
+  77% from a linear model over 19 post-drop features is the closest the BC line has come to the gate
+- **The speed is not the point but it is real.** The ranker replaces the whole second ply, so it costs one
+  `rank_candidates` per move. It is a one-ply policy that recovers three quarters of a two-ply teacher
+- **Where it loses is the long game**: steps and merges fall by the same ~21% as score, and `max_wm` halves.
+  It survives less long rather than playing worse per move
+- The fit reproduces on the fresh data: band agreement 38.1% early / 59.3% mid / **62.0% late** against a
+  ~15% random control, against 40.3 / 59.4 / 61.8 on the stale 2026-08-30 teacher
+
 ### Decided: learn value from realized returns, not the teacher's eval (2026-08-30)
 
 An external point ("the teacher actually drops candidates and looks at the results, while the learner only sees

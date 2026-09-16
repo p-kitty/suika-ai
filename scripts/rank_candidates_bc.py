@@ -20,7 +20,10 @@ if __package__ in (None, ""):
 
 from scripts._bootstrap import ROOT
 from src.training.features import FEATURE_NAMES
-d = np.load(ROOT / "artifacts" / "value_100ep.npz", allow_pickle=True)
+DEFAULT_DATA = ROOT / "artifacts" / "value_0916_n100.npz"
+data_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DATA
+print(f"dataset: {data_path.name}")
+d = np.load(data_path, allow_pickle=True)
 X, ev, chosen, row = d["cand_feats"], d["cand_evals"], d["cand_chosen"], d["cand_row"]
 print(f"{len(X)} candidate rows, {len(np.unique(row))} positions, {X.shape[1]} features")
 
