@@ -20,7 +20,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import pickle
 import statistics
 import sys
 from pathlib import Path
@@ -28,13 +27,12 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts import _positions
 from scripts._bootstrap import ROOT
 from src import penalties as pen
 from src import policy as pol
 from src.observe import Observation, clamp_drop_x
-from src.policy import choose_x
 from src.reward import merge_score
-from src.sim.sim_env import SimEnv
 from src.sim.sim_physics import landed_xy, simulate_drop_held
 from src.vision.classify import fruit_radius
 
@@ -118,20 +116,9 @@ def _held_components(
     return parts, sum(parts.values())
 
 
-def _collect(seeds: list[int], steps: int, skip: int, stride: int) -> list[Observation]:
-    positions: list[Observation] = []
-    for seed in seeds:
-        env = SimEnv(seed=seed)
-        obs = env.reset()
-        for step in range(steps):
-            if obs.held_type is not None and step >= skip and step % stride == 0:
-                positions.append(obs)
-            result = env.step(choose_x(obs))
-            obs = result.observation
-            if result.done:
-                break
-        print(f"  seed {seed}: positions {len(positions)}", flush=True)
-    return positions
+def _keep(obs: Observation, seed: int, step: int) -> Observation:
+    """The row is the position itself. The physics runs later, in one pass over the whole table."""
+    return obs
 
 
 def _candidate_table(positions: list[Observation]) -> list[list[tuple[float, dict[str, float]]]]:
@@ -180,30 +167,23 @@ def _escape(table, key: str, mult: float, eps: float) -> tuple[int, int]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--seeds", type=int, default=6)
-    parser.add_argument("--seed", type=int, default=910000)
-    parser.add_argument("--steps", type=int, default=240)
-    parser.add_argument("--skip", type=int, default=DEFAULT_SKIP)
-    parser.add_argument("--stride", type=int, default=2)
-    parser.add_argument("--eps", type=float, default=0.1, help="width of the tie band")
-    parser.add_argument(
-        "--positions",
-        type=Path,
-        default=ROOT / "artifacts" / "band_positions.pkl",
-        help="cache of positions and candidate tables. Reused if present.",
+    _positions.add_sampling_args(
+        parser,
+        skip=DEFAULT_SKIP,
+        stride=2,
+        cache=ROOT / "artifacts" / "band_positions.pkl",
+        cache_help="cache of positions and candidate tables. Reused if present.",
     )
     args = parser.parse_args()
 
-    if args.positions.exists():
-        table = pickle.loads(args.positions.read_bytes())
-        print(f"reusing cache {args.positions}")
-    else:
-        seeds = [args.seed + i for i in range(args.seeds)]
-        positions = _collect(seeds, args.steps, args.skip, args.stride)
-        table = _candidate_table(positions)
-        args.positions.parent.mkdir(parents=True, exist_ok=True)
-        args.positions.write_bytes(pickle.dumps(table))
-        print(f"saved cache: {args.positions}")
+    table = _positions.load_or_build(
+        args.positions,
+        lambda: _candidate_table(
+            _positions.collect(
+                _positions.seeds_of(args), args.steps, args.skip, args.stride, _keep
+            )
+        ),
+    )
 
     n = len(table)
     sizes = [

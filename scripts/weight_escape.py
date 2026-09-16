@@ -21,23 +21,21 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import pickle
 import statistics
 import sys
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts import _positions
 from scripts._bootstrap import ROOT
 from scripts.band_escape import SWEEP_KEYS, _components, _held_components
 from src import policy as pol
 from src.observe import Observation, clamp_drop_x
 from src.policy import choose_x
 from src.reward import is_lost
-from src.sim.sim_env import SimEnv
 from src.vision.classify import fruit_radius
 
 # Wider than band_escape: under two plies a term also has to outweigh the discounted reply,
@@ -63,6 +61,9 @@ class Position:
 
 def _position(obs: Observation, seed: int, step: int) -> Position | None:
     assert obs.held_type is not None
+    # An empty board has nothing for a weight to reorder.
+    if not obs.fruits:
+        return None
     held_r = fruit_radius(obs.held_type)
     before = list(obs.fruits)
     ranked = pol.rank_candidates(obs)
@@ -145,67 +146,31 @@ def _choose(pos: Position, key: str, mult: float, ply: str) -> int | None:
     return best_i
 
 
-def _collect_seed(seed: int, steps: int, skip: int, stride: int) -> list[Position]:
-    table: list[Position] = []
-    env = SimEnv(seed=seed)
-    obs = env.reset()
-    for step in range(steps):
-        if obs.held_type is None:
-            break
-        if step >= skip and step % stride == 0 and obs.fruits:
-            row = _position(obs, seed, step)
-            if row is not None:
-                table.append(row)
-        result = env.step(choose_x(obs))
-        obs = result.observation
-        if result.done:
-            break
-    return table
-
-
-def _collect(
-    seeds: list[int], steps: int, skip: int, stride: int, workers: int
-) -> list[Position]:
-    """One process per seed. Seeds are independent games, so the table equals the serial one in seed order."""
-    table: list[Position] = []
-    with ProcessPoolExecutor(max_workers=workers) as pool:
-        for seed, rows in zip(
-            seeds,
-            pool.map(_collect_seed, seeds, *zip(*[(steps, skip, stride)] * len(seeds))),
-        ):
-            table.extend(rows)
-            print(f"  seed {seed}: positions {len(rows)}", flush=True)
-    return table
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--seeds", type=int, default=6)
-    parser.add_argument("--seed", type=int, default=910000)
-    parser.add_argument("--steps", type=int, default=240)
-    # Early game included, like value_escape: terms divided by the fruit count work early.
-    parser.add_argument("--skip", type=int, default=0)
-    parser.add_argument("--stride", type=int, default=3)
-    parser.add_argument("--eps", type=float, default=0.1, help="width of the tie band")
+    # skip=0: early game included, like value_escape. Terms divided by the fruit count work early.
+    _positions.add_sampling_args(
+        parser,
+        skip=0,
+        stride=3,
+        cache=ROOT / "artifacts" / "weight_escape_positions.pkl",
+        cache_help="cache of candidate and reply breakdowns. Reused if present.",
+    )
     parser.add_argument("--ply", choices=("both", "held", "next", "all"), default="all")
     parser.add_argument("--workers", type=int, default=1, help="processes for collection, one seed each")
-    parser.add_argument(
-        "--positions",
-        type=Path,
-        default=ROOT / "artifacts" / "weight_escape_positions.pkl",
-        help="cache of candidate and reply breakdowns. Reused if present.",
-    )
     args = parser.parse_args()
 
-    if args.positions.exists():
-        table = pickle.loads(args.positions.read_bytes())
-        print(f"reusing cache {args.positions}")
-    else:
-        seeds = [args.seed + i for i in range(args.seeds)]
-        table = _collect(seeds, args.steps, args.skip, args.stride, args.workers)
-        args.positions.parent.mkdir(parents=True, exist_ok=True)
-        args.positions.write_bytes(pickle.dumps(table))
-        print(f"saved cache: {args.positions}")
+    table = _positions.load_or_build(
+        args.positions,
+        lambda: _positions.collect(
+            _positions.seeds_of(args),
+            args.steps,
+            args.skip,
+            args.stride,
+            _position,
+            workers=args.workers,
+        ),
+    )
 
     n = len(table)
     late = sum(1 for p in table if p.step >= LATE_STEP)
