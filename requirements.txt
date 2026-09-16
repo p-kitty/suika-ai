@@ -1,4 +1,5 @@
 opencv-python
 numpy
 dxcam
-pymunk
+# sim_physics calls pymunk's private _chipmunk_cffi and Space internals; recheck them before bumping.
+pymunk==7.3.0

@@ -10,6 +10,10 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 import pymunk
+# Chipmunk's C functions, called directly on the hot path. The pymunk properties and `Space.step` wrap them
+# in Python that costs more than the physics itself here (see `_advance` and `_BodyFruit.cp_body`).
+# It is private API, so requirements.txt pins pymunk.
+from pymunk._chipmunk_cffi import lib as _cp
 
 from ..vision.classify import fruit_radius
 from ..vision.held import DROP_HEIGHT
@@ -64,6 +68,9 @@ class _BodyFruit:
     fruit_type: int
     # shape.radius does not change after creation. Cached to avoid calls into C on the pymunk side.
     radius: float
+    # The C body behind `body`. `body.position` / `.velocity` build a Vec2d per read, and the merge scan and quiet gate
+    # read every fruit every substep, so they call `_cp.cpBodyGet*` on this instead.
+    cp_body: object
     # The fruit dropped this drop. Used for the sideways pull of held merges. Cleared on contact with a different type
     # (_on_fruit_begin). Its only purpose is the sideways pull from merge recoil, so this is not changed.
     is_held_drop: bool = False
@@ -275,9 +282,13 @@ def _advance(
             if _merge_pair(space, bodies, paired[0], paired[1], merge_types):
                 held_merged = True
             merges += 1
+        # `Space.step` wraps cpSpaceStep in bookkeeping (mass checks on newly added bodies, deferred adds and
+        # removals, post-step callbacks) that was 17% of `simulate_drop`. Only an add or remove outside the step
+        # leaves anything for it to do; `_on_fruit_begin` adds and removes nothing during one.
+        if space._bodies_to_check or space._removed_shapes:
             space.step(sub_dt)
         else:
-            space.step(sub_dt)
+            _cp.cpSpaceStep(space._space, sub_dt)
     return merges, held_merged
 
 
@@ -410,7 +421,9 @@ def _add_fruit(
     shape.collision_type = FRUIT_COLLISION_TYPE
     shape.fruit_type = fruit_type
     space.add(body, shape)
-    item = _BodyFruit(body=body, shape=shape, fruit_type=fruit_type, radius=r)
+    item = _BodyFruit(
+        body=body, shape=shape, fruit_type=fruit_type, radius=r, cp_body=body._body
+    )
     shape.fruit_item = item
     bodies.append(item)
     return item
@@ -519,8 +532,7 @@ def _scan_merge_pair(
     The last two are used by `_MergeScan` to estimate 'after how many substeps contact can next happen'.
     The gap is inf when there is no same-type pair.
 
-    pymunk position/velocity call into C through properties, so instead of rereading them
-    every pair, each fruit is read once and cached locally before comparing.
+    Each fruit's position / velocity is read from C once and cached locally before comparing pairs.
     """
     n = len(bodies)
     types = [item.fruit_type for item in bodies]
@@ -532,10 +544,10 @@ def _scan_merge_pair(
     speeds = [0.0] * n
     max_speed = 0.0
     for i, item in enumerate(bodies):
-        pos = item.body.position
+        pos = _cp.cpBodyGetPosition(item.cp_body)
         xs[i] = pos.x
         ys[i] = pos.y
-        vel = item.body.velocity
+        vel = _cp.cpBodyGetVelocity(item.cp_body)
         vxs[i] = vel.x
         vys[i] = vel.y
         speed = math.hypot(vel.x, vel.y)
@@ -580,7 +592,7 @@ def _position_snapshot(bodies: list[_BodyFruit]) -> tuple[float, ...]:
     """Turn every fruit's position into a flat list alternating x, y."""
     snap: list[float] = []
     for item in bodies:
-        pos = item.body.position
+        pos = _cp.cpBodyGetPosition(item.cp_body)
         snap.append(pos.x)
         snap.append(pos.y)
     return tuple(snap)
@@ -603,16 +615,15 @@ def _all_quiet(bodies: list[_BodyFruit]) -> bool:
     """Whether every fruit is below the threshold in both speed and angular speed.
 
     Looks from the back. bodies are in insertion order, and the falling fruit (this drop) is at the end, so
-    while it is falling False can be returned on the first one. Every fruit's velocity calls into C
-    through pymunk properties, so the whole read is saved. It is just a predicate taking the AND over all fruits,
-    so the order of looking does not change the result.
+    while it is falling False can be returned on the first one, saving the read of every other fruit.
+    It is just a predicate taking the AND over all fruits, so the order of looking does not change the result.
     """
     for item in reversed(bodies):
-        body = item.body
-        v = body.velocity
+        cp_body = item.cp_body
+        v = _cp.cpBodyGetVelocity(cp_body)
         if math.hypot(v.x, v.y) > SLEEP_VEL:
             return False
-        if abs(body.angular_velocity) > SLEEP_ANG:
+        if abs(_cp.cpBodyGetAngularVelocity(cp_body)) > SLEEP_ANG:
             return False
     return True
 
