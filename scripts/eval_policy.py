@@ -143,7 +143,6 @@ def main() -> None:
     print(f"merges mean={statistics.mean(merges):.1f}")
     print(f"max_type mean={statistics.mean(max_types):.2f}  best={max(max_types):.0f}")
     print(f"corner_wm episodes={sum(1 for r in rows if r['corner_wm'] >= 1)}")
-    print(f"double_wm episodes={sum(1 for r in rows if r['max_wm'] >= 2)}")
     print(f"win episodes={sum(1 for r in rows if r['win'] >= 1)}")
 
 

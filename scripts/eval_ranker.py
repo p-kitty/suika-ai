@@ -93,7 +93,7 @@ def main() -> None:
             print(f"  {done}/{len(seeds)} ({time.monotonic() - started:.0f}s)", end="\r", flush=True)
     print(f"  done {time.monotonic() - started:.0f}s" + " " * 20)
 
-    for key in ("score", "steps", "merges", "max_type", "max_wm"):
+    for key in ("score", "steps", "merges", "max_type"):
         vals = [r[key] for r in rows]
         print(f"  {key:<10} mean {statistics.mean(vals):8.2f}   median {statistics.median(vals):8.2f}")
     truncated = sum(1 for r in rows if r["steps"] >= args.max_steps)
