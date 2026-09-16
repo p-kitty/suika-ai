@@ -16,7 +16,9 @@ Each of the three has a separate role. **Do not write the same thing in two plac
   the order of magnitude of run cost that changes whether to ask (seconds / minutes / hours).
   Link to NOTES.md for the measurement behind such a value
 - **[NOTES.md](NOTES.md)** … domain knowledge and experiment log for the game and the policy. What measurements showed,
-  failed attempts, the current penalty rules, open tasks. "Why this design", "what did it score"
+  failed attempts, the current penalty rules, open tasks. "Why this design", "what did it score".
+  It opens with [Do not redo these](NOTES.md#do-not-redo-these), one row per closed question.
+  **Read that table before proposing a change**, and add a row whenever a question closes
 - **[README.md](README.md)** … the entry point for humans (English). Setup, how to run, layout
 
 Where things go when unsure:

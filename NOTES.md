@@ -1,5 +1,40 @@
 # Known issues and things to fix later
 
+## Do not redo these
+
+**Read this table before proposing anything.** One row per question that is closed. The linked section has the
+numbers; the row is there so nobody spends a night rediscovering a verdict. A row moves out of this table only
+by the route its own section names.
+
+| Question | Verdict | Where |
+|---|---|---|
+| Widen the search past 8/16 (16/8 and beyond) | **Won't do.** The moves it changes stay inside the two-ply band | [link](#wont-do-widen-the-search-further-168-and-beyond-2026-09-16) |
+| Expand a third ply | **Null** at n=50. 86% of its changed moves swap inside the band | [link](#measured-and-dropped-third-ply-expectation-2026-09-11) |
+| Deepen the lethal filter to two plies | **Won't do.** No dangerous position splits on it | [link](#wont-do-deepen-the-lethal-filter-to-two-plies-2026-08-20) |
+| Reorder candidates inside the tie band | **No effect** (n=133). The band is indifferent | [link](#settled-the-tie-band-really-is-indifferent-2026-08-19) |
+| Order the band with a board score, learned or hand-written | **Closed.** 70.9% of banded positions hold a single board, and the merge outcome differs in 0.0% | [link](#measured-the-two-ply-band-mostly-holds-a-single-board-2026-09-13) |
+| Add a learned V to `choose_x` | **Null** at n=150 | [link](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12) |
+| Predict how a game ends | **Cannot.** The cheap screens are exhausted | [link](#settled-how-a-game-ends-cannot-be-predicted-the-cheap-screens-are-exhausted-2026-08-30) |
+| Retire an existing term to simplify | **All of them earn their place.** Every term was cut and measured in turn | [link](#measured-one-night-of-ab-runs-2026-08-21) |
+| Continuous corner and height terms | **Dropped.** Candidates differ by fractions of a px | [link](#measured-and-dropped-continuous-corner-and-height-terms-2026-09-05) |
+| Penalize a landing walled off from the partner | **Dropped** | [link](#measured-and-dropped-landing-walled-off-from-the-partner-2026-08-30) |
+| Make a bury with type gap 1 cheaper | **Dropped** | [link](#measured-and-dropped-making-a-bury-with-type-gap-1-cheaper-2026-08-23) |
+| Vertical size order / stage gate / trapped-fruit penalty | **Reverted** | [link](#vertical-size-order-stage-gate-trapped-fruit-penalty-2026-08-18-reverted) |
+| Decide perch acceptance by "orange or bigger" | **Rejected** | [link](#deciding-perch-acceptance-by-orange-or-bigger-2026-08-20-rejected) |
+| `bumpiness` / `big fruits not close enough` / `packed_small_side_penalty` / `bury_block` | **Retired**, each after its own A/B | [bump](#retired-bumpiness-height-variance-2026-08-21), [big](#retired-big-fruits-not-close-enough-2026-08-21), [packed](#retired-packed_small_side_penalty-2026-08-19), [block](#bury_block-was-retired-2026-08-18) |
+| Finer candidate spacing (`CANDIDATE_STEP` 12 -> 3) | **Reverted.** 2.2x the cost, unjudgeable at the n it was run | [link](#measured-and-reverted-candidate_step-12-3) |
+| Chase the 1-3px merge windows | **Stop.** Indistinguishable from overfitting to the sim, and a sim A/B cannot detect that | [link](#remaining-misses-the-1-3px-window-unresolved) |
+| Turn `AIM_SPREAD` on, or model the aim error | **Everything stays exact-aim** by decision; the error of live play is unmeasured | [link](#measured-aim-error-costs-a-fifth-of-the-score-2026-09-15) |
+
+**Traps in how things get measured** (these are about method, not about one rule):
+
+| Trap | What to do instead | Where |
+|---|---|---|
+| Reading a rise or fall in the mean as an effect | Score noise is huge; read the paired t and CI, and divide out the required n **before** running | [link](#how-to-measure-traps-we-keep-stepping-in) |
+| Screening on "what fraction of moves change" | Screen on **what fraction escapes the band** | [link](#screen-on-does-it-escape-the-band) |
+| Dropping a variant because a pinned test went red | A red test restates "the move changed". Read the per-candidate breakdown of that one position | [link](#a-failing-pinned-test-is-not-a-screen-2026-09-16) |
+| Choosing weights by a home-made structural metric | All 3 rules chosen that way screened well and were negative on every A/B metric | [link](#how-to-measure-traps-we-keep-stepping-in) |
+
 ## Contents
 
 - [Current approach: fixed-point observation of seed 642746](#current-approach-fixed-point-observation-of-seed-642746-2026-08-19)
@@ -1038,7 +1073,7 @@ This has already cost measurements. The screen table in
 
 **What the red test is worth**: it points at one position. Lay that position's candidates out with eval broken
 down per term (the procedure in
-[Do not run an A/B while obvious blunders remain](#do-not-run-an-ab-while-obvious-blunders-remain)) and the two
+[Do not run an A/B while obvious blunders remain](AGENTS.md#do-not-run-an-ab-while-obvious-blunders-remain)) and the two
 cases separate cleanly.
 
 **Both x4 variants of the 2026-09-16 screen fail the same test**
