@@ -36,7 +36,7 @@ from src.training.collect import (
     save_value_dataset,
 )
 from src.training.features import FEATURE_NAMES
-from src.util.parallel import default_workers
+from src.util.parallel import resolve_workers
 
 DEFAULT_OUT = ROOT / "artifacts" / "value_dataset.npz"
 
@@ -48,7 +48,8 @@ def main() -> None:
     # come out missing (the truncation item in NOTES 'How to measure').
     parser.add_argument("--max-steps", type=int, default=400)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--workers", type=int, default=0, help="parallelism (0=auto)")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="parallelism (logical cores/2 when omitted, 1 for serial)")
     parser.add_argument("--log-every", type=int, default=5)
     parser.add_argument(
         "--candidate-stride",
@@ -59,7 +60,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     args = parser.parse_args()
 
-    workers = args.workers if args.workers > 0 else default_workers()
+    workers = resolve_workers(args.workers)
     print(
         f"=== collect value ({args.episodes} ep, max_steps={args.max_steps}, "
         f"workers={workers}, stride={args.candidate_stride}) ===",

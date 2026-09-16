@@ -35,7 +35,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.util.parallel import default_workers
+from src.util.parallel import resolve_workers
 from src.reward import watermelon_count
 from src.util.stats import correlation, paired_stats
 
@@ -226,7 +226,8 @@ def main() -> None:
     # The old default of 100 was half a natural game (median 210 moves), and all 200 measured runs were truncated.
     # The default measured only the cost of setting up and not the return, so it is 400.
     parser.add_argument("--max-steps", type=int, default=400)
-    parser.add_argument("--workers", type=int, default=None)
+    parser.add_argument("--workers", type=int, default=None,
+                        help="episode parallelism (logical cores/2 when omitted, 1 for serial)")
     parser.add_argument(
         "--out",
         type=Path,
@@ -234,7 +235,7 @@ def main() -> None:
         help="save per-seed raw data as JSON (so metrics can be chosen again later).",
     )
     args = parser.parse_args()
-    workers = args.workers if args.workers is not None else default_workers()
+    workers = resolve_workers(args.workers)
     seed = args.seed if args.seed is not None else secrets.randbelow(1_000_000)
 
     seeds = [seed + i for i in range(args.episodes)]

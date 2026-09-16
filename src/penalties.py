@@ -359,15 +359,18 @@ def _excess_same_penalty(fruits: list[Fruit] | tuple[Fruit, ...]) -> float:
     return penalty
 
 
-def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
-    """Penalize pairs whose left-right size order is inverted. Looks at relative order rather than absolute ideal positions.
+def size_order_parts(fruits: list[Fruit], sign: int = 1) -> tuple[float, float]:
+    """Size order split into (inverted pairs, deviation from ideal_x). Two weights, so two rules.
 
     Only fruits stuck in a valley of bigger fruits and with a same-type partner left on the board
     are excluded from size order (so layout penalties do not crush valley growing). The condition is `_size_order_exempt`.
+
+    Both parts share the one `_size_order_exempt` scan, which is why they are returned together instead of
+    living in two functions. `training/features.py` passes them to the learner as separate columns.
     """
     if not fruits:
-        return 0.0
-    penalty = 0.0
+        return 0.0, 0.0
+    pair = 0.0
     # _size_order_exempt is O(n) per fruit. Recomputing it per pair makes it O(n^3),
     # so compute it once up front. This runs for every candidate.
     exempt = [_size_order_exempt(f, fruits) for f in fruits]
@@ -383,16 +386,23 @@ def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
                 continue
             left, right = (a, b) if a.x <= b.x else (b, a)
             if sign > 0 and left.type < right.type:
-                penalty += (right.type - left.type) * SIZE_ORDER_PAIR_WEIGHT
+                pair += (right.type - left.type) * SIZE_ORDER_PAIR_WEIGHT
             elif sign < 0 and left.type > right.type:
-                penalty += (left.type - right.type) * SIZE_ORDER_PAIR_WEIGHT
+                pair += (left.type - right.type) * SIZE_ORDER_PAIR_WEIGHT
+    ideal = 0.0
     if open_fruits:
-        penalty += (
+        ideal = (
             sum(abs(f.x - ideal_x(f.type, sign)) for f in open_fruits)
             / len(open_fruits)
             * SIZE_ORDER_IDEAL_WEIGHT
         )
-    return penalty
+    return pair, ideal
+
+
+def _size_order_penalty(fruits: list[Fruit], sign: int = 1) -> float:
+    """Both parts of `size_order_parts` summed. What eval adds up."""
+    pair, ideal = size_order_parts(fruits, sign)
+    return pair + ideal
 
 
 def _bury_counts(fruits: list[Fruit] | tuple[Fruit, ...]) -> tuple[float, float]:

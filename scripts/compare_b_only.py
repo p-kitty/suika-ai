@@ -32,6 +32,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.compare_policy import _apply_variant, _episode, _head, _line
+from src.util.parallel import resolve_workers
 
 METRICS = (
     ("score", 2),
@@ -56,9 +57,11 @@ def main() -> None:
         default=0,
         help="number of baseline episodes to skip from the start (rerun the same variant on another seed band)",
     )
-    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--workers", type=int, default=None,
+                        help="episode parallelism (logical cores/2 when omitted, 1 for serial)")
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
+    workers = resolve_workers(args.workers)
 
     data = json.loads(args.baseline.read_text(encoding="utf-8"))
     base_all = data["a"]
@@ -80,7 +83,7 @@ def main() -> None:
     started = time.monotonic()
     print(f"  B (new): running {len(seeds)} episodes... (side A reused)", flush=True)
     rows: list[dict[str, float]] = []
-    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+    with ProcessPoolExecutor(max_workers=workers) as pool:
         futures = [pool.submit(_episode, s, max_steps, True) for s in seeds]
         for done, future in enumerate(as_completed(futures), start=1):
             rows.append(future.result())

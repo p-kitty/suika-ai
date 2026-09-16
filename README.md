@@ -120,6 +120,7 @@ scripts/
   band_escape.py        # pre-A/B screen: does a weight change escape the tied band?
   value_escape.py       # pre-A/B screen for a learned V, against the two-ply band
   weight_escape.py      # pre-A/B screen: does a weight change escape the two-ply band?
+  _positions.py         # shared by the three screens: sample positions from sim games, cache the table
   measure_fall_speed.py # calibrate the sim's GRAVITY against the real game
   fossils.py            # diagnosis: which fruits never merge, and what covers them
   order_breaks.py       # diagnosis: size-order breaks sorted into ties and term-decided moves

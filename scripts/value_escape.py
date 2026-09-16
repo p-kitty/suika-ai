@@ -25,7 +25,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import pickle
 import statistics
 import sys
 from dataclasses import dataclass
@@ -36,11 +35,12 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts import _positions
 from scripts._bootstrap import ROOT
 from src import policy as pol
+from src.observe import Observation
 from src.policy import choose_x, rank_candidates
 from src.reward import is_lost
-from src.sim.sim_env import SimEnv
 from src.training.features import FEATURE_NAMES, board_features
 from src.training.value import LinearValue, load as load_value
 from src.vision.state import Fruit
@@ -71,7 +71,7 @@ class Position:
     teacher: int  # index chosen by the unmodified policy
 
 
-def _position(obs, seed: int, step: int) -> Position | None:
+def _position(obs: Observation, seed: int, step: int) -> Position | None:
     """The candidate table of one position.
 
     The candidate order and the `HELD_TOP` cut must be the same as `choose_x` or the band definition
@@ -116,26 +116,6 @@ def _position(obs, seed: int, step: int) -> Position | None:
         boards=[list(board) for board in boards],
         teacher=teacher,
     )
-
-
-def _collect(seeds: list[int], steps: int, skip: int, stride: int) -> list[Position]:
-    table: list[Position] = []
-    for seed in seeds:
-        env = SimEnv(seed=seed)
-        obs = env.reset()
-        for step in range(steps):
-            if obs.held_type is None:
-                break
-            if step >= skip and step % stride == 0:
-                row = _position(obs, seed, step)
-                if row is not None:
-                    table.append(row)
-            result = env.step(choose_x(obs))
-            obs = result.observation
-            if result.done:
-                break
-        print(f"  seed {seed}: positions {len(table)}", flush=True)
-    return table
 
 
 def _board_shift(a: list[Fruit], b: list[Fruit]) -> float | None:
@@ -267,6 +247,15 @@ def _sweep(
         )
 
 
+def _check_format(table: list[Position]) -> None:
+    """The old cache has no boards. Read on that assumption it would report numbers for the wrong thing."""
+    if table and not isinstance(table[0], Position):
+        raise SystemExit(
+            "the position cache is the old format without boards. "
+            "Delete it or pass another name with --positions and rerun"
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -275,37 +264,25 @@ def main() -> None:
         default=ROOT / "artifacts" / "value_h100.npz",
         help="V written by train_value.py --save (only the band diagnostics if absent)",
     )
-    parser.add_argument("--seeds", type=int, default=6)
-    parser.add_argument("--seed", type=int, default=910000)
-    parser.add_argument("--steps", type=int, default=240)
-    # Match the third-ply expectation measurement (early game included, every third move). V includes terms divided
-    # by the fruit count, so looking only at the late game misses early-game effects.
-    parser.add_argument("--skip", type=int, default=0)
-    parser.add_argument("--stride", type=int, default=3)
-    parser.add_argument("--eps", type=float, default=0.1, help="width of the tie band")
-    parser.add_argument(
-        "--positions",
-        type=Path,
+    # skip=0/stride=3 match the third-ply expectation measurement (early game included, every third move).
+    # V includes terms divided by the fruit count, so looking only at the late game misses early-game effects.
+    _positions.add_sampling_args(
+        parser,
+        skip=0,
+        stride=3,
         # A different name from the old format without boards (value_escape_positions.pkl).
-        default=ROOT / "artifacts" / "value_escape_boards.pkl",
-        help="cache of candidate tables. Reused if present.",
+        cache=ROOT / "artifacts" / "value_escape_boards.pkl",
+        cache_help="cache of candidate tables. Reused if present.",
     )
     args = parser.parse_args()
 
-    if args.positions.exists():
-        table = pickle.loads(args.positions.read_bytes())
-        if table and not isinstance(table[0], Position):
-            raise SystemExit(
-                f"{args.positions} is the old format without boards. "
-                "Delete it or pass another name with --positions and rerun"
-            )
-        print(f"reusing cache {args.positions}")
-    else:
-        seeds = [args.seed + i for i in range(args.seeds)]
-        table = _collect(seeds, args.steps, args.skip, args.stride)
-        args.positions.parent.mkdir(parents=True, exist_ok=True)
-        args.positions.write_bytes(pickle.dumps(table))
-        print(f"saved cache: {args.positions}")
+    table = _positions.load_or_build(
+        args.positions,
+        lambda: _positions.collect(
+            _positions.seeds_of(args), args.steps, args.skip, args.stride, _position
+        ),
+        validate=_check_format,
+    )
 
     if not table:
         raise SystemExit("no positions collected")
