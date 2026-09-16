@@ -68,8 +68,10 @@ wastes all the time already spent.
 
 Ask first:
 
-- **When running a script that takes `--workers`.** The four scripts are `compare_policy.py`,
-  `compare_b_only.py`, `eval_policy.py` and `train_sim.py`; **always ask first, without exception**.
+- **When running a script that takes `--workers`.** The five scripts are `compare_policy.py`,
+  `compare_b_only.py`, `eval_policy.py`, `train_sim.py` and `collect_value.py`;
+  **always ask first, without exception**. `weight_escape.py` also takes `--workers`, but it defaults to
+  serial, so only passing the option needs asking.
   **The line is the script name, not the run time**. Judging by "it will probably be short"
   wastes exactly the amount by which the estimate is wrong. Background runs are the same.
   Include two things when asking:
