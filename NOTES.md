@@ -61,6 +61,7 @@ by the route its own section names.
 - [Training](#training)
 - [Adding V to choose_x does not move score](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12) ← the dead end of the learned value function
 - [The two-ply band mostly holds a single board](#measured-the-two-ply-band-mostly-holds-a-single-board-2026-09-13) ← why board features cannot order the band
+- [Ranking candidates by their own post-drop features breaks the BC ceiling](#measured-ranking-candidates-by-their-own-post-drop-features-breaks-the-bc-ceiling-2026-09-16) ← **the one line that opened**; late game 4.4x control against the old student's 1.4x
 - [Planned: RL (REINFORCE)](#planned-rl-reinforce)
 
 ## Current approach: fixed-point observation of seed 642746 (2026-08-19)
@@ -1951,6 +1952,41 @@ it is **only 1.7x**. And the ratio to control goes from 2.4x early → **1.4x la
 **in the stretch where the board is decided, the student is nearly random**. The gate's scale was indeed too strict, but
 it is not at the level of "able to imitate the teacher".
 (Caveat: the checkpoint used is hidden=128, not the best of the sweep)
+
+### Measured: ranking candidates by their own post-drop features breaks the BC ceiling (2026-09-16)
+
+[BC does not reach 60-70% match](#investigated-bc-does-not-reach-60-70-match-2026-08-05) ends with
+"it will not get there unless the capacity or the feature design itself (including per-candidate landing results
+in the features) changes". That was never tried. The rows for it already existed: `collect_value.py` keeps a
+candidate table, and `artifacts/value_100ep.npz` holds **130236 candidate rows over 3096 positions** with the
+19 post-drop features of `src/training/features.py` per candidate, the teacher's eval, and which one it chose.
+
+Fit: ridge on the features **centred within each position** (the board-level offset is not what orders a
+position), target the teacher's eval, 80/20 split **by position**, lambda 0.1-100 all within 0.5 points.
+Scored by whether the ranker's top pick lands in the teacher's band (eps 0.1), against a random-candidate
+control on the same positions.
+
+| Phase | in the teacher's band | random control | ratio |
+|---|---|---|---|
+| early (move < 60) | 40.3% | 14.1% | 2.9x |
+| mid (60-150) | 59.4% | 16.1% | 3.7x |
+| **late (>= 150)** | **61.8%** | 14.2% | **4.4x** |
+| all | 55.8-57.3% | ~15% | ~3.7x |
+
+- **The phase profile is inverted against the old student.** Band agreement there was 33.6% overall against a
+  19.8% control (**1.7x**), falling to **1.4x late** -- "in the stretch where the board is decided, the student
+  is nearly random". Here late is the *strongest* phase. The bottleneck was the feature design, not capacity
+- **It is linear.** No MLP, no sweep of lr or epochs; 19 features and a closed-form ridge. The old sweep of
+  lr 0.05-1.0 x epoch 80-300 x hidden 128/256 never passed 30% exact match
+- **Top magnitudes**: `fruit_count`, `perch`, `excess_same`, `size_order_pair`, `mean_height`, all negative
+- **This ranker is not a speedup.** Its features are post-drop, so it needs `simulate_drop` per candidate just
+  as the teacher does. What it buys is a student that can actually imitate the teacher's ordering, which is the
+  gate [RL](#planned-rl-reinforce) was waiting on
+- **The teacher in this data is stale**: `value_100ep.npz` was collected 2026-08-30, before
+  [y-aware valleys + size order 6.0](#adopted-y-aware-valleys--size_order_pair_weight-60-2026-09-14). The
+  conclusion is about feature design, so it should survive, but recollect before building on the numbers
+- Not measured: what this scores in play, top-1 exact agreement beyond the 16.8% here (the band is the right
+  target since the teacher picks randomly inside it), and whether a nonlinear head adds anything
 
 ### Decided: learn value from realized returns, not the teacher's eval (2026-08-30)
 
