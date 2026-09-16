@@ -192,7 +192,9 @@ and many changes actually fail here.
    look at the required n that `compare_policy` prints, and **decide on the spot whether to run that far,
    and write the decision down**. Folding without deciding lets "shelved" be passed on as "refuted"
    (this actually happened with search width 8/16: the required n was written down but not run,
-   and running it later turned out significant →[Adopted](NOTES.md#adopted-widen-the-lookahead-to-816-2026-09-05))
+   and running it later turned out significant →[Adopted](NOTES.md#adopted-widen-the-lookahead-to-816-2026-09-05)).
+   **That example is about writing the decision down, not an invitation to widen the search again** — that one is
+   settled →[Won't do](NOTES.md#wont-do-widen-the-search-further-168-and-beyond-2026-09-16)
 5. **Make it permanent.** Revert the variant in `_apply_variant`, and **leave no ON/OFF toggle
    in the code**. To compare with another commit, see the worktree item under [git](#git)
 

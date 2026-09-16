@@ -9,6 +9,7 @@
 - [How to measure](#how-to-measure-traps-we-keep-stepping-in) ← read before reporting numbers
 - [Adopted: widen the lookahead to 8/16](#adopted-widen-the-lookahead-to-816-2026-09-05) ← widened the search
 - [Measured and dropped: third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11) ← a deeper search only reshuffles inside the band
+- [Won't do: widen the search further](#wont-do-widen-the-search-further-168-and-beyond-2026-09-16) ← **do not propose 16/8 again**; what would reopen it is written there
 - [Settled: the tie band really is indifferent](#settled-the-tie-band-really-is-indifferent-2026-08-19) ← the dead end of weight tuning
 - [What decides size-order breaks](#measured-what-decides-size-order-breaks-2026-09-14) ← big filters, not ties, break the order; **adopted y-aware valleys + size order 6.0 (+6.3%)**
 - [Aim error costs a fifth of the score](#measured-aim-error-costs-a-fifth-of-the-score-2026-09-15) ← the error costs 20%; `AIM_SPREAD` wins part of it back but **stays off by decision** (play is exact)
@@ -1695,21 +1696,7 @@ The two runs were score +10.5% (n=150, t=4.63) and **+6.8% (n=100, t=2.68)**, so
   **matches 8/16 96.2%** at a cost of 3.6 → 2.6x. **8/16 is what went through the A/B, so
   that is what was added**, but if the cost becomes a problem 8/32 is the first thing to cut
   (whether the remaining 3.8% of moves are harmless is unmeasured. The difference between 8/16 and 2/32 also comes from 12.5% of moves)
-- **The line of widening further is closed.** On the same 160 positions, moves of even wider settings were
-  compared with 8/16:
-
-  | Setting | agreement with 8/16 | cost ratio per move |
-  |---|---|---|
-  | 12/16 | 98.8% | 1.6 |
-  | 8/8 | 98.1% | 1.6 |
-  | 16/16 | 97.5% | 2.0 |
-  | 16/8 | **95.0%** | **3.1** |
-
-  **The calibration point is this section's own A/B**: 8/16 agrees with the old 2/32 87.5% (12.5% of moves
-  change for +9.0%). Even the widest, 16/8, changes **only 5.0% of moves**,
-  for a linearly scaled expectation of about +3.6%. Just moving that difference's CI away from 0 needs n≈180,
-  and with power taken into account n≈360. At 207s/game for A and 663s/game for B that is **a 10-hour run**.
-  **The order of magnitude does not match the headroom, so it is not run**
+- **Widening further is closed** →[Won't do: widen the search further](#wont-do-widen-the-search-further-168-and-beyond-2026-09-16)
 - **The cost carries straight over to training.** Teacher collection (`train_sim.py` /
   `collect_value.py`) is also 3.6x. For collection alone, running with `HELD_TOP` lowered
   is a reasonable call
@@ -1721,9 +1708,45 @@ The two runs were score +10.5% (n=150, t=4.63) and **+6.8% (n=100, t=2.68)**, so
   by the result of next. **The band cannot be split by the first-ply eval, but it can be split by a deeper search**
 - **The n=8 preview came out with the opposite sign** (−10.5%). The SD of the difference is 626, so the SE at n=8 is 221.
   **Divide out the required n before running** (→[How to measure](#how-to-measure-traps-we-keep-stepping-in))
-- **The estimate above of "linearly scaling by the move change rate" is unreliable.** The third-ply expectation
-  changed 17.4% of moves for score ±0 (→[third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11)).
-  The conclusion not to run 16/8 stands, but read its basis from "outside the two-ply band" below, not from the change rate
+
+### Won't do: widen the search further (16/8 and beyond) (2026-09-16)
+
+**Do not propose widening the search again.** The proposal keeps coming back from reading the 8/16 story above as
+"a required n was written down and never run, so run it". **That precedent does not transfer.** 8/16 was shelved
+before anything deeper had been measured; since then two measurements closed the road:
+
+- [The third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11) was run and is **null**
+  (n=50, score +0.1%, t=0.02), and **86% of the moves it changed were swaps inside the two-ply band**
+- [The two-ply band mostly holds a single board](#measured-the-two-ply-band-mostly-holds-a-single-board-2026-09-13):
+  70.9% of banded positions collapse to one board and **the merge outcome differs in 0.0%**
+
+A wider search spends its extra candidates in that band, which is where nothing is left to order.
+
+On 160 positions, moves of even wider settings were compared with 8/16:
+
+| Setting | agreement with 8/16 | cost ratio per move |
+|---|---|---|
+| 12/16 | 98.8% | 1.6 |
+| 8/8 | 98.1% | 1.6 |
+| 16/16 | 97.5% | 2.0 |
+| 16/8 | **95.0%** | **3.1** |
+
+**The calibration point is the 8/16 A/B itself**: 8/16 agrees with the old 2/32 87.5% (12.5% of moves change for
++9.0%). Even the widest, 16/8, changes **only 5.0% of moves**, for a linearly scaled expectation of about +3.6%.
+Just moving that difference's CI away from 0 needs n≈180, and with power taken into account n≈360. At 207s/game
+for A and 663s/game for B that is **a 10-hour run**. The order of magnitude does not match the headroom.
+
+- **That linear scaling is itself unreliable**, and it is the optimistic side of the estimate: the third-ply
+  expectation changed 17.4% of moves for score ±0. Read the basis for not running 16/8 as "the changed moves stay
+  inside the two-ply band", not as the change rate
+- **The cheaper direction was already taken.** If search cost ever becomes the problem, 8/32 (`HELD_TOP` only)
+  matches 8/16 on 96.2% of moves at 2.6x instead of 3.6x — that is a cut, not a widening
+
+**What would reopen it**: a measurement that the moves 16/8 changes **leave the two-ply band** (eps 0.1, the way
+`weight_escape.py` and `value_escape.py` cut it), on positions from the current policy. Not a fraction of moves
+changed, and not a fresh power calculation on the numbers above. Bring that number, or leave this closed
+([AGENTS.md](AGENTS.md#when-in-doubt-ask-before-touching-anything): overturning a settled decision needs evidence
+and a confirmation first).
 
 ### Measured and dropped: third-ply expectation (2026-09-11)
 
