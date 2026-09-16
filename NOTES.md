@@ -13,6 +13,7 @@ by the route its own section names.
 | Deepen the lethal filter to two plies | **Won't do.** No dangerous position splits on it | [link](#wont-do-deepen-the-lethal-filter-to-two-plies-2026-08-20) |
 | Reorder candidates inside the tie band | **No effect** (n=133). The band is indifferent | [link](#settled-the-tie-band-really-is-indifferent-2026-08-19) |
 | Order the band with a board score, learned or hand-written | **Closed.** 70.9% of banded positions hold a single board, and the merge outcome differs in 0.0% | [link](#measured-the-two-ply-band-mostly-holds-a-single-board-2026-09-13) |
+| Put a learned board score at the leaves of the two-ply search | **Closed.** The BC ranker escapes the two-ply band 0.9% at lambda 1 and 7.8% at lambda 10, below the V that was already null | [link](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12) |
 | Add a learned V to `choose_x` | **Null** at n=150 | [link](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12) |
 | Predict how a game ends | **Cannot.** The cheap screens are exhausted | [link](#settled-how-a-game-ends-cannot-be-predicted-the-cheap-screens-are-exhausted-2026-08-30) |
 | Tune an existing penalty weight (raise or cut a multiplier) | **Closed.** No nonzero multiplier escapes the band more than ~12%, and the four highest were A/B'd at n=50 with nothing significant and three leaning negative | [link](#remeasured-through-the-two-ply-decision-2026-09-14) |
@@ -2047,6 +2048,28 @@ lookahead at all:
   lookahead sees -- but only **12% of its value**
 - **So a one-ply student is capped near 77%** however well it imitates. Closing the rest means giving it the
   search or letting [RL](#planned-rl-reinforce) find what the search finds. Do not spend more on the fit
+
+**Measured and dropped: the ranker as a leaf value in the two-ply search (2026-09-17).** If a one-ply student
+is capped by the missing lookahead, the other direction is to keep the teacher's search and put the ranker at
+the leaves -- it was trained on the two-ply choice, so it should carry lookahead information into the leaf.
+`value_escape.py --model artifacts/ranker_as_value.npz` (the logit weights rewritten in `LinearValue` form),
+434 positions:
+
+| lambda | median range of lambda*V | moves change | escapes the two-ply band |
+|---|---|---|---|
+| 1.0 | 0.71 | 19.1% | **0.9%** |
+| 3.0 | 2.12 | 34.1% | 2.5% |
+| 10.0 | 7.06 | 48.8% | 7.8% |
+
+- **Below the learned V that was already null.** That one escaped 18.9% and moved nothing at n=150
+  (→[adding V to choose_x](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12)). At lambda 10
+  the ranker has swamped the teacher's eval entirely (range 7.06 against a band of 0.1) and still escapes less
+- **The reason is the band, again**: the same 434 positions collapse to a single board 70.9% of the time
+  (→[the two-ply band mostly holds a single board](#measured-the-two-ply-band-mostly-holds-a-single-board-2026-09-13)).
+  A leaf score cannot order boards that are the same board
+- Caveat: the cached boards are from 2026-09-13, before
+  [y-aware valleys](#adopted-y-aware-valleys--size_order_pair_weight-60-2026-09-14). 0.9% is far enough below
+  any useful threshold that a policy shift does not change the call, but rebuild the cache before reopening
 
 ### Decided: learn value from realized returns, not the teacher's eval (2026-08-30)
 
