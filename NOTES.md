@@ -2089,10 +2089,25 @@ win/loss 92/108. **Every metric is significantly worse.**
   steps and merges all +4%, which looked like a consistent lean. n=200 on fresh seeds reversed it. Same trap as
   the 8/16 n=8 preview (→[How to measure](#how-to-measure-traps-we-keep-stepping-in)): a lean on every metric at
   n=50 is not evidence. The training-curve drift (+3% from the first ten updates to the last ten) was noise too
-- **Likely cause, not verified: the advantage ignores the move number.** Return-to-go is large early in a game and
-  small late, and standardising it over the whole batch turns that into "early moves are good, late moves are
-  bad" regardless of which candidate was picked. The baseline has to depend on the state, or at least on the move
-  number, before REINFORCE here says anything about choices
+- **Measured cause: the advantage was mostly the move number, which turned the gradient into noise.** 48 rollouts
+  from the starting weights (9588 moves):
+
+  | | batch-standardised return-to-go (what ran) | baseline per move number |
+  |---|---|---|
+  | corr(advantage, move number) | **-0.766** | |
+  | split-half cosine of the gradient, median | **-0.108** (5-95%: -0.48 .. +0.41) | **+0.289** (-0.30 .. +0.70) |
+
+  Return-to-go is large early and small late, so standardising it over the batch makes it 77% move number. **In
+  expectation that cancels** -- the per-move factor `z_chosen - E[z]` averages to zero -- **but not in a batch of
+  32**: it swamps the part that depends on the choice, and two independent halves of one batch point in unrelated
+  directions. Baselining per move number recovers some agreement (+0.29), still weak. The two gradients agree
+  only at cosine +0.617, so the choice of baseline changes the direction materially
+- **The normalised step then moved a full 2% along that noise every update.** Drift 16.3% against 11.0% for 30
+  independent random 2% steps and 60% for aligned ones: close to a random walk away from a policy that imitated
+  the teacher well. A random walk off a good optimum scores worse; nothing here shows a late-game-specific flaw,
+  and fewer steps is how any weaker policy loses in this game
+- **Before running again**: baseline per move number (or on the state), a larger batch until split-half cosine is
+  clearly positive, and a step that shrinks with the gradient's agreement instead of a fixed 2%
 - **The first run moved nothing.** A raw lr of 0.05 against |grad| ~0.0035 moved |w|=10.6 by 0.0004 in five
   updates. The step is now a fraction of |w|; check that |w| moves before reading any score column
 - Not adopted. `artifacts/ranker_rl.npz` is the worse weights, kept only for remeasuring
