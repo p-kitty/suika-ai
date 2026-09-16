@@ -21,7 +21,7 @@ if __package__ in (None, ""):
 from scripts._bootstrap import ROOT
 
 from src.training.agent import LinearPolicy
-from src.util.parallel import default_workers
+from src.util.parallel import resolve_workers
 from src.policy import choose_x
 from src.reward import is_corner_watermelon, watermelon_count
 from src.sim.sim_env import SimEnv
@@ -150,7 +150,7 @@ def main() -> None:
         help="episode parallelism (logical cores/2 when omitted, 1 for serial)",
     )
     args = parser.parse_args()
-    workers = args.workers if args.workers is not None else default_workers()
+    workers = resolve_workers(args.workers)
 
     if args.policy == "learned" and not args.checkpoint.is_file():
         raise SystemExit(f"no checkpoint: {args.checkpoint}")

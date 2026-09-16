@@ -28,7 +28,7 @@ if __package__ in (None, ""):
 from scripts._bootstrap import ROOT
 
 from src.training.agent import LinearPolicy
-from src.util.parallel import default_workers
+from src.util.parallel import resolve_workers
 from src.training.bc import eval_student, match_rate, run_rl_batch, train_bc_epoch
 from src.training.collect import collect_teacher_episodes
 
@@ -48,7 +48,8 @@ class SharedConfig:
 class BcConfig(SharedConfig):
     collect_episodes: int
     epochs: int
-    workers: int
+    # None = auto (resolve_workers). The CLI leaves it unset by default.
+    workers: int | None
     bc_lr: float
     batch_size: int
 
@@ -85,7 +86,7 @@ def _is_better(
 
 
 def run_bc(policy: LinearPolicy, cfg: BcConfig, rng: np.random.Generator) -> None:
-    workers = cfg.workers if cfg.workers > 0 else default_workers()
+    workers = resolve_workers(cfg.workers)
     print(
         f"=== collect teacher ({cfg.collect_episodes} ep, "
         f"max_steps={cfg.max_steps}, workers={workers}) ===",
@@ -272,7 +273,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_BC_CKPT,
         help=f"output path (default {DEFAULT_BC_CKPT.name})",
     )
-    bc.add_argument("--workers", type=int, default=0, help="parallelism (0=auto)")
+    bc.add_argument("--workers", type=int, default=None,
+                    help="parallelism (logical cores/2 when omitted, 1 for serial)")
     tune_bc = bc.add_argument_group("details (normally left alone)")
     tune_bc.add_argument("--log-every", type=int, default=10)
     tune_bc.add_argument("--eval-episodes", type=int, default=8)
