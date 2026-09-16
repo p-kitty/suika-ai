@@ -74,7 +74,7 @@ The existing weights have no leverage, and no difference an A/B can pick up rema
 position, on the other hand, are deterministic quantities, so they are visible without going through score noise.
 
 The tracing procedure is in
-[AGENTS.md](AGENTS.md#do-not-run-an-ab-while-obvious-blunders-remain).
+[CLAUDE.md](CLAUDE.md#do-not-run-an-ab-while-obvious-blunders-remain).
 Only the symptoms found and their diagnoses are kept here.
 
 **Name moves by `move` in the `view_sim` footer (1-based).** Changing the policy makes play
@@ -211,7 +211,7 @@ and on the peach at moves 103-122).
 Splitting move 97 (board `appl@51 pine@78 oran@145 grap@209 peac@222 pear@290 oran@324 grap@372 cher@384`,
 held=cherry) by candidate, only the 4 that put it on the pineapple pile have eval 0.275 with every term near 0,
 and all the rest carry bury 20.0 and score −18.8 or lower. **It is not a tie band; a single term decides the order**
-(→[telling them apart in the tracing procedure](AGENTS.md#do-not-run-an-ab-while-obvious-blunders-remain)).
+(→[telling them apart in the tracing procedure](CLAUDE.md#do-not-run-an-ab-while-obvious-blunders-remain)).
 On a board where every placement buries something, only "putting it on top" was free.
 
 **What was added**: `_perch_penalty` (→[rule list](#current-penalty-rules)).
@@ -405,7 +405,7 @@ got buried here. Read this section before reporting numbers.
   It is faster to look for a proxy metric with lower variance than score
 - **At the default n=50 only changes of ±7% (±164 points) or more are visible** (the measured SD of the difference
   is 560-600). This is a screen accepted knowingly, and changes that do not reach it are not added
-  ([AGENTS.md](AGENTS.md#when-touching-the-policy-or-training)). Many 1-3% terms have been
+  ([CLAUDE.md](CLAUDE.md#when-touching-the-policy-or-training)). Many 1-3% terms have been
   measured so far, and not one became significant. **Rather than raising n to catch them,
   it is faster to look for terms that move moves out of the band** (→[screen](#screen-on-does-it-escape-the-band))
 - **Pairing barely helps (2026-08-21).** The score correlation between A and B on the same seed
@@ -456,8 +456,8 @@ got buried here. Read this section before reporting numbers.
 - Do not fix seeds (omitting `--seed` makes them random). Reusing fixed seeds makes a chance collapse
   easy to misread as "reproduced". Compare changes paired on the same seeds
 
-The measuring procedures themselves (how to plug in an A/B is in [AGENTS.md](AGENTS.md#when-touching-the-policy-or-training),
-comparisons that do not dirty the working tree are in [git in AGENTS.md](AGENTS.md#git)) live there.
+The measuring procedures themselves (how to plug in an A/B is in [CLAUDE.md](CLAUDE.md#when-touching-the-policy-or-training),
+comparisons that do not dirty the working tree are in [git in CLAUDE.md](CLAUDE.md#git)) live there.
 Only what can be trusted is written here.
 
 ## Settled: the tie band really is indifferent (2026-08-19)
@@ -840,7 +840,7 @@ variant picks a move below the current two-ply band, eps 0.1; inversion = what t
 | y-aware valleys + pair 3.0 | 20.6% | 18.0% | 1.78 → 1.83 | 4.88 → 5.15 | passes |
 
 - **Raising size order gives up little merging.** Pair x4 gives up a merge in 2 of 58 changed moves (merge points
-  228 → 174 summed over them). The cap from ["a quantity merging always worsens"](AGENTS.md#how-to-write-a-rule)
+  228 → 174 summed over them). The cap from ["a quantity merging always worsens"](CLAUDE.md#how-to-write-a-rule)
   does not bind, because held-merging moves are exempt from size order
 - **But even x2 reintroduces a fixed blunder**: `test_uses_the_next_rung_instead_of_roofing_a_small_fruit` roofs the
   strawberry again. The grape in the rung hollow is inverted against the dekopon one tier up, the roof makes both
@@ -1101,7 +1101,7 @@ This has already cost measurements. The screen table in
 
 **What the red test is worth**: it points at one position. Lay that position's candidates out with eval broken
 down per term (the procedure in
-[Do not run an A/B while obvious blunders remain](AGENTS.md#do-not-run-an-ab-while-obvious-blunders-remain)) and the two
+[Do not run an A/B while obvious blunders remain](CLAUDE.md#do-not-run-an-ab-while-obvious-blunders-remain)) and the two
 cases separate cleanly.
 
 **Both x4 variants of the 2026-09-16 screen fail the same test**
@@ -1732,7 +1732,7 @@ as long as there is even one surviving candidate. It is not a penalty, so it is 
 
 Notes:
 - The rules above have no ON/OFF toggles (the policy is not to keep toggles for permanent rules.
-  The A/B procedure is in [AGENTS.md](AGENTS.md#when-touching-the-policy-or-training))
+  The A/B procedure is in [CLAUDE.md](CLAUDE.md#when-touching-the-policy-or-training))
 - Ladder detection (`src/ladder.py`) is currently unused by penalties (detection only)
 
 ### Run cost: faster physics and search width (2026-08-17)
@@ -1848,7 +1848,7 @@ for A and 663s/game for B that is **a 10-hour run**. The order of magnitude does
 **What would reopen it**: a measurement that the moves 16/8 changes **leave the two-ply band** (eps 0.1, the way
 `weight_escape.py` and `value_escape.py` cut it), on positions from the current policy. Not a fraction of moves
 changed, and not a fresh power calculation on the numbers above. Bring that number, or leave this closed
-([AGENTS.md](AGENTS.md#when-in-doubt-ask-before-touching-anything): overturning a settled decision needs evidence
+([CLAUDE.md](CLAUDE.md#when-in-doubt-ask-before-touching-anything): overturning a settled decision needs evidence
 and a confirmation first).
 
 ### Measured and dropped: third-ply expectation (2026-09-11)

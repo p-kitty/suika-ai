@@ -131,7 +131,7 @@ tests/                  # mirrors src/ (game/, sim/, training/, util/, vision/)
 ## Notes
 
 Known limits and deferred work around policy / training are in [NOTES.md](NOTES.md).
-Conventions and workflow for working in this repo (human or agent) are in [AGENTS.md](AGENTS.md).
+Conventions and workflow for working in this repo (human or agent) are in [CLAUDE.md](CLAUDE.md).
 
 ## License
 

@@ -48,13 +48,13 @@ SWEEP_KEYS = (
     "perch",
     "pit",
     "excess_same",
-    # Two rules with two weights, so they are swept apart (AGENTS 'One rule per term').
+    # Two rules with two weights, so they are swept apart (CLAUDE.md 'One rule per term').
     # `src/training/features.py` splits the same pair for the value features.
     "size_order_pair",
     "size_order_ideal",
     "corner_pocket",
     # Split by whether the fruit below is bigger or smaller than the dropped one. Aiming at a smaller fruit's
-    # center is also priced by `bury`, so the two halves may do different work (AGENTS 'One rule per term').
+    # center is also priced by `bury`, so the two halves may do different work (CLAUDE.md 'One rule per term').
     "foreign_aim_up",
     "foreign_aim_down",
     "merge_big_side",

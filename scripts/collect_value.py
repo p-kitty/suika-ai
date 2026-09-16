@@ -10,7 +10,7 @@ The candidate table is also kept every `--candidate-stride` moves. It is for ver
 puts an order into the teacher's tie band), not a training label.
 
 `--workers` defaults to logical cores/2. Raising it makes the real game stutter on the same machine
-(→AGENTS.md 'When running something that fills the CPU').
+(→CLAUDE.md 'When running something that fills the CPU').
 
 Usage:
   python scripts/collect_value.py --episodes 4 --max-steps 60
