@@ -48,7 +48,10 @@ SWEEP_KEYS = (
     "perch",
     "pit",
     "excess_same",
-    "size_order",
+    # Two rules with two weights, so they are swept apart (AGENTS 'One rule per term').
+    # `src/training/features.py` splits the same pair for the value features.
+    "size_order_pair",
+    "size_order_ideal",
     "corner_pocket",
     # Split by whether the fruit below is bigger or smaller than the dropped one. Aiming at a smaller fruit's
     # center is also priced by `bury`, so the two halves may do different work (AGENTS 'One rule per term').
@@ -71,6 +74,7 @@ def _components(
         before, drop_type, x
     )
     land_x, _land_y = landed_xy(before, after, drop_type, x, held_r, held_merged)
+    so_pair, so_ideal = (0.0, 0.0) if held_merged else pen.size_order_parts(after, sign)
 
     parts = {
         "score": merge_score(merge_types),
@@ -79,7 +83,8 @@ def _components(
         "perch": -pen.PERCH_WEIGHT * pen._perch_penalty(after),
         "pit": -pen.PIT_WEIGHT * pen._pit_penalty(after),
         "excess_same": -pen._excess_same_penalty(after),
-        "size_order": 0.0 if held_merged else -pen._size_order_penalty(after, sign),
+        "size_order_pair": -so_pair,
+        "size_order_ideal": -so_ideal,
         "corner_pocket": -pen._corner_pocket_penalty(after, sign),
         "foreign_aim_up": 0.0,
         "foreign_aim_down": 0.0,
@@ -191,12 +196,12 @@ def main() -> None:
         for rows in table
     ]
     print(f"\n{n} positions   band (eps={args.eps}) candidate count median {statistics.median(sizes):.0f}\n")
-    print("term          mult    moves change        escapes the band")
+    print("term               mult    moves change        escapes the band")
     for key in SWEEP_KEYS:
         for mult in MULTIPLIERS:
             changed, escaped = _escape(table, key, mult, args.eps)
             print(
-                f"  {key:<12}x{mult:<4.1f}{changed:>5}/{n} ({changed / n * 100:5.1f}%)"
+                f"  {key:<17}x{mult:<4.1f}{changed:>5}/{n} ({changed / n * 100:5.1f}%)"
                 f"   {escaped:>5}/{n} ({escaped / n * 100:5.1f}%)"
             )
 
