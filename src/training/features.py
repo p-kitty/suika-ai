@@ -9,8 +9,8 @@ each candidate, to give the learner the same information the teacher has.
 **Pass each term separately. Do not sum.** Passing the sum of `board_penalties` or `eval`
 as a single number leaves the learner unable to relearn the weighting. Weights staying applied
 is fine (absorbed by the linear coefficients), but **once summed they cannot be separated**.
-`size_order` is the sum of two rules of different nature, so it is split here too
-(NOTES 'Split composite terms into sub-terms').
+`size_order` is the sum of two rules of different nature, so it is taken as the two columns
+`penalties.size_order_parts` returns (NOTES 'Split composite terms into sub-terms').
 
 Quantities that matter for the corner watermelon (the target shape) are on the geometry side. The wall and floor gaps of the biggest fruit are
 exactly the dividing line measured over 20 traced games in NOTES 'Investigated: why corner watermelons do not happen',
@@ -57,26 +57,6 @@ _COUNT_SCALE = 32.0
 _UNIT_SCALE = 1024.0
 
 
-def _size_order_parts(fruits: list[Fruit], sign: int) -> tuple[float, float]:
-    """Split `_size_order_penalty` into (pair part, ideal deviation part).
-
-    Only the ideal side is recomputed with the same formula as the original, and the rest is the pair part. The pair scan
-    is intricate, including the `_size_order_exempt` check, so it is not copied
-    (a copy would silently drift when the original changes).
-    """
-    total = pen._size_order_penalty(fruits, sign)
-    exempt = [pen._size_order_exempt(f, fruits) for f in fruits]
-    open_fruits = [f for f, skip in zip(fruits, exempt) if not skip]
-    ideal = 0.0
-    if open_fruits:
-        ideal = (
-            sum(abs(f.x - pen.ideal_x(f.type, sign)) for f in open_fruits)
-            / len(open_fruits)
-            * pen.SIZE_ORDER_IDEAL_WEIGHT
-        )
-    return total - ideal, ideal
-
-
 def board_features(fruits: list[Fruit] | tuple[Fruit, ...], *, sign: int) -> np.ndarray:
     """Post-drop board -> float32 vector (FEATURE_DIM,).
 
@@ -95,7 +75,7 @@ def board_features(fruits: list[Fruit] | tuple[Fruit, ...], *, sign: int) -> np.
     biggest = max(board, key=lambda f: (f.type, -f.y))
     crown = min(f.y - f.radius for f in board)
     pair, lone = pen._bury_counts(board)
-    so_pair, so_ideal = _size_order_parts(board, sign)
+    so_pair, so_ideal = pen.size_order_parts(board, sign)
 
     values = {
         "fruit_count": len(board) / _COUNT_SCALE,
