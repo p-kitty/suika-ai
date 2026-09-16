@@ -175,6 +175,23 @@ and many changes actually fail here.
      ranks `HELD_TOP` candidates by held eval + `NEXT_DISCOUNT` × best next, so
      `band_escape.py`, which looks at the first-ply band, cannot see that ranking
      (→[Third-ply expectation](NOTES.md#measured-and-dropped-third-ply-expectation-2026-09-11))
+
+   **A failing test is not a reason to drop a variant here.** Escaping the band *means* the chosen move
+   changes, so any variant strong enough to be worth measuring will change a move some test pins. Dropping it
+   on that alone is circular, and it has already cost measurements that were never taken
+   (→[A failing pinned test is not a screen](NOTES.md#a-failing-pinned-test-is-not-a-screen-2026-09-16)).
+   Read *why* it fails instead — lay out the candidates of that one position with eval broken down per term
+   (→[Do not run an A/B while obvious blunders remain](#do-not-run-an-ab-while-obvious-blunders-remain))
+   and tell the two cases apart:
+   - **The rule scores the good move as the dirtier one.** The weight amplifies a wrong definition. Fix the
+     definition; raising or cutting the weight only moves which blunder wins
+   - **The board eval still prefers the good move** and only the reply, or a later ply, flips the ranking.
+     Nothing about the board is wrong, so the pinned test is a judgment the A/B can overrule. **Run it**
+
+   Either way the test stays red until it is settled: **a variant that wins the A/B with a test still failing
+   cannot just be committed.** The test records an earlier judgment about that position, and the score now
+   contradicts it, so decide deliberately which one to keep and write the decision down
+
 4. **Run the A/B** (it takes `--workers`, so ask first →
    [When in doubt, ask before touching anything](#when-in-doubt-ask-before-touching-anything)). Plug the change into
    `_apply_variant` in `scripts/compare_policy.py`. The default is

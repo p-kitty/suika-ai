@@ -16,6 +16,7 @@
 - [Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22) ← a case where candidate generation, not weights, was the cause
 - [In progress: big draws and ladders after the floor fills](#in-progress-big-draws-and-ladders-after-the-floor-fills)
 - [Investigated: how the board collapses](#investigated-how-the-board-collapses-2026-08-18)
+- [A failing pinned test is not a screen](#a-failing-pinned-test-is-not-a-screen-2026-09-16) ← a red test restates "the move changed"; read why before dropping a variant
 - [Rules tried and reverted or retired](#rules-tried-and-reverted-or-retired)
 - [Investigated: sudden death from scattered low-tier fruits late in the game](#investigated-sudden-death-from-scattered-low-tier-fruits-late-in-the-game)
 - [Material arithmetic (distance to a double watermelon)](#material-arithmetic-distance-to-a-double-watermelon)
@@ -1024,6 +1025,45 @@ the orange side was already correct and only dekopon (diameter 59.6) was off.
   **356/360 moves match (98.9%)**. Penalty firings went 1445 → 1219 (**−15.6%**)
 - **No A/B was run.** A 1.1% change in moves is buried in score noise at n=25.
   A change that fixes a wrong premise; it makes no claim of moving the score
+
+## A failing pinned test is not a screen (2026-09-16)
+
+**Dropping a variant because a test in `tests/test_policy.py` goes red is circular reasoning.** Escaping the
+band *means* the chosen move changes, so every variant strong enough to be worth an A/B changes a move
+somewhere, and some of those positions are pinned by tests. "It failed a test" restates "it changed a move".
+
+This has already cost measurements. The screen table in
+[What decides size-order breaks](#measured-what-decides-size-order-breaks-2026-09-14) dropped
+`size_order pair + ideal` x4 and x2 with "fails the rung test", and they were never A/B'd.
+
+**What the red test is worth**: it points at one position. Lay that position's candidates out with eval broken
+down per term (the procedure in
+[Do not run an A/B while obvious blunders remain](#do-not-run-an-ab-while-obvious-blunders-remain)) and the two
+cases separate cleanly.
+
+**Both x4 variants of the 2026-09-16 screen fail the same test**
+(`test_uses_the_next_rung_instead_of_roofing_a_small_fruit`, the grape roofing the strawberry at move 72 of
+seed 890270) **for different reasons**:
+
+| x | roofs | held eval | `bury_lone` | `size_order_pair` |
+|---|---|---|---|---|
+| 240.0 (the rung hollow) | no | **-71.21** | -15.00 | **-36.00** |
+| 300.0 (the roof) | yes | -74.26 | -30.00 | **-24.00** |
+
+- **`SIZE_ORDER_PAIR_WEIGHT` 6.0 -> 24.0 is a definition error.** The rule scores the rung hollow, which is the
+  move that keeps the board alive, as the *dirtier* of the two (-36 against the roof's -24). At 6.0 the
+  `bury_lone` difference of 15 still outweighs it; x4 opens the size-order gap to 48 and the roof wins. Raising
+  the weight amplifies a rule that has the sign backwards on this shape. Sparing the rung by skipping touching
+  one-tier pairs was tried and reverted (it breaks `test_inversion_costs_more_than_the_correct_order` and
+  `test_drop_does_not_exempt_the_inversion_it_creates`), so the fix is not that
+- **`PIT_WEIGHT` 8.0 -> 32.0 has nothing wrong on the board.** Its first-ply breakdown is *identical* to HEAD's
+  here — `pit` contributes 0.0 to every candidate, because `PIT_MIN_GAP` already exempts a wall one tier up —
+  and the board eval still prefers the rung by 3.05. The move flips through the reply evaluation alone. There
+  is no board-level reason to trust the test over the score, so it goes to the A/B
+
+**If a variant wins the A/B with the test still red, it still cannot be committed as is.** The test records an
+earlier judgment about that position and the score contradicts it. Decide which to keep, deliberately, and
+record the decision here.
 
 ## Rules tried and reverted or retired
 
