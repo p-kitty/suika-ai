@@ -35,14 +35,22 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts._episodes import play_episode
 from src.util.parallel import resolve_workers
-from src.reward import watermelon_count
 from src.util.stats import correlation, paired_stats
 
-# Moves considered early game. How the board breaks up to here is looked at separately from later.
-EARLY_STEPS = 30
-# Merges per move counted as a cascade firing.
-CASCADE_MERGES = 3
+# The rows of the A/B table, with the digits each is printed to. compare_b_only prints the same table.
+METRICS = (
+    ("score", 2),
+    ("early_score", 2),
+    ("steps", 1),
+    ("merges", 1),
+    ("cascades", 2),
+    ("max_type", 2),
+    ("early_crown", 1),
+    ("dead", 3),
+    ("dead_early", 3),
+)
 
 
 def _head() -> str:
@@ -89,55 +97,9 @@ def _episode(
     The side that spreads episodes themselves over a ProcessPool leaves it None to avoid double parallelism.
     """
     from src.policy import choose_x
-    from src.sim.sim_env import SimEnv
 
     _apply_variant(variant)
-
-    env = SimEnv(seed=seed)
-    obs = env.reset()
-    score = 0.0
-    early_score = 0.0
-    merges = 0
-    cascades = 0
-    steps = 0
-    max_type = -1
-    max_wm = 0
-    early_crowns: list[float] = []
-    info = "ok"
-    for _ in range(max_steps):
-        result = env.step(choose_x(obs, pool=pool))
-        obs = result.observation
-        score += result.score
-        merges += result.merges
-        steps += 1
-        info = result.info
-        if result.merges >= CASCADE_MERGES:
-            cascades += 1
-        if steps <= EARLY_STEPS:
-            early_score += result.score
-            if obs.fruits:
-                early_crowns.append(min(f.y - f.radius for f in obs.fruits))
-        if obs.fruits:
-            max_type = max(max_type, max(f.type for f in obs.fruits))
-        max_wm = max(max_wm, watermelon_count(obs))
-        if result.done:
-            break
-    return {
-        "seed": float(seed),
-        "steps": float(steps),
-        "score": score,
-        "early_score": early_score,
-        "merges": float(merges),
-        "cascades": float(cascades),
-        "max_type": float(max_type),
-        "max_wm": float(max_wm),
-        # y points down. Smaller means a taller pile = dangerous.
-        "early_crown": min(early_crowns) if early_crowns else float("nan"),
-        # Whether it died before reaching the cap. A direct metric of early collapse.
-        "dead_early": 1.0 if (info == "dead" and steps <= EARLY_STEPS) else 0.0,
-        "dead": 1.0 if info == "dead" else 0.0,
-        "win": 1.0 if info == "win" else 0.0,
-    }
+    return play_episode(seed, lambda obs: choose_x(obs, pool=pool), max_steps)
 
 
 def _run(
@@ -290,17 +252,7 @@ def main() -> None:
             "  ** The truncated ones are games that went long, so the difference is compressed by that much. **"
         )
     print()
-    for key, digits in (
-        ("score", 2),
-        ("early_score", 2),
-        ("steps", 1),
-        ("merges", 1),
-        ("cascades", 2),
-        ("max_type", 2),
-        ("early_crown", 1),
-        ("dead", 3),
-        ("dead_early", 3),
-    ):
+    for key, digits in METRICS:
         print(_line(key, base, new, digits=digits))
     print(
         "  (* = 95% CI does not cross 0 / n@5%: episodes needed to speak to a 5% difference"

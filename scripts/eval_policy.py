@@ -19,63 +19,18 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts._bootstrap import ROOT
+from scripts._episodes import play_episode
 
 from src.training.agent import LinearPolicy
 from src.util.parallel import resolve_workers
 from src.policy import choose_x
-from src.reward import is_corner_watermelon, watermelon_count
-from src.sim.sim_env import SimEnv
 
 DEFAULT_CKPT = ROOT / "artifacts" / "policy_sim.npz"
 
 
-def run_episode(
-    seed: int,
-    *,
-    choose,
-    max_steps: int,
-) -> dict[str, float]:
-    env = SimEnv(seed=seed)
-    obs = env.reset()
-    total_score = 0.0
-    merges = 0
-    steps = 0
-    max_type = -1
-    max_wm = 0
-    corner_wm = 0.0
-    info = "ok"
-    for _ in range(max_steps):
-        result = env.step(choose(obs))
-        obs = result.observation
-        total_score += result.score
-        merges += result.merges
-        steps += 1
-        info = result.info
-        if obs.fruits:
-            max_type = max(max_type, max(f.type for f in obs.fruits))
-        max_wm = max(max_wm, watermelon_count(obs))
-        if is_corner_watermelon(obs.fruits):
-            corner_wm = 1.0
-        if result.done:
-            break
-    return {
-        "steps": float(steps),
-        "score": total_score,
-        "merges": float(merges),
-        "max_type": float(max_type),
-        "max_wm": float(max_wm),
-        # Whether a corner watermelon (the target shape) was ever reached.
-        "corner_wm": corner_wm,
-        "win": 1.0 if info == "win" else 0.0,
-        # Whether it was cut at max_steps without a natural end. Truncation is biased toward long games,
-        # so a mean with them mixed in underestimates better policies (NOTES 'How to measure').
-        "truncated": 0.0 if info in ("dead", "win") else 1.0,
-    }
-
-
 def _run_bootstrap_episode(seed: int, max_steps: int) -> dict[str, float]:
     """For ProcessPool."""
-    return run_episode(seed, choose=choose_x, max_steps=max_steps)
+    return play_episode(seed, choose_x, max_steps)
 
 
 def _run_learned_episode(
@@ -89,7 +44,7 @@ def _run_learned_episode(
         _, x, _ = policy.act(obs, greedy=True)
         return x
 
-    return run_episode(seed, choose=choose, max_steps=max_steps)
+    return play_episode(seed, choose, max_steps)
 
 
 def run_episodes(
@@ -114,9 +69,7 @@ def run_episodes(
             # over processes. learned runs no physics, so it is not included.
             with ProcessPoolExecutor() as move_pool:
                 return [
-                    run_episode(
-                        s, choose=lambda obs: choose_x(obs, pool=move_pool), max_steps=max_steps
-                    )
+                    play_episode(s, lambda obs: choose_x(obs, pool=move_pool), max_steps)
                     for s in seeds
                 ]
         return [job(s, max_steps, *extra) for s in seeds]
@@ -190,7 +143,6 @@ def main() -> None:
     print(f"merges mean={statistics.mean(merges):.1f}")
     print(f"max_type mean={statistics.mean(max_types):.2f}  best={max(max_types):.0f}")
     print(f"corner_wm episodes={sum(1 for r in rows if r['corner_wm'] >= 1)}")
-    print(f"double_wm episodes={sum(1 for r in rows if r['max_wm'] >= 2)}")
     print(f"win episodes={sum(1 for r in rows if r['win'] >= 1)}")
 
 
