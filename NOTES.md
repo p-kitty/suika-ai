@@ -1758,7 +1758,15 @@ for 4.43ms, and reading `_all_quiet` from the back and similar changes gave 3.86
   with `repr()`, together with the chosen x, score and merge count, and **compare byte for byte** with the output of a master
   worktree. 3 seeds × 70 moves and 2 seeds × 170 moves all matched. If the skip is too long by even
   one substep, a merge shifts and every later trajectory changes, so it is a sensitive check
-- Little headroom remains (physics ~62% / quiet gate 18.5% / scan 10.8% / setup 5.9%)
+- **That "physics ~62%" was mostly pymunk's Python layer, not Chipmunk** (2026-09-17). cProfile split it:
+  `cpSpaceStep` itself was 29% of `simulate_drop`, the `Space.step` wrapper around it 17%, and the Vec2d built
+  by every `body.position` / `.velocity` read in the scan and quiet gate most of the rest. Calling the C
+  functions directly (`sim_physics._cp`) took a move from 990-996ms → 821-851ms single-thread
+  (2 seeds × 60 moves, twice), byte-identical over 3 seeds × 150 moves. After it, `cpSpaceStep` is 44%,
+  the quiet gate 21%, the scan 16%. pymunk is pinned because this reads its private internals
+- **Python 3.14 alone is worth ~5%** (990 → 946ms, byte-identical, pytest and dxcam fine on 3.14), and ~23%
+  together with the direct C calls. Not adopted yet: it needs the venv rebuilt, numpy 2.2 → 2.5 and the
+  global ruff / basedpyright / vulture moved along
 
 **Search width 8/16 was measured and shelved at n=100 on 2026-08-17, and remeasured at n=250 on 2026-09-05
 and adopted** →[Adopted: widen the lookahead to 8/16](#adopted-widen-the-lookahead-to-816-2026-09-05).
