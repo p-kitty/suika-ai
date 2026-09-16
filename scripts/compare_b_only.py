@@ -31,20 +31,8 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.compare_policy import _apply_variant, _episode, _head, _line
+from scripts.compare_policy import METRICS, _apply_variant, _episode, _head, _line
 from src.util.parallel import resolve_workers
-
-METRICS = (
-    ("score", 2),
-    ("early_score", 2),
-    ("steps", 1),
-    ("merges", 1),
-    ("cascades", 2),
-    ("max_type", 2),
-    ("early_crown", 1),
-    ("dead", 3),
-    ("dead_early", 3),
-)
 
 
 def main() -> None:

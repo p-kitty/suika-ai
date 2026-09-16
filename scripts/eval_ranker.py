@@ -28,10 +28,9 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts._bootstrap import ROOT
+from scripts._episodes import play_episode
 from src import policy as pol
 from src.observe import Observation
-from src.reward import watermelon_count
-from src.sim.sim_env import SimEnv
 from src.training.features import board_features
 from src.util.parallel import resolve_workers
 
@@ -69,28 +68,7 @@ def _choose(obs: Observation, weights: Path, scorer: str) -> float:
 
 
 def _episode(seed: int, max_steps: int, weights: Path, scorer: str) -> dict[str, float]:
-    env = SimEnv(seed=seed)
-    obs = env.reset()
-    score = steps = merges = 0.0
-    for _ in range(max_steps):
-        if obs.held_type is None:
-            break
-        result = env.step(_choose(obs, weights, scorer))
-        score += result.score
-        merges += result.merges
-        steps += 1
-        obs = result.observation
-        if result.done:
-            break
-    board = list(obs.fruits)
-    return {
-        "seed": float(seed),
-        "score": score,
-        "steps": steps,
-        "merges": merges,
-        "max_type": float(max((f.type for f in board), default=0)),
-        "max_wm": float(watermelon_count(obs)),
-    }
+    return play_episode(seed, lambda obs: _choose(obs, weights, scorer), max_steps)
 
 
 def main() -> None:
