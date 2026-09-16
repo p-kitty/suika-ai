@@ -10,7 +10,8 @@ The reward is the real game's score, per the Training section -- dense penalties
 
 Usage:
   python scripts/train_rl.py --eval-only --episodes 16 --temp 1.0
-  python scripts/train_rl.py --iters 30 --batch 32 --workers 8 --lr 0.02
+  python scripts/train_rl.py --check-gradient --episodes 64 --workers 8
+  python scripts/train_rl.py --iters 30 --batch 64 --workers 8 --lr 0.02
 """
 
 from __future__ import annotations
@@ -109,21 +110,70 @@ def _returns(rewards: np.ndarray) -> np.ndarray:
     return out
 
 
+def _episode_grads(rows: list[Rollout], baseline: str) -> np.ndarray:
+    """(episodes x FEATURE_DIM) REINFORCE gradient contribution of each episode, not yet averaged.
+
+    baseline "move" subtracts the batch's mean return-to-go at the same move number and divides by its SD.
+    Return-to-go shrinks as a game goes on, so a single batch-wide mean makes the advantage mostly the move
+    number (corr -0.766 measured); that cancels in expectation but not in a batch, and left the gradient as
+    noise (NOTES 'Measured: REINFORCE on the ranker made it worse'). "batch" is the old one, kept only so
+    --check-gradient can show the difference.
+    """
+    rets = [_returns(r.rewards) for r in rows]
+    if baseline == "batch":
+        flat = np.concatenate(rets)
+        mu, sig = float(flat.mean()), float(flat.std()) + 1e-8
+        advs = [(x - mu) / sig for x in rets]
+    else:
+        length = max(len(x) for x in rets)
+        base = np.zeros(length)
+        spread = np.ones(length)
+        for t in range(length):
+            vals = np.array([x[t] for x in rets if t < len(x)])
+            base[t] = vals.mean()
+            # With one game left at this move the SD is 0; do not blow its advantage up.
+            spread[t] = vals.std() + 1e-8 if len(vals) > 1 else 1.0
+        advs = [(x - base[: len(x)]) / spread[: len(x)] for x in rets]
+    n_steps = max(1, sum(len(a) for a in advs))
+    return np.array([r.grads.T @ a for r, a in zip(rows, advs)]) / n_steps
+
+
+def _cos(a: np.ndarray, b: np.ndarray) -> float:
+    return float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12))
+
+
+def _split_half(g_ep: np.ndarray, rng: np.random.Generator) -> float:
+    """Cosine between the gradients of two random halves of the batch. Near 0 means the gradient is noise."""
+    perm = rng.permutation(len(g_ep))
+    half = len(g_ep) // 2
+    return _cos(g_ep[perm[:half]].sum(0), g_ep[perm[half:]].sum(0))
+
+
+def _play(seeds: list[int], w: np.ndarray, mean: np.ndarray, sd: np.ndarray,
+          args: argparse.Namespace, workers: int, greedy: bool) -> list[Rollout]:
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        return [f.result() for f in as_completed(
+            [pool.submit(_rollout, s, w, mean, sd, args.max_steps, args.temp, greedy) for s in seeds])]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--iters", type=int, default=20)
-    parser.add_argument("--batch", type=int, default=48, help="episodes per update")
-    parser.add_argument("--episodes", type=int, default=16, help="--eval-only episode count")
+    parser.add_argument("--batch", type=int, default=64, help="episodes per update")
+    parser.add_argument("--episodes", type=int, default=16, help="--eval-only / --check-gradient episode count")
     parser.add_argument("--max-steps", type=int, default=400)
     parser.add_argument("--seed", type=int, default=940000)
     parser.add_argument("--workers", type=int, default=None)
     parser.add_argument("--lr", type=float, default=0.02,
-                        help="step as a fraction of |w| per update, not a raw learning rate")
+                        help="largest step as a fraction of |w|, taken only when the two halves fully agree")
     parser.add_argument("--temp", type=float, default=1.0)
     parser.add_argument("--start", type=Path, default=START)
     parser.add_argument("--out", type=Path, default=ROOT / "artifacts" / "ranker_rl.npz")
     parser.add_argument("--eval-only", action="store_true",
                         help="play the starting weights and report score, greedy and sampled")
+    parser.add_argument("--check-gradient", action="store_true",
+                        help="play one batch from the starting weights and report split-half agreement "
+                             "per baseline and half size, without updating anything")
     args = parser.parse_args()
     workers = resolve_workers(args.workers)
 
@@ -133,48 +183,49 @@ def main() -> None:
 
     if args.eval_only:
         for greedy in (True, False):
-            seeds = [args.seed + i for i in range(args.episodes)]
-            with ProcessPoolExecutor(max_workers=workers) as pool:
-                rows = [f.result() for f in as_completed(
-                    [pool.submit(_rollout, s, w, mean, sd, args.max_steps, args.temp, greedy)
-                     for s in seeds])]
+            rows = _play([args.seed + i for i in range(args.episodes)], w, mean, sd, args, workers, greedy)
             sc = [r.score for r in rows]
             st = [float(r.steps) for r in rows]
             label = "greedy" if greedy else f"sampled temp={args.temp}"
             print(f"  {label:<22} score {statistics.mean(sc):8.1f}   steps {statistics.mean(st):6.1f}")
         return
 
+    if args.check_gradient:
+        rows = _play([args.seed + i for i in range(args.episodes)], w, mean, sd, args, workers, False)
+        print(f"  {len(rows)} episodes, {sum(len(r.rewards) for r in rows)} moves")
+        rng = np.random.default_rng(0)
+        for baseline in ("batch", "move"):
+            g_ep = _episode_grads(rows, baseline)
+            line = f"  baseline {baseline:<5}"
+            size = 4
+            while size * 2 <= len(g_ep):
+                cs = [_split_half(g_ep[rng.permutation(len(g_ep))[: size * 2]], rng) for _ in range(200)]
+                line += f"   {size}v{size} {float(np.median(cs)):+.3f}"
+                size *= 2
+            print(line)
+        print("  median split-half cosine by half size. Near 0 = noise; run training only where it is clearly positive.")
+        return
+
+    rng = np.random.default_rng(args.seed)
     seed = args.seed
     started = time.monotonic()
     for it in range(args.iters):
-        seeds = [seed + i for i in range(args.batch)]
+        rows = _play([seed + i for i in range(args.batch)], w, mean, sd, args, workers, False)
         seed += args.batch
-        with ProcessPoolExecutor(max_workers=workers) as pool:
-            rows = [f.result() for f in as_completed(
-                [pool.submit(_rollout, s, w, mean, sd, args.max_steps, args.temp, False)
-                 for s in seeds])]
-        # Advantage: return-to-go standardised over the whole batch. The baseline is what keeps the
-        # update from chasing draw luck (per-game SD is ~600, NOTES 'How to measure').
-        all_ret = np.concatenate([_returns(r.rewards) for r in rows])
-        mu, sig = all_ret.mean(), all_ret.std() + 1e-8
-        grad = np.zeros(FEATURE_DIM)
-        n_steps = 0
-        for r in rows:
-            g = r.grads
-            adv = (_returns(r.rewards) - mu) / sig
-            grad += g.T @ adv
-            n_steps += len(adv)
-        grad /= max(1, n_steps)
-        # Normalised step: move |w| by a fixed fraction along the gradient. A raw lr has to be
-        # guessed against |grad|, and the first run guessed four orders of magnitude low --
-        # |w|=10.6 moved 0.0004 over five iterations, so the flat scores were an unchanged policy.
+        g_ep = _episode_grads(rows, "move")
+        grad = g_ep.sum(0)
+        # The step is gated on how much two independent halves of this batch agree. A fixed-size normalised
+        # step walked the first run 16.3% along noise (30 random 2% steps give 11%), so a batch whose halves
+        # disagree now moves nothing, and a full lr step needs them to point the same way.
+        agree = _split_half(g_ep, rng)
         norm = float(np.linalg.norm(grad))
-        if norm > 1e-12:
-            w += args.lr * float(np.linalg.norm(w)) * grad / norm
+        step = args.lr * max(0.0, agree)
+        if norm > 1e-12 and step > 0:
+            w += step * float(np.linalg.norm(w)) * grad / norm
         sc = [r.score for r in rows]
         print(f"  iter {it + 1:>3}/{args.iters}  score {statistics.mean(sc):8.1f}"
-              f"  median {statistics.median(sc):8.1f}  |w| {np.linalg.norm(w):.3f}"
-              f"  ({time.monotonic() - started:.0f}s)", flush=True)
+              f"  median {statistics.median(sc):8.1f}  agree {agree:+.3f}  step {step:.4f}"
+              f"  |w| {np.linalg.norm(w):.3f}  ({time.monotonic() - started:.0f}s)", flush=True)
         np.savez(args.out, w=w, mean=mean, sd=sd)
     print(f"  saved {args.out}")
 
