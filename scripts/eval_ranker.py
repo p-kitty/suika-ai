@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import statistics
 import sys
 import time
@@ -100,6 +101,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=930000)
     parser.add_argument("--workers", type=int, default=None)
     parser.add_argument("--weights", type=Path, default=DEFAULT_WEIGHTS)
+    parser.add_argument("--out", type=Path, default=None,
+                        help="per-seed rows as JSON, for a paired comparison between weight files")
     parser.add_argument("--scorer", choices=("ranker", "oneply"), default="ranker",
                         help="oneply plays the teacher's first-ply eval, the control for the missing lookahead")
     args = parser.parse_args()
@@ -114,6 +117,10 @@ def main() -> None:
             rows.append(future.result())
             print(f"  {done}/{len(seeds)} ({time.monotonic() - started:.0f}s)", end="\r", flush=True)
     print(f"  done {time.monotonic() - started:.0f}s" + " " * 20)
+    rows.sort(key=lambda r: r["seed"])
+    if args.out is not None:
+        args.out.write_text(json.dumps({"weights": str(args.weights), "scorer": args.scorer, "rows": rows}), encoding="utf-8")
+        print(f"  saved {args.out}")
 
     for key in ("score", "steps", "merges", "max_type", "max_wm"):
         vals = [r[key] for r in rows]

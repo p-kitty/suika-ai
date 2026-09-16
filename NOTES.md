@@ -2071,6 +2071,47 @@ the leaves -- it was trained on the two-ply choice, so it should carry lookahead
   [y-aware valleys](#adopted-y-aware-valleys--size_order_pair_weight-60-2026-09-14). 0.9% is far enough below
   any useful threshold that a policy shift does not change the call, but rebuild the cache before reopening
 
+**Measured: REINFORCE on the ranker made it worse (n=200 paired, 2026-09-17).** `scripts/train_rl.py`, 30
+updates of 32 episodes, step 2% of |w| along the gradient, temp 1.0, reward = score, advantage = discounted
+return-to-go (gamma 0.99) standardised over the batch. 149 min at `--workers 8`; the weights moved 16.3%
+(cosine 0.9885). Greedy, both weight files on the same 200 fresh seeds (`eval_ranker.py --seed 960000 --out`):
+
+| Metric | start (logit) | after RL | delta | t | 95% CI |
+|---|---|---|---|---|---|
+| score | 2160.8 | 2045.8 | **-5.3%** | **-2.68** | [-199.7, -30.5] |
+| steps | 214.3 | 205.5 | -4.1% | -2.49 | [-15.9, -1.8] |
+| merges | 196.8 | 187.8 | -4.5% | -2.50 | [-16.0, -1.9] |
+| max_wm | 0.37 | 0.28 | -25.7% | -2.05 | |
+
+win/loss 92/108. **Every metric is significantly worse.**
+
+- **The n=50 read had the opposite sign.** On the first 50 seeds the same weights showed +4.3% with score,
+  steps and merges all +4%, which looked like a consistent lean. n=200 on fresh seeds reversed it. Same trap as
+  the 8/16 n=8 preview (→[How to measure](#how-to-measure-traps-we-keep-stepping-in)): a lean on every metric at
+  n=50 is not evidence. The training-curve drift (+3% from the first ten updates to the last ten) was noise too
+- **Measured cause: the advantage was mostly the move number, which turned the gradient into noise.** 48 rollouts
+  from the starting weights (9588 moves):
+
+  | | batch-standardised return-to-go (what ran) | baseline per move number |
+  |---|---|---|
+  | corr(advantage, move number) | **-0.766** | |
+  | split-half cosine of the gradient, median | **-0.108** (5-95%: -0.48 .. +0.41) | **+0.289** (-0.30 .. +0.70) |
+
+  Return-to-go is large early and small late, so standardising it over the batch makes it 77% move number. **In
+  expectation that cancels** -- the per-move factor `z_chosen - E[z]` averages to zero -- **but not in a batch of
+  32**: it swamps the part that depends on the choice, and two independent halves of one batch point in unrelated
+  directions. Baselining per move number recovers some agreement (+0.29), still weak. The two gradients agree
+  only at cosine +0.617, so the choice of baseline changes the direction materially
+- **The normalised step then moved a full 2% along that noise every update.** Drift 16.3% against 11.0% for 30
+  independent random 2% steps and 60% for aligned ones: close to a random walk away from a policy that imitated
+  the teacher well. A random walk off a good optimum scores worse; nothing here shows a late-game-specific flaw,
+  and fewer steps is how any weaker policy loses in this game
+- **Before running again**: baseline per move number (or on the state), a larger batch until split-half cosine is
+  clearly positive, and a step that shrinks with the gradient's agreement instead of a fixed 2%
+- **The first run moved nothing.** A raw lr of 0.05 against |grad| ~0.0035 moved |w|=10.6 by 0.0004 in five
+  updates. The step is now a fraction of |w|; check that |w| moves before reading any score column
+- Not adopted. `artifacts/ranker_rl.npz` is the worse weights, kept only for remeasuring
+
 ### Decided: learn value from realized returns, not the teacher's eval (2026-08-30)
 
 An external point ("the teacher actually drops candidates and looks at the results, while the learner only sees
