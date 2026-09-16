@@ -2014,6 +2014,40 @@ RL gate; the other half is "the student's score close to bootstrap", which needs
 - The fit reproduces on the fresh data: band agreement 38.1% early / 59.3% mid / **62.0% late** against a
   ~15% random control, against 40.3 / 59.4 / 61.8 on the stale 2026-08-30 teacher
 
+**What the student is missing is the second ply, not fidelity (n=50, 2026-09-17).** Training the ranker on
+**which candidate the teacher chose** (a softmax over the candidates of one position) instead of regressing its
+first-ply eval is the better fit -- the labels come from the two-ply search, so regressing the one-ply eval was
+aiming at the wrong target:
+
+| Fit | top1 | in teacher band | train time |
+|---|---|---|---|
+| ridge on eval | 16.2% | 55.1% | instant |
+| **conditional logit, linear** | **20.0%** | **59.3%** | 3s |
+| logit + MLP h=32 | 20.3% | 57.8% | 67s |
+| logit + MLP h=64 | 20.8% | 57.1% | 123s |
+
+**A nonlinear head raises top1 and lowers band agreement**, so capacity is still not the bottleneck.
+
+**But the better fit does not play better.** Same 50 seeds, `eval_ranker.py`, all one-ply policies with no
+lookahead at all:
+
+| Policy | score | of bootstrap |
+|---|---|---|
+| bootstrap (two plies) | 2626.3 | 100% |
+| ranker, logit fit | 2035.0 | 77.5% |
+| ranker, ridge fit | 2029.0 | 77.3% |
+| **teacher's own eval, one ply** (`--scorer oneply`) | **1951.2** | 74.3% |
+
+- **+4.2 points of band agreement bought +6 points of score** (SE about 85). Agreement is not a proxy for score
+  here, the same trap as the home-made structural metrics in
+  [How to measure](#how-to-measure-traps-we-keep-stepping-in)
+- **The second ply alone is worth +34.6%** (1951.2 -> 2626.3). The whole spread between every fit above is 84
+  points against the lookahead's 675
+- **The ranker beats the one-ply teacher by 4.3%**, so the static post-drop features do carry some of what the
+  lookahead sees -- but only **12% of its value**
+- **So a one-ply student is capped near 77%** however well it imitates. Closing the rest means giving it the
+  search or letting [RL](#planned-rl-reinforce) find what the search finds. Do not spend more on the fit
+
 ### Decided: learn value from realized returns, not the teacher's eval (2026-08-30)
 
 An external point ("the teacher actually drops candidates and looks at the results, while the learner only sees

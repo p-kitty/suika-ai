@@ -45,12 +45,19 @@ def _load(path: Path) -> None:
         _W["w"], _W["mean"], _W["sd"] = d["w"], d["mean"], d["sd"]
 
 
-def _choose(obs: Observation, weights: Path) -> float:
-    """Best candidate by the ranker. Falls back to the teacher when there is nothing to rank."""
-    _load(weights)
+def _choose(obs: Observation, weights: Path, scorer: str) -> float:
+    """Best candidate by `scorer`, with no next lookahead either way.
+
+    scorer "oneply" takes the teacher's own first-ply eval, which is what `rank_candidates` already
+    returns sorted. It is the control that separates "the ranker imitates the first ply badly" from
+    "the missing second ply is the whole gap".
+    """
     ranked = pol.rank_candidates(obs)
     if not ranked:
         return pol.choose_x(obs)
+    if scorer == "oneply":
+        return ranked[0][1]
+    _load(weights)
     sign = pol._order_sign(list(obs.fruits))
     best_x, best_s = ranked[0][1], -float("inf")
     for _held_eval, x, after, _score in ranked:
@@ -61,14 +68,14 @@ def _choose(obs: Observation, weights: Path) -> float:
     return best_x
 
 
-def _episode(seed: int, max_steps: int, weights: Path) -> dict[str, float]:
+def _episode(seed: int, max_steps: int, weights: Path, scorer: str) -> dict[str, float]:
     env = SimEnv(seed=seed)
     obs = env.reset()
     score = steps = merges = 0.0
     for _ in range(max_steps):
         if obs.held_type is None:
             break
-        result = env.step(_choose(obs, weights))
+        result = env.step(_choose(obs, weights, scorer))
         score += result.score
         merges += result.merges
         steps += 1
@@ -93,6 +100,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=930000)
     parser.add_argument("--workers", type=int, default=None)
     parser.add_argument("--weights", type=Path, default=DEFAULT_WEIGHTS)
+    parser.add_argument("--scorer", choices=("ranker", "oneply"), default="ranker",
+                        help="oneply plays the teacher's first-ply eval, the control for the missing lookahead")
     args = parser.parse_args()
     workers = resolve_workers(args.workers)
 
@@ -100,7 +109,7 @@ def main() -> None:
     started = time.monotonic()
     rows: list[dict[str, float]] = []
     with ProcessPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(_episode, s, args.max_steps, args.weights) for s in seeds]
+        futures = [pool.submit(_episode, s, args.max_steps, args.weights, args.scorer) for s in seeds]
         for done, future in enumerate(as_completed(futures), start=1):
             rows.append(future.result())
             print(f"  {done}/{len(seeds)} ({time.monotonic() - started:.0f}s)", end="\r", flush=True)
