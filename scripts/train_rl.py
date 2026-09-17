@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import statistics
 import sys
 import time
@@ -246,6 +247,9 @@ def main() -> None:
                              "only after a pooled --sweep has shown the chosen gamma and baseline carry signal")
     parser.add_argument("--start", type=Path, default=START)
     parser.add_argument("--out", type=Path, default=ROOT / "artifacts" / "ranker_rl.npz")
+    parser.add_argument("--sampled-only", action="store_true", help="--eval-only: skip the greedy run")
+    parser.add_argument("--rows-out", type=Path, default=None,
+                        help="--eval-only: per-seed rows of the sampled run as JSON, for a paired comparison")
     parser.add_argument("--eval-only", action="store_true",
                         help="play the starting weights and report score, greedy and sampled")
     parser.add_argument("--dump", type=Path, default=None,
@@ -264,12 +268,20 @@ def main() -> None:
     mean, sd = d["mean"].astype(np.float64), d["sd"].astype(np.float64)
 
     if args.eval_only:
-        for greedy in (True, False):
+        modes = (False,) if args.sampled_only else (True, False)
+        for greedy in modes:
             rows = _play([args.seed + i for i in range(args.episodes)], w, mean, sd, args, workers, greedy)
+            rows.sort(key=lambda r: r.seed)
             sc = [r.score for r in rows]
             st = [float(r.steps) for r in rows]
             label = "greedy" if greedy else f"sampled temp={args.temp}"
             print(f"  {label:<22} score {statistics.mean(sc):8.1f}   steps {statistics.mean(st):6.1f}")
+            if args.rows_out is not None and not greedy:
+                # Sampling draws from a per-seed stream (seed ^ 0x5EED), so two weight files on the same seeds pair up.
+                args.rows_out.write_text(json.dumps({"weights": str(args.start), "temp": args.temp, "rows": [
+                    {"seed": float(r.seed), "score": r.score, "steps": float(r.steps)} for r in rows]}),
+                    encoding="utf-8")
+                print(f"  saved {args.rows_out}")
         return
 
     if args.step_along is not None:
