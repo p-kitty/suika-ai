@@ -2097,25 +2097,29 @@ win/loss 92/108. **Every metric is significantly worse.**
   steps and merges all +4%, which looked like a consistent lean. n=200 on fresh seeds reversed it. Same trap as
   the 8/16 n=8 preview (→[How to measure](#how-to-measure-traps-we-keep-stepping-in)): a lean on every metric at
   n=50 is not evidence. The training-curve drift (+3% from the first ten updates to the last ten) was noise too
-- **Measured cause: the advantage was mostly the move number, which turned the gradient into noise.** 48 rollouts
-  from the starting weights (9588 moves):
+- **The split-half numbers first recorded here were wrong.** They resplit ONE batch 200 ways and took the median,
+  which reuses the same episodes in every split and so measures how that batch fell, not how independent batches
+  agree (it read +0.377 at 32 a side, and training at 64 a side then drew -0.33 / -0.22 / +0.35 / +0.01).
+  `train_rl.py --check-gradient` now estimates |E g|^2 and tr Cov of one episode's gradient from every episode
+  once and predicts the cosine between two independent batches. 128 episodes, 26088 moves, starting weights:
 
-  | | batch-standardised return-to-go (what ran) | baseline per move number |
-  |---|---|---|
-  | corr(advantage, move number) | **-0.766** | |
-  | split-half cosine of the gradient, median | **-0.108** (5-95%: -0.48 .. +0.41) | **+0.289** (-0.30 .. +0.70) |
+  | baseline | predicted cosine, 64 a side | 256 a side | disjoint 8v8 pairs, mean | signal / noise per episode |
+  |---|---|---|---|---|
+  | return-to-go standardised over the batch (first run) | +0.31 [+0.08, +0.66] | +0.64 | +0.259 (8 pairs) | +0.00702 |
+  | **per move number, divided by its SD** (second run) | **+0.00** [+0.00, +0.56] | +0.00 | **-0.032** | **-0.00095** |
 
-  Return-to-go is large early and small late, so standardising it over the batch makes it 77% move number. **In
-  expectation that cancels** -- the per-move factor `z_chosen - E[z]` averages to zero -- **but not in a batch of
-  32**: it swamps the part that depends on the choice, and two independent halves of one batch point in unrelated
-  directions. Baselining per move number recovers some agreement (+0.29), still weak. The two gradients agree
-  only at cosine +0.617, so the choice of baseline changes the direction materially
-- **The normalised step then moved a full 2% along that noise every update.** Drift 16.3% against 11.0% for 30
-  independent random 2% steps and 60% for aligned ones: close to a random walk away from a policy that imitated
-  the teacher well. A random walk off a good optimum scores worse; nothing here shows a late-game-specific flaw,
-  and fewer steps is how any weaker policy loses in this game
-- **Before running again**: baseline per move number (or on the state), a larger batch until split-half cosine is
-  clearly positive, and a step that shrinks with the gradient's agreement instead of a fixed 2%
+- **The per-move baseline, as implemented, leaves no detectable signal.** The second run's gate was right to refuse
+  to move (four updates, |w| moved 0.1%), and more updates or a bigger batch would not have changed that
+- **The batch baseline does point one way across independent batches -- and following it made the policy
+  significantly worse** (the n=200 table above). Agreement across batches says the gradient is not noise; it does
+  not say the direction improves the greedy score. Do not take a positive split-half as a licence to train
+- **Unverified, and the next things to measure** (from the gradients alone, no training):
+  - `GAMMA` 0.99 is a horizon of about 100 moves against games of 200-260. The objective rewards merges soon and
+    not survival, and the first run lost steps (-4.1%) and score together, which is what that would do
+  - Dividing by the per-move SD inflates the moves near the end, where only a few long games remain and the SD is
+    small; that may be what buries the per-move baseline's signal. Try subtracting the per-move mean only
+  - The dump (`--dump`) keeps only per-episode gradient sums, so each variant still needs a replay. Save the
+    per-move rewards and grads first so baselines and `GAMMA` can be swept offline
 - **The first run moved nothing.** A raw lr of 0.05 against |grad| ~0.0035 moved |w|=10.6 by 0.0004 in five
   updates. The step is now a fraction of |w|; check that |w| moves before reading any score column
 - Not adopted. `artifacts/ranker_rl.npz` is the worse weights, kept only for remeasuring
