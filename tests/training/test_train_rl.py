@@ -40,3 +40,30 @@ def test_split_half_agrees_on_signal_and_not_on_noise() -> None:
     # Fresh noise per trial: resplitting one fixed sample only measures that sample's chance structure.
     noise = [_split_half(rng.normal(size=(64, FEATURE_DIM)), rng) for _ in range(200)]
     assert abs(float(np.median(noise))) < 0.1
+
+
+def test_signal_noise_predicts_agreement_between_independent_batches() -> None:
+    """The estimate from one batch must match what fresh, non-overlapping batches actually do."""
+    from scripts.train_rl import _cos, _predicted_agree, _signal_noise
+
+    rng = np.random.default_rng(2)
+    direction = rng.normal(size=FEATURE_DIM)
+    direction *= 0.3 / np.linalg.norm(direction)
+
+    def batch(n: int) -> np.ndarray:
+        return direction + rng.normal(size=(n, FEATURE_DIM))
+
+    signal, noise = _signal_noise(batch(512))
+    assert abs(signal - 0.09) < 0.06
+    assert abs(noise - FEATURE_DIM) < 2.0
+    for half in (16, 64):
+        actual = np.mean([_cos(batch(half).sum(0), batch(half).sum(0)) for _ in range(300)])
+        assert abs(_predicted_agree(half, signal, noise) - actual) < 0.1
+
+
+def test_signal_noise_reports_no_signal_for_pure_noise() -> None:
+    from scripts.train_rl import _signal_noise
+
+    rng = np.random.default_rng(3)
+    signal, noise = _signal_noise(rng.normal(size=(512, FEATURE_DIM)))
+    assert abs(signal) < 0.1 * noise / 8

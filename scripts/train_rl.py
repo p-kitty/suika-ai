@@ -10,7 +10,7 @@ The reward is the real game's score, per the Training section -- dense penalties
 
 Usage:
   python scripts/train_rl.py --eval-only --episodes 16 --temp 1.0
-  python scripts/train_rl.py --check-gradient --episodes 64 --workers 8
+  python scripts/train_rl.py --check-gradient --episodes 128 --workers 8 --dump artifacts/rl_grads.npz
   python scripts/train_rl.py --iters 30 --batch 64 --workers 8 --lr 0.02
 """
 
@@ -149,6 +149,30 @@ def _split_half(g_ep: np.ndarray, rng: np.random.Generator) -> float:
     return _cos(g_ep[perm[:half]].sum(0), g_ep[perm[half:]].sum(0))
 
 
+def _signal_noise(g_ep: np.ndarray) -> tuple[float, float]:
+    """(|E g|^2, tr Cov g) of one episode's gradient, estimated without bias from a batch.
+
+    Resplitting one batch many ways and taking the median cosine does not measure how two INDEPENDENT batches
+    agree: every split reuses the same episodes, so the median reflects how that one batch happened to fall. It
+    read +0.377 at 32 a side, and training at 64 a side then drew -0.33, -0.22, +0.35, +0.01. This uses every
+    episode once instead. |mean|^2 overstates |E g|^2 by tr(Cov)/n, so that is subtracted; the result can come
+    out negative when there is no signal, which is the honest answer.
+    """
+    n = len(g_ep)
+    mean = g_ep.mean(0)
+    tr_cov = float(((g_ep - mean) ** 2).sum() / (n - 1))
+    return float(mean @ mean) - tr_cov / n, tr_cov
+
+
+def _predicted_agree(half: int, signal: float, noise: float) -> float:
+    """Expected cosine between the summed gradients of two independent batches of `half` episodes each.
+
+    Each sum is half*E[g] plus noise with trace half*tr(Cov), so the cosine is h s / (h s + tr) for s >= 0.
+    """
+    s = max(0.0, signal)
+    return half * s / (half * s + noise) if noise > 0 else 1.0
+
+
 def _play(seeds: list[int], w: np.ndarray, mean: np.ndarray, sd: np.ndarray,
           args: argparse.Namespace, workers: int, greedy: bool) -> list[Rollout]:
     with ProcessPoolExecutor(max_workers=workers) as pool:
@@ -171,6 +195,8 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=ROOT / "artifacts" / "ranker_rl.npz")
     parser.add_argument("--eval-only", action="store_true",
                         help="play the starting weights and report score, greedy and sampled")
+    parser.add_argument("--dump", type=Path, default=None,
+                        help="--check-gradient: save per-episode gradients so they can be reanalysed without replaying")
     parser.add_argument("--check-gradient", action="store_true",
                         help="play one batch from the starting weights and report split-half agreement "
                              "per baseline and half size, without updating anything")
@@ -194,16 +220,34 @@ def main() -> None:
         rows = _play([args.seed + i for i in range(args.episodes)], w, mean, sd, args, workers, False)
         print(f"  {len(rows)} episodes, {sum(len(r.rewards) for r in rows)} moves")
         rng = np.random.default_rng(0)
+        halves = (32, 64, 128, 256, 512)
+        print("  predicted cosine between two independent batches of N episodes each (5-95% over resampled episodes)")
+        print("  baseline  " + "".join(f"{h:>22}" for h in halves) + "   independent 8v8 pairs")
+        dump = {}
         for baseline in ("batch", "move"):
-            g_ep = _episode_grads(rows, baseline)
-            line = f"  baseline {baseline:<5}"
-            size = 4
-            while size * 2 <= len(g_ep):
-                cs = [_split_half(g_ep[rng.permutation(len(g_ep))[: size * 2]], rng) for _ in range(200)]
-                line += f"   {size}v{size} {float(np.median(cs)):+.3f}"
-                size *= 2
-            print(line)
-        print("  median split-half cosine by half size. Near 0 = noise; run training only where it is clearly positive.")
+            g_ep = _episode_grads(rows, baseline) * max(1, sum(len(r.rewards) for r in rows))
+            dump[baseline] = g_ep
+            signal, noise = _signal_noise(g_ep)
+            boot = []
+            for _ in range(200):
+                pick = g_ep[rng.integers(len(g_ep), size=len(g_ep))]
+                boot.append(_signal_noise(pick))
+            cells = ""
+            for h in halves:
+                est = _predicted_agree(h, signal, noise)
+                dist = [_predicted_agree(h, bs, bn) for bs, bn in boot]
+                cells += f"   {est:+.2f} [{np.percentile(dist, 5):+.2f},{np.percentile(dist, 95):+.2f}]"
+            # A direct check that shares no episodes: disjoint 8-vs-8 pairs.
+            perm = rng.permutation(len(g_ep))
+            pairs = [(perm[k:k + 8], perm[k + 8:k + 16]) for k in range(0, len(g_ep) - 15, 16)]
+            direct = [_cos(g_ep[a].sum(0), g_ep[b].sum(0)) for a, b in pairs]
+            print(f"  {baseline:<8}{cells}   mean {float(np.mean(direct)):+.3f} over {len(direct)} pairs"
+                  f" (predicted {_predicted_agree(8, signal, noise):+.3f})")
+            print(f"            |E g|^2 / tr Cov per episode = {signal / noise:+.5f}")
+        if args.dump is not None:
+            np.savez(args.dump, **dump)
+            print(f"  saved per-episode gradients to {args.dump}")
+        print("  the training gate draws ONE split per update, so a single agree value scatters widely around these")
         return
 
     rng = np.random.default_rng(args.seed)
