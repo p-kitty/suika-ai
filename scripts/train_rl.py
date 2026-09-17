@@ -10,7 +10,8 @@ The reward is the real game's score, per the Training section -- dense penalties
 
 Usage:
   python scripts/train_rl.py --eval-only --episodes 16 --temp 1.0
-  python scripts/train_rl.py --check-gradient --episodes 128 --workers 8 --dump artifacts/rl_grads.npz
+  python scripts/train_rl.py --check-gradient --episodes 128 --workers 8 --dump artifacts/rl_rollouts.npz
+  python scripts/train_rl.py --sweep artifacts/rl_rollouts.npz
   python scripts/train_rl.py --iters 30 --batch 64 --workers 8 --lr 0.02
 """
 
@@ -100,26 +101,27 @@ def _rollout(seed: int, w: np.ndarray, mean: np.ndarray, sd: np.ndarray,
     return Rollout(seed, score, int(steps), np.asarray(grads), np.asarray(rewards))
 
 
-def _returns(rewards: np.ndarray) -> np.ndarray:
+def _returns(rewards: np.ndarray, gamma: float = GAMMA) -> np.ndarray:
     """Discounted return-to-go per step."""
-    out = np.empty_like(rewards)
+    out = np.empty(len(rewards), dtype=np.float64)
     acc = 0.0
     for i in range(len(rewards) - 1, -1, -1):
-        acc = rewards[i] + GAMMA * acc
+        acc = rewards[i] + gamma * acc
         out[i] = acc
     return out
 
 
-def _episode_grads(rows: list[Rollout], baseline: str) -> np.ndarray:
+def _episode_grads(rows: list[Rollout], baseline: str, gamma: float = GAMMA) -> np.ndarray:
     """(episodes x FEATURE_DIM) REINFORCE gradient contribution of each episode, not yet averaged.
 
     baseline "move" subtracts the batch's mean return-to-go at the same move number and divides by its SD.
     Return-to-go shrinks as a game goes on, so a single batch-wide mean makes the advantage mostly the move
     number (corr -0.766 measured); that cancels in expectation but not in a batch, and left the gradient as
     noise (NOTES 'Measured: REINFORCE on the ranker made it worse'). "batch" is the old one, kept only so
-    --check-gradient can show the difference.
+    --check-gradient can show the difference. "move-mean" subtracts the per-move mean without dividing by its
+    SD: near the end only a few long games remain, their SD is small, and dividing inflates exactly those moves.
     """
-    rets = [_returns(r.rewards) for r in rows]
+    rets = [_returns(r.rewards, gamma) for r in rows]
     if baseline == "batch":
         flat = np.concatenate(rets)
         mu, sig = float(flat.mean()), float(flat.std()) + 1e-8
@@ -132,7 +134,8 @@ def _episode_grads(rows: list[Rollout], baseline: str) -> np.ndarray:
             vals = np.array([x[t] for x in rets if t < len(x)])
             base[t] = vals.mean()
             # With one game left at this move the SD is 0; do not blow its advantage up.
-            spread[t] = vals.std() + 1e-8 if len(vals) > 1 else 1.0
+            if baseline == "move" and len(vals) > 1:
+                spread[t] = vals.std() + 1e-8
         advs = [(x - base[: len(x)]) / spread[: len(x)] for x in rets]
     n_steps = max(1, sum(len(a) for a in advs))
     return np.array([r.grads.T @ a for r, a in zip(rows, advs)]) / n_steps
@@ -173,6 +176,48 @@ def _predicted_agree(half: int, signal: float, noise: float) -> float:
     return half * s / (half * s + noise) if noise > 0 else 1.0
 
 
+def _report(label: str, g_ep: np.ndarray, rng: np.random.Generator) -> None:
+    """One row: signal/noise per episode, predicted independent-batch cosine, and disjoint 8v8 pairs."""
+    signal, noise = _signal_noise(g_ep)
+    boot = [_signal_noise(g_ep[rng.integers(len(g_ep), size=len(g_ep))]) for _ in range(200)]
+    cells = ""
+    for h in (64, 256):
+        dist = [_predicted_agree(h, bs, bn) for bs, bn in boot]
+        cells += (f"   {_predicted_agree(h, signal, noise):+.2f} "
+                  f"[{np.percentile(dist, 5):+.2f},{np.percentile(dist, 95):+.2f}]")
+    perm = rng.permutation(len(g_ep))
+    pairs = [(perm[k:k + 8], perm[k + 8:k + 16]) for k in range(0, len(g_ep) - 15, 16)]
+    direct = float(np.mean([_cos(g_ep[a].sum(0), g_ep[b].sum(0)) for a, b in pairs]))
+    print(f"  {label:<22} s/n {signal / noise:+.5f}{cells}   8v8 {direct:+.3f} ({len(pairs)} pairs)")
+
+
+def _sweep(rows: list[Rollout], rng: np.random.Generator) -> None:
+    print(f"  {len(rows)} episodes, {sum(len(r.rewards) for r in rows)} moves")
+    print("  predicted cosine between independent batches of 64 / 256 episodes a side, 5-95% over resampled episodes")
+    for gamma in (0.99, 0.995, 0.999, 1.0):
+        for baseline in ("batch", "move", "move-mean"):
+            _report(f"gamma {gamma:<5} {baseline}", _episode_grads(rows, baseline, gamma), rng)
+    print("  a consistent direction is necessary, not sufficient: the batch baseline agreed and still made play worse")
+
+
+def _save_rows(path: Path, rows: list[Rollout]) -> None:
+    """Per-move rewards and (z_chosen - E z), so baselines and gamma can be swept without replaying."""
+    lengths = [len(r.rewards) for r in rows]
+    np.savez(path,
+             seeds=np.array([r.seed for r in rows]), scores=np.array([r.score for r in rows]),
+             offsets=np.concatenate([[0], np.cumsum(lengths)]).astype(np.int64),
+             rewards=np.concatenate([r.rewards for r in rows]).astype(np.float64),
+             grads=np.concatenate([r.grads for r in rows]).astype(np.float32))
+
+
+def _load_rows(path: Path) -> list[Rollout]:
+    d = np.load(path)
+    off = d["offsets"]
+    return [Rollout(int(d["seeds"][i]), float(d["scores"][i]), int(off[i + 1] - off[i]),
+                    d["grads"][off[i]:off[i + 1]].astype(np.float64), d["rewards"][off[i]:off[i + 1]])
+            for i in range(len(off) - 1)]
+
+
 def _play(seeds: list[int], w: np.ndarray, mean: np.ndarray, sd: np.ndarray,
           args: argparse.Namespace, workers: int, greedy: bool) -> list[Rollout]:
     with ProcessPoolExecutor(max_workers=workers) as pool:
@@ -196,7 +241,9 @@ def main() -> None:
     parser.add_argument("--eval-only", action="store_true",
                         help="play the starting weights and report score, greedy and sampled")
     parser.add_argument("--dump", type=Path, default=None,
-                        help="--check-gradient: save per-episode gradients so they can be reanalysed without replaying")
+                        help="--check-gradient: save per-move rollouts so --sweep can reanalyse them without replaying")
+    parser.add_argument("--sweep", type=Path, default=None,
+                        help="reanalyse a --dump file across gamma and baselines; plays nothing")
     parser.add_argument("--check-gradient", action="store_true",
                         help="play one batch from the starting weights and report split-half agreement "
                              "per baseline and half size, without updating anything")
@@ -216,38 +263,16 @@ def main() -> None:
             print(f"  {label:<22} score {statistics.mean(sc):8.1f}   steps {statistics.mean(st):6.1f}")
         return
 
+    if args.sweep is not None:
+        _sweep(_load_rows(args.sweep), np.random.default_rng(0))
+        return
+
     if args.check_gradient:
         rows = _play([args.seed + i for i in range(args.episodes)], w, mean, sd, args, workers, False)
-        print(f"  {len(rows)} episodes, {sum(len(r.rewards) for r in rows)} moves")
-        rng = np.random.default_rng(0)
-        halves = (32, 64, 128, 256, 512)
-        print("  predicted cosine between two independent batches of N episodes each (5-95% over resampled episodes)")
-        print("  baseline  " + "".join(f"{h:>22}" for h in halves) + "   independent 8v8 pairs")
-        dump = {}
-        for baseline in ("batch", "move"):
-            g_ep = _episode_grads(rows, baseline) * max(1, sum(len(r.rewards) for r in rows))
-            dump[baseline] = g_ep
-            signal, noise = _signal_noise(g_ep)
-            boot = []
-            for _ in range(200):
-                pick = g_ep[rng.integers(len(g_ep), size=len(g_ep))]
-                boot.append(_signal_noise(pick))
-            cells = ""
-            for h in halves:
-                est = _predicted_agree(h, signal, noise)
-                dist = [_predicted_agree(h, bs, bn) for bs, bn in boot]
-                cells += f"   {est:+.2f} [{np.percentile(dist, 5):+.2f},{np.percentile(dist, 95):+.2f}]"
-            # A direct check that shares no episodes: disjoint 8-vs-8 pairs.
-            perm = rng.permutation(len(g_ep))
-            pairs = [(perm[k:k + 8], perm[k + 8:k + 16]) for k in range(0, len(g_ep) - 15, 16)]
-            direct = [_cos(g_ep[a].sum(0), g_ep[b].sum(0)) for a, b in pairs]
-            print(f"  {baseline:<8}{cells}   mean {float(np.mean(direct)):+.3f} over {len(direct)} pairs"
-                  f" (predicted {_predicted_agree(8, signal, noise):+.3f})")
-            print(f"            |E g|^2 / tr Cov per episode = {signal / noise:+.5f}")
         if args.dump is not None:
-            np.savez(args.dump, **dump)
-            print(f"  saved per-episode gradients to {args.dump}")
-        print("  the training gate draws ONE split per update, so a single agree value scatters widely around these")
+            _save_rows(args.dump, rows)
+            print(f"  saved per-move rollouts to {args.dump}; rerun offline with --sweep {args.dump}")
+        _sweep(rows, np.random.default_rng(0))
         return
 
     rng = np.random.default_rng(args.seed)

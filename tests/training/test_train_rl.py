@@ -67,3 +67,18 @@ def test_signal_noise_reports_no_signal_for_pure_noise() -> None:
     rng = np.random.default_rng(3)
     signal, noise = _signal_noise(rng.normal(size=(512, FEATURE_DIM)))
     assert abs(signal) < 0.1 * noise / 8
+
+
+def test_saved_rollouts_reproduce_the_same_gradients(tmp_path) -> None:
+    """--sweep must see exactly what --check-gradient played, or offline results mean nothing."""
+    from scripts.train_rl import _load_rows, _save_rows
+
+    rng = np.random.default_rng(4)
+    rows = [Rollout(seed=i, score=float(n), steps=n, grads=rng.normal(size=(n, FEATURE_DIM)),
+                    rewards=rng.integers(0, 20, size=n).astype(float))
+            for i, n in enumerate((30, 55, 12))]
+    path = tmp_path / "rollouts.npz"
+    _save_rows(path, rows)
+    back = _load_rows(path)
+    for baseline in ("batch", "move", "move-mean"):
+        assert np.allclose(_episode_grads(rows, baseline, 0.995), _episode_grads(back, baseline, 0.995), atol=1e-4)
