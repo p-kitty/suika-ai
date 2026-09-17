@@ -242,8 +242,9 @@ def main() -> None:
                         help="play the starting weights and report score, greedy and sampled")
     parser.add_argument("--dump", type=Path, default=None,
                         help="--check-gradient: save per-move rollouts so --sweep can reanalyse them without replaying")
-    parser.add_argument("--sweep", type=Path, default=None,
-                        help="reanalyse a --dump file across gamma and baselines; plays nothing")
+    parser.add_argument("--sweep", type=Path, nargs="+", default=None,
+                        help="reanalyse --dump files, pooled, across gamma and baselines; plays nothing. "
+                             "128 episodes is too few: two dumps of that size swapped which baseline looked alive")
     parser.add_argument("--check-gradient", action="store_true",
                         help="play one batch from the starting weights and report split-half agreement "
                              "per baseline and half size, without updating anything")
@@ -264,7 +265,7 @@ def main() -> None:
         return
 
     if args.sweep is not None:
-        _sweep(_load_rows(args.sweep), np.random.default_rng(0))
+        _sweep([row for path in args.sweep for row in _load_rows(path)], np.random.default_rng(0))
         return
 
     if args.check_gradient:
