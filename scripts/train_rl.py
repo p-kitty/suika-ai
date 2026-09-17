@@ -238,6 +238,9 @@ def main() -> None:
     parser.add_argument("--temp", type=float, default=1.0)
     parser.add_argument("--gamma", type=float, default=GAMMA)
     parser.add_argument("--baseline", choices=("batch", "move", "move-mean"), default="move")
+    parser.add_argument("--step-along", type=Path, nargs="+", default=None,
+                        help="write one-step weights along the pooled gradient of these --dump files; plays nothing")
+    parser.add_argument("--step-sizes", type=float, nargs="+", default=[0.01, 0.02, 0.04])
     parser.add_argument("--fixed-step", type=float, default=None,
                         help="take this fraction of |w| every update instead of gating on one split; "
                              "only after a pooled --sweep has shown the chosen gamma and baseline carry signal")
@@ -267,6 +270,20 @@ def main() -> None:
             st = [float(r.steps) for r in rows]
             label = "greedy" if greedy else f"sampled temp={args.temp}"
             print(f"  {label:<22} score {statistics.mean(sc):8.1f}   steps {statistics.mean(st):6.1f}")
+        return
+
+    if args.step_along is not None:
+        # One step from the starting weights along the gradient of rollouts already played with those weights.
+        # On-policy for exactly those weights, so no new games are needed, and pooling 1024 episodes gives a
+        # far better direction than a fresh batch of 256 would (predicted cosine with the true gradient ~0.67
+        # against ~0.41 at gamma 1.0, per-move baseline). Each step size is saved for eval_ranker.py.
+        rows = [row for path in args.step_along for row in _load_rows(path)]
+        grad = _episode_grads(rows, args.baseline, args.gamma).sum(0)
+        direction = grad / float(np.linalg.norm(grad))
+        for size in args.step_sizes:
+            out = args.out.with_name(f"{args.out.stem}_step{size:g}.npz")
+            np.savez(out, w=w + size * float(np.linalg.norm(w)) * direction, mean=mean, sd=sd)
+            print(f"  {len(rows)} episodes, gamma {args.gamma} {args.baseline}, step {size:g} of |w| -> {out}")
         return
 
     if args.sweep is not None:
