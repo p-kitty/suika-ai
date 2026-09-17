@@ -13,6 +13,7 @@ by the route its own section names.
 | Deepen the lethal filter to two plies | **Won't do.** No dangerous position splits on it | [link](#wont-do-deepen-the-lethal-filter-to-two-plies-2026-08-20) |
 | Reorder candidates inside the tie band | **No effect** (n=133). The band is indifferent | [link](#settled-the-tie-band-really-is-indifferent-2026-08-19) |
 | Order the band with a board score, learned or hand-written | **Closed.** 70.9% of banded positions hold a single board, and the merge outcome differs in 0.0% | [link](#measured-the-two-ply-band-mostly-holds-a-single-board-2026-09-13) |
+| REINFORCE on the linear candidate ranker | **Closed.** With a baseline per move the gradient direction is consistent across 1024 episodes, but steps of 1-4% along it change neither greedy nor sampled score, and the first run's larger steps cost 5% | [link](#measured-and-closed-reinforce-on-the-linear-ranker-2026-09-17) |
 | Put a learned board score at the leaves of the two-ply search | **Closed.** The BC ranker escapes the two-ply band 0.9% at lambda 1 and 7.8% at lambda 10, below the V that was already null | [link](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12) |
 | Add a learned V to `choose_x` | **Null** at n=150 | [link](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12) |
 | Predict how a game ends | **Cannot.** The cheap screens are exhausted | [link](#settled-how-a-game-ends-cannot-be-predicted-the-cheap-screens-are-exhausted-2026-08-30) |
@@ -63,6 +64,7 @@ by the route its own section names.
 - [Adding V to choose_x does not move score](#measured-adding-v-to-choose_x-does-not-move-score-n150-2026-09-12) ← the dead end of the learned value function
 - [The two-ply band mostly holds a single board](#measured-the-two-ply-band-mostly-holds-a-single-board-2026-09-13) ← why board features cannot order the band
 - [Ranking candidates by their own post-drop features breaks the BC ceiling](#measured-ranking-candidates-by-their-own-post-drop-features-breaks-the-bc-ceiling-2026-09-16) ← **the one line that opened**; late game 4.4x control against the old student's 1.4x
+- [REINFORCE on the linear ranker](#measured-and-closed-reinforce-on-the-linear-ranker-2026-09-17) ← closed: a consistent gradient, and no step along it helps
 - [Planned: RL (REINFORCE)](#planned-rl-reinforce)
 
 ## Current approach: fixed-point observation of seed 642746 (2026-08-19)
@@ -2079,7 +2081,9 @@ the leaves -- it was trained on the two-ply choice, so it should carry lookahead
   [y-aware valleys](#adopted-y-aware-valleys--size_order_pair_weight-60-2026-09-14). 0.9% is far enough below
   any useful threshold that a policy shift does not change the call, but rebuild the cache before reopening
 
-**Measured: REINFORCE on the ranker made it worse (n=200 paired, 2026-09-17).** `scripts/train_rl.py`, 30
+### Measured and closed: REINFORCE on the linear ranker (2026-09-17)
+
+**The first run made it worse (n=200 paired).** `scripts/train_rl.py`, 30
 updates of 32 episodes, step 2% of |w| along the gradient, temp 1.0, reward = score, advantage = discounted
 return-to-go (gamma 0.99) standardised over the batch. 149 min at `--workers 8`; the weights moved 16.3%
 (cosine 0.9885). Greedy, both weight files on the same 200 fresh seeds (`eval_ranker.py --seed 960000 --out`):
@@ -2097,29 +2101,50 @@ win/loss 92/108. **Every metric is significantly worse.**
   steps and merges all +4%, which looked like a consistent lean. n=200 on fresh seeds reversed it. Same trap as
   the 8/16 n=8 preview (→[How to measure](#how-to-measure-traps-we-keep-stepping-in)): a lean on every metric at
   n=50 is not evidence. The training-curve drift (+3% from the first ten updates to the last ten) was noise too
-- **The split-half numbers first recorded here were wrong.** They resplit ONE batch 200 ways and took the median,
-  which reuses the same episodes in every split and so measures how that batch fell, not how independent batches
-  agree (it read +0.377 at 32 a side, and training at 64 a side then drew -0.33 / -0.22 / +0.35 / +0.01).
-  `train_rl.py --check-gradient` now estimates |E g|^2 and tr Cov of one episode's gradient from every episode
-  once and predicts the cosine between two independent batches. 128 episodes, 26088 moves, starting weights:
+- **Closed: REINFORCE does not improve the linear ranker, even along a gradient that is consistent (2026-09-17).**
+  How the gradient was measured matters, and two measurements recorded here earlier were wrong:
+  - Resplitting ONE batch 200 ways and taking the median cosine reuses the same episodes in every split, so it
+    measures how that batch fell. It read +0.377 at 32 a side; training at 64 a side then drew -0.33 / -0.22 /
+    +0.35 / +0.01. `train_rl.py --check-gradient` now estimates |E g|^2 and tr Cov from every episode once and
+    predicts the cosine between independent batches
+  - **128 episodes are too few for that estimate.** Two dumps of that size swapped which baseline looked alive
+    (gamma 0.99: batch s/n +0.00702 then +0.00054, per-move -0.00095 then +0.00673)
 
-  | baseline | predicted cosine, 64 a side | 256 a side | disjoint 8v8 pairs, mean | signal / noise per episode |
+  1024 episodes at the starting weights (`--dump` per 128, pooled with `--sweep`), direction agreement between
+  the mean gradients of two **disjoint** halves of 512:
+
+  | gamma | baseline | pooled s/n per episode | parity split | files 0-3 vs 4-7 |
   |---|---|---|---|---|
-  | return-to-go standardised over the batch (first run) | +0.31 [+0.08, +0.66] | +0.64 | +0.259 (8 pairs) | +0.00702 |
-  | **per move number, divided by its SD** (second run) | **+0.00** [+0.00, +0.56] | +0.00 | **-0.032** | **-0.00095** |
+  | 0.99 | batch | +0.00113 | **-0.247** | **+0.552** |
+  | 0.99 | per move / SD | +0.00084 | +0.198 | +0.260 |
+  | 0.99 | per move, mean only | +0.00188 | +0.297 | +0.456 |
+  | 0.999 | per move / SD | +0.00084 | +0.509 | +0.377 |
+  | 1.0 | batch | +0.00031 | -0.327 | +0.506 |
+  | **1.0** | **per move / SD** | +0.00081 | **+0.526** | **+0.381** |
 
-- **The per-move baseline, as implemented, leaves no detectable signal.** The second run's gate was right to refuse
-  to move (four updates, |w| moved 0.1%), and more updates or a bigger batch would not have changed that
-- **The batch baseline does point one way across independent batches -- and following it made the policy
-  significantly worse** (the n=200 table above). Agreement across batches says the gradient is not noise; it does
-  not say the direction improves the greedy score. Do not take a positive split-half as a licence to train
-- **Unverified, and the next things to measure** (from the gradients alone, no training):
-  - `GAMMA` 0.99 is a horizon of about 100 moves against games of 200-260. The objective rewards merges soon and
-    not survival, and the first run lost steps (-4.1%) and score together, which is what that would do
-  - Dividing by the per-move SD inflates the moves near the end, where only a few long games remain and the SD is
-    small; that may be what buries the per-move baseline's signal. Try subtracting the per-move mean only
-  - The dump (`--dump`) keeps only per-episode gradient sums, so each variant still needs a replay. Save the
-    per-move rewards and grads first so baselines and `GAMMA` can be swept offline
+  (gamma 0.995 and the rest of 0.999 / 1.0 sit inside these ranges.) **Every batch-baseline row flips sign with
+  how the episodes are split**: its direction is the move-number artefact of whichever half it is computed on.
+  **Every per-move row agrees under both splits**, and no single episode carries more than 13% of the sum
+- **A held-out rule written before the data picked the unstable row.** It chose on half A by s/n and required only
+  that half B's signal be positive; gamma 0.99 batch passed (A +0.00373, B +0.00366) while the two halves' mean
+  gradients point apart (cosine -0.247). **Hold out the direction, not the magnitude**
+- **Stepping along the good gradient still does not help.** gamma 1.0, per-move baseline, one step from the start
+  along the pooled 1024-episode gradient (`--step-along`, predicted cosine with the true gradient ~0.67), greedy
+  on the same 200 seeds as the start (`eval_ranker.py --seed 960000`, start side reproduced on HEAD):
+
+  | step (of \|w\|) | score | t | win/loss |
+  |---|---|---|---|
+  | 1% | -3.2% | -1.74 | 87/107 |
+  | 2% | -2.0% | -0.99 | 85/115 |
+  | 4% | -2.7% | -1.25 | 96/104 |
+
+  No step size helps and none trends up. **Sampled play (temp 1.0, the objective REINFORCE optimises) is flat too**:
+  4% step 2021.0 -> 2003.9 (-0.8%, t=-0.38, 200 paired seeds, `train_rl.py --eval-only --sampled-only
+  --rows-out`), so this is not a greedy-versus-sampled mismatch. The per-episode s/n of ~0.0008 means the true
+  expected gradient is tiny next to one game's noise: the direction is real, the improvement per step is below
+  what 200 games can see, and big steps (the first run's 16%) cost 5%
+- **Sampling is not free.** The same 200 seeds score 2160.8 greedy and 2021.0 sampled at temp 1.0 (-6.5%). The
+  n=16 read of "2070 sampled against 2025.9 greedy" was noise
 - **The first run moved nothing.** A raw lr of 0.05 against |grad| ~0.0035 moved |w|=10.6 by 0.0004 in five
   updates. The step is now a fraction of |w|; check that |w| moves before reading any score column
 - Not adopted. `artifacts/ranker_rl.npz` is the worse weights, kept only for remeasuring
