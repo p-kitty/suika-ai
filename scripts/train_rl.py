@@ -236,6 +236,11 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=0.02,
                         help="largest step as a fraction of |w|, taken only when the two halves fully agree")
     parser.add_argument("--temp", type=float, default=1.0)
+    parser.add_argument("--gamma", type=float, default=GAMMA)
+    parser.add_argument("--baseline", choices=("batch", "move", "move-mean"), default="move")
+    parser.add_argument("--fixed-step", type=float, default=None,
+                        help="take this fraction of |w| every update instead of gating on one split; "
+                             "only after a pooled --sweep has shown the chosen gamma and baseline carry signal")
     parser.add_argument("--start", type=Path, default=START)
     parser.add_argument("--out", type=Path, default=ROOT / "artifacts" / "ranker_rl.npz")
     parser.add_argument("--eval-only", action="store_true",
@@ -282,14 +287,19 @@ def main() -> None:
     for it in range(args.iters):
         rows = _play([seed + i for i in range(args.batch)], w, mean, sd, args, workers, False)
         seed += args.batch
-        g_ep = _episode_grads(rows, "move")
+        g_ep = _episode_grads(rows, args.baseline, args.gamma)
         grad = g_ep.sum(0)
-        # The step is gated on how much two independent halves of this batch agree. A fixed-size normalised
-        # step walked the first run 16.3% along noise (30 random 2% steps give 11%), so a batch whose halves
-        # disagree now moves nothing, and a full lr step needs them to point the same way.
         agree = _split_half(g_ep, rng)
         norm = float(np.linalg.norm(grad))
-        step = args.lr * max(0.0, agree)
+        if args.fixed_step is not None:
+            # A single split of one batch scatters widely (four draws at 64 a side ran -0.33 to +0.35), so gating
+            # every step on it mostly gates on luck. With --fixed-step the signal was established beforehand on a
+            # pooled --sweep, and every update takes that size; agree is still printed to watch.
+            step = args.fixed_step
+        else:
+            # A fixed-size normalised step walked the first run 16.3% along noise (30 random 2% steps give 11%),
+            # so without a prior measurement a batch whose halves disagree moves nothing.
+            step = args.lr * max(0.0, agree)
         if norm > 1e-12 and step > 0:
             w += step * float(np.linalg.norm(w)) * grad / norm
         sc = [r.score for r in rows]
