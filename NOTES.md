@@ -22,6 +22,7 @@ by the route its own section names.
 | Continuous corner and height terms | **Dropped.** Candidates differ by fractions of a px | [link](#measured-and-dropped-continuous-corner-and-height-terms-2026-09-05) |
 | Penalize a landing walled off from the partner | **Dropped** | [link](#measured-and-dropped-landing-walled-off-from-the-partner-2026-08-30) |
 | Make a bury with type gap 1 cheaper | **Dropped** | [link](#measured-and-dropped-making-a-bury-with-type-gap-1-cheaper-2026-08-23) |
+| Refund size order on a drop that fills an existing next rung | **Dropped.** Score null at n=100, and `early_score` / `early_crown` are significantly negative. A fullness gate is the part left open | [link](#measured-and-dropped-refunding-size-order-on-a-drop-that-fills-an-existing-next-rung-2026-09-18) |
 | Vertical size order / stage gate / trapped-fruit penalty | **Reverted** | [link](#vertical-size-order-stage-gate-trapped-fruit-penalty-2026-08-18-reverted) |
 | Decide perch acceptance by "orange or bigger" | **Rejected** | [link](#deciding-perch-acceptance-by-orange-or-bigger-2026-08-20-rejected) |
 | `bumpiness` / `big fruits not close enough` / `packed_small_side_penalty` / `bury_block` | **Retired**, each after its own A/B | [bump](#retired-bumpiness-height-variance-2026-08-21), [big](#retired-big-fruits-not-close-enough-2026-08-21), [packed](#retired-packed_small_side_penalty-2026-08-19), [block](#bury_block-was-retired-2026-08-18) |
@@ -49,6 +50,7 @@ by the route its own section names.
 - [Measured and dropped: third-ply expectation](#measured-and-dropped-third-ply-expectation-2026-09-11) ← a deeper search only reshuffles inside the band
 - [Won't do: widen the search further](#wont-do-widen-the-search-further-168-and-beyond-2026-09-16) ← **do not propose 16/8 again**; what would reopen it is written there
 - [Settled: the tie band really is indifferent](#settled-the-tie-band-really-is-indifferent-2026-08-19) ← the dead end of weight tuning
+- [Refunding size order on a drop that fills a next rung](#measured-and-dropped-refunding-size-order-on-a-drop-that-fills-an-existing-next-rung-2026-09-18) ← **dropped**; the definition error is real but fixing it ungated costs the early game
 - [What decides size-order breaks](#measured-what-decides-size-order-breaks-2026-09-14) ← big filters, not ties, break the order; **adopted y-aware valleys + size order 6.0 (+6.3%)**
 - [Aim error costs a fifth of the score](#measured-aim-error-costs-a-fifth-of-the-score-2026-09-15) ← the error costs 20%; `AIM_SPREAD` wins part of it back but **stays off by decision** (play is exact)
 - [Candidate spacing and the merge window](#candidate-spacing-and-the-merge-window-2026-08-22) ← a case where candidate generation, not weights, was the cause
@@ -1122,7 +1124,9 @@ seed 890270) **for different reasons**:
   `bury_lone` difference of 15 still outweighs it; x4 opens the size-order gap to 48 and the roof wins. Raising
   the weight amplifies a rule that has the sign backwards on this shape. Sparing the rung by skipping touching
   one-tier pairs was tried and reverted (it breaks `test_inversion_costs_more_than_the_correct_order` and
-  `test_drop_does_not_exempt_the_inversion_it_creates`), so the fix is not that
+  `test_drop_does_not_exempt_the_inversion_it_creates`), so the fix is not that. Refunding only the dropped
+  fruit's own inversions keeps both tests green and clears the screen, and **still did not pay**
+  (→[Refunding size order on a drop that fills a next rung](#measured-and-dropped-refunding-size-order-on-a-drop-that-fills-an-existing-next-rung-2026-09-18))
 - **`PIT_WEIGHT` 8.0 -> 32.0 has nothing wrong on the board.** Its first-ply breakdown is *identical* to HEAD's
   here — `pit` contributes 0.0 to every candidate, because `PIT_MIN_GAP` already exempts a wall one tier up —
   and the board eval still prefers the rung by 3.05. The move flips through the reply evaluation alone. There
@@ -1133,6 +1137,82 @@ earlier judgment about that position and the score contradicts it. Decide which 
 record the decision here.
 
 ## Rules tried and reverted or retired
+
+### Measured and dropped: refunding size order on a drop that fills an existing next rung (2026-09-18)
+
+Closes the definition error named in [A failing pinned test is not a screen](#a-failing-pinned-test-is-not-a-screen-2026-09-16):
+`_size_order_penalty` reads the board as a picture, so it charges a fruit for sitting on the big side even when it
+is filling the one hollow that keeps the board alive. `_pit_penalty` spares that shape (`PIT_MIN_GAP`) and so does
+`_perch_penalty` (`PERCH_RUNG_MAX_GAP`); size order was the rule still charging it.
+
+**The rule** (`rung_landing_relief`, branch `fix-size-order-pit-exempt`): refund the inversions of **the fruit this
+move dropped**, and only when it came to rest in a hollow whose walls were **already one tier up before the drop**.
+
+- **The hollow is read on the pre-drop board.** Reading it on `after` would let the fruit count a wall it built
+  itself, the loophole `_size_order_exempt` names (move 9 of seed=49140), or one born from a merge this move
+- **A refund, not an exemption.** `_size_order_penalty` keeps reading the board alone, so this is not the
+  whole-board skip of touching one-tier pairs that was reverted at
+  [what decides size-order breaks](#measured-what-decides-size-order-breaks-2026-09-14); both tests that one broke
+  stay green. It also lets the escape screens sweep it as their own term, where x0.0 is the policy without it
+
+**It does not fix a wrong move.** On move 72 of seed=890270, HEAD already picks the rung hollow; the refund only
+widens the margin, from 3.05 to 21.05 (x=240 gets back 18.00 of its 36.00 charge, the rest being other fruits'
+inversions, which that move cannot change). **The defect was latent, not manifest** -- worth writing down, because
+it is the reason nothing here could have been read off a single position.
+
+**Deterministic per-candidate quantities** (seeds 910000-5; late = 520 positions, steps 60-240, stride 2;
+early = 90 positions, steps 0-60, stride 2):
+
+| | early (moves 0-60) | late (moves 60+) |
+|---|---|---|
+| candidates with a refund | 10.6% | 10.6% |
+| positions where it fires | 38.9% | 31.5% |
+| median candidate range where it fires | **12.0 eval (2.0 tiers)** | **42.0 eval (7.0 tiers)** |
+| refund as a share of the board's whole pair charge | **50%** | 22% |
+| first-ply band escape at x0.0 | 5.6% | 7.1% |
+
+Band escape through the two-ply decision (`weight_escape.py`, 461 positions, stride 3, `--skip 0`, eps 0.1) is
+**10.2% at x0.00** (held ply 8.2%, next ply 2.0%), against bury 8.9%, pit 8.2%, perch 7.2% and size_order_pair 27.8%.
+So it clears the screen comfortably, and it acts on the board the drop creates rather than by rescoring replies.
+
+**On the 50 positions where it changes the pick, the new move is cleaner on every other term at once** (mean
+contribution, rule off -> on): perch -49.92 -> -41.28, bury -43.60 -> -41.60, pit -26.72 -> -24.96,
+foreign_aim_up -2.00 -> 0.00, merge points unchanged in all 50. Unlike
+[pit](#measured-when-adding-a-new-term-pit-2026-08-23), which traded a 37% fall in pits for a 25% rise in roofs and
+shoulders, this is not a trade. **And it still did not pay** -- one more entry for
+[how to measure](#how-to-measure-traps-we-keep-stepping-in): the policy's own terms agreeing with a change says
+nothing about score.
+
+**The A/B** (`compare_b_only.py`, side A = `artifacts/baseline_yvso6_n100.json`, cap 400, 0 truncated;
+side A replayed on HEAD first: seeds 322399-401 match on all 9 metrics, so the saved baseline is still valid
+although its commit stamp predates HEAD). Two seed bands of n=50, pooled:
+
+| Metric | band 1 (offset 0) | band 2 (offset 50) | pooled n=100 | t | 95% CI |
+|---|---|---|---|---|---|
+| score | +3.8% (t=0.88) | -0.2% (t=-0.06) | 2620.1 -> 2667.7 +1.8% | 0.64 | [-99.5, +194.5] |
+| steps | +2.6% | -0.0% | +1.3% | 0.57 | |
+| merges | +3.2% | -0.2% | +1.5% | 0.57 | |
+| cascades | +0.6% | -0.6% | +0.0% | 0.00 | |
+| max_type | +1.0% | +0.0% | +0.5% | 0.65 | |
+| early_score | -1.2% | **-1.3% (t=-2.19)** | **-1.3%** | **-2.08** | **[-6.1, -0.1]** |
+| early_crown | -1.1% | **-1.5% (t=-2.41)** | **-1.3%** | **-2.92** | **[-7.5, -1.4]** |
+
+win/loss 48/52. **Score is null and the early game is measurably worse.** Both early metrics are significant
+pooled and in band 2 alone, and lean the same way in band 1; early_crown falling means the pile stands taller by
+move 30. Band 1 alone was null but leaned +3.8%, so band 2 was run as a replication, and the pooled n=100 is
+what is reported whichever way it came out -- not a third band hunting for significance
+(the trap in [how to measure](#how-to-measure-traps-we-keep-stepping-in)). The required n for score was 146
+and was **decided against**, because band 2 flipped the sign: the direction is split, not merely small.
+
+**Not adopted.** The branch is kept unmerged.
+
+**What the early metrics are pointing at, and the one line left open.** The rule fires as often early as late, but
+an early board has few fruits, so one fruit's pairs are **half of the board's entire inversion charge** there
+against 22% late, and "two fruits one tier up" on a nearly empty floor is weak evidence of a real ladder rung.
+The late-game leverage is where the diagnosed defect lives (7.0 tiers against 2.0). **Gating the refund on board
+fullness has not been measured.** If you try it, gate on the fruit count or the crown height rather than the move
+number, screen it with `weight_escape.py --skip 0` so the early half is still visible, and expect the gate to be
+the whole experiment: the ungated rule is this section, and repeating it buys nothing.
 
 ### Measured and dropped: continuous corner and height terms (2026-09-05)
 
